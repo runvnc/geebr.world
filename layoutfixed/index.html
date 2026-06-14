@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>geebr.world — Rapier Destruction Prototype</title>
+<style>
+  :root { color-scheme: dark; --bg:#0c1017; --panel:#111827; --ink:#e5e7eb; --muted:#93a4b8; --accent:#a78bfa; --danger:#fb7185; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:var(--bg); }
+  body { color:var(--ink); font:14px/1.35 system-ui,Segoe UI,Roboto,sans-serif; }
+  #app { position:fixed; inset:0; display:grid; grid-template-columns:minmax(420px,1fr) 340px; width:100vw; height:100dvh; overflow:hidden; }
+  #worldWrap { position:relative; min-width:0; min-height:0; overflow:hidden; background:radial-gradient(circle at 35% 15%, #1f2937 0, #0c1017 48%, #070a10 100%); }
+  #world { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+  #hud { position:absolute; left:10px; top:10px; z-index:2; padding:8px 10px; border:1px solid #334155; background:#020617cc; border-radius:10px; font:12px ui-monospace, SFMono-Regular, Menlo, monospace; color:#b6c3d6; white-space:pre; pointer-events:none; }
+  #status { color:#c4b5fd; }
+  aside { height:100dvh; min-height:0; min-width:0; overflow:hidden; border-left:1px solid #273244; background:linear-gradient(180deg,#111827,#0b1220); padding:14px; padding-top:max(14px, env(safe-area-inset-top)); display:flex; flex-direction:column; gap:12px; }
+  h1 { font-size:19px; margin:0; letter-spacing:.2px; }
+  .sub { color:var(--muted); font-size:12px; }
+  .box { border:1px solid #263247; background:#0b1220; border-radius:12px; padding:10px; min-height:0; }
+  .row { display:flex; gap:8px; align-items:center; }
+  input { flex:1; min-width:0; border:1px solid #334155; background:#030712; color:var(--ink); padding:9px 10px; border-radius:10px; outline:none; }
+  button { border:1px solid #44546e; background:#182235; color:var(--ink); padding:8px 10px; border-radius:10px; cursor:pointer; }
+  button:hover { border-color:#8b5cf6; color:#fff; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chips button { padding:6px 8px; font-size:12px; }
+  #log { flex:1 1 0; overflow:auto; min-height:120px; padding-right:3px; overscroll-behavior:contain; }
+  .event { border-bottom:1px solid #1f2a3d; padding:7px 0; color:#cbd5e1; }
+  .event b { color:#fff; }
+  .selected { color:#fef08a; }
+  .note { color:#a5b4fc; }
+  .bad { color:#fca5a5; }
+  .tile { stroke:#172033; stroke-width:1; vector-effect:non-scaling-stroke; }
+  .tile.floor { fill:#1e293b; }
+  .tile.wall { fill:#64748b; }
+  .tile.glass { fill:#7dd3fc99; }
+  .tile.wood { fill:#92400e; }
+  .tile.fire { fill:#f97316; filter: drop-shadow(0 0 7px #fb923c); }
+  .tile.cracked { stroke:#facc15; stroke-width:2; }
+  .entity { cursor:pointer; stroke:#020617; stroke-width:2; vector-effect:non-scaling-stroke; }
+  .geebr { fill:#a78bfa; }
+  .geebr.selectedBody { fill:#facc15; }
+  .crate { fill:#b45309; }
+  .barrel { fill:#0ea5e9; }
+  .debris { fill:#cbd5e1; opacity:.88; }
+  .bubble rect { fill:#020617dd; stroke:#475569; stroke-width:1; rx:8; ry:8; }
+  .bubble text { fill:#e5e7eb; font-size:12px; pointer-events:none; }
+  .label { fill:#e5e7eb; font-size:11px; text-anchor:middle; paint-order:stroke; stroke:#020617; stroke-width:3; }
+  .vector { stroke:#fef3c7; stroke-width:2; opacity:.6; marker-end:url(#arrow); }
+</style>
+</head>
+<body>
+<div id="app">
+  <main id="worldWrap">
+    <svg id="world" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet" aria-label="geebr world">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#fef3c7"></path></marker>
+      </defs>
+      <g id="camera"></g>
+    </svg>
+    <div id="hud">booting…</div>
+  </main>
+  <aside>
+    <div>
+      <h1>geebr.world Rapier test</h1>
+      <div class="sub">SVG renderer + custom destructible grid + Rapier 2D rigid bodies.</div>
+    </div>
+    <div class="box">
+      <div class="row"><input id="cmd" value="spell spark" /><button id="run">Run</button></div>
+      <div class="sub" style="margin-top:7px">Selected: <span id="sel" class="selected">Brindle</span></div>
+    </div>
+    <div class="box chips">
+      <button data-cmd="walk n">walk n</button><button data-cmd="walk e">walk e</button><button data-cmd="push">push</button><button data-cmd="dig">dig</button>
+      <button data-cmd="spell push">spell push</button><button data-cmd="spell spark">spark</button><button data-cmd="build wall">build wall</button><button data-cmd="panic">panic</button>
+      <button id="spawnCrate">spawn crate</button><button id="spawnDebris">spawn debris</button><button id="reset">reset</button>
+    </div>
+    <div class="box sub">
+      <b class="note">What changed:</b><br>
+      Rapier bodies are the crates, barrels, debris, and Geebr collision ghosts. Destroying tiles spawns physical chunks. The world blocks remain a cheap logical grid.
+    </div>
+    <div id="log" class="box"></div>
+  </aside>
+</div>
+<script type="module">
+import RAPIER from 'https://cdn.jsdelivr.net/npm/@dimforge/rapier2d-compat@0.15.0/+esm';
+
+const $ = sel => document.querySelector(sel);
+const svg = $('#world'), camera = $('#camera'), hud = $('#hud'), logEl = $('#log'), selEl = $('#sel');
+const W = 14, H = 14, CELL = 38;
+const origin = {x: 500 - W*CELL/2, y: 70};
+let R = null, world = null, tick = 0, selected = 'g1', bodies = new Map(), colliders = new Map();
+const dirs = {n:[0,-1], s:[0,1], e:[1,0], w:[-1,0], north:[0,-1], south:[0,1], east:[1,0], west:[-1,0]};
+const rnd = (a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+let tiles, geebrs, events;
+
+function log(html, cls='') {
+  events.unshift(`<div class="event ${cls}">${html}</div>`);
+  events = events.slice(0,80);
+  logEl.innerHTML = events.join('');
+}
+
+function tileAt(x,y){ return tiles[y]?.[x]; }
+function blocked(x,y){ const t=tileAt(x,y); return !t || ['wall','glass','wood'].includes(t.kind); }
+function toScreen(x,y){ return {x: origin.x + x*CELL + CELL/2, y: origin.y + y*CELL + CELL/2}; }
+function bodyPosToScreen(pos){ return {x: origin.x + pos.x*CELL + CELL/2, y: origin.y + pos.y*CELL + CELL/2}; }
+function screenToWorldTile(mx,my){ return {x:Math.floor((mx-origin.x)/CELL), y:Math.floor((my-origin.y)/CELL)}; }
+
+async function boot(){
+  try {
+    hud.textContent = 'loading Rapier…';
+    await RAPIER.init();
+    R = RAPIER;
+    reset();
+    bindUI();
+    requestAnimationFrame(loop);
+  } catch(e) {
+    hud.innerHTML = `Rapier failed to load.\n${String(e?.message || e)}\n\nThis version uses the CDN compat package.`;
+    console.error(e);
+  }
+}
+
+function reset(){
+  world = new R.World({x:0,y:0});
+  bodies.clear(); colliders.clear(); events = [];
+  tiles = Array.from({length:H},(_,y)=>Array.from({length:W},(_,x)=>({kind:'floor',hp:0,fire:0,unstable:false})));
+  for(let x=0;x<W;x++){ setBlock(x,0,'wall'); setBlock(x,H-1,'wall'); }
+  for(let y=0;y<H;y++){ setBlock(0,y,'wall'); setBlock(W-1,y,'wall'); }
+  for(let x=3;x<10;x++) setBlock(x,5,'wood');
+  setBlock(6,4,'glass'); setBlock(7,4,'glass'); setBlock(8,7,'wall'); setBlock(9,7,'wall');
+  geebrs = [
+    makeGeebr('g1','Brindle',3,3,'overconfident'),
+    makeGeebr('g2','Mogo',5,9,'panicky'),
+    makeGeebr('g3','Pim',10,4,'literal')
+  ];
+  spawnRigid('crate','crate',7.5,8.5,0,0,0.33);
+  spawnRigid('barrel','barrel',9.5,3.5,0,0,0.30);
+  selected='g1'; selEl.textContent = 'Brindle';
+  log('<b>World reset.</b> Rapier ready; try spark, push, dig, panic.','note');
+}
+
+function setBlock(x,y,kind){
+  const specs = {wall:[8], glass:[3], wood:[5], floor:[0]};
+  tiles[y][x] = {kind, hp:specs[kind]?.[0] ?? 0, fire:0, unstable:false};
+}
+function makeGeebr(id,name,x,y,trait){
+  const rb = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(x+0.5,y+0.5));
+  const co = world.createCollider(R.ColliderDesc.ball(0.28).setActiveEvents(R.ActiveEvents.COLLISION_EVENTS), rb);
+  const g = {id,name,x,y,trait,say:'',sayT:0,rb,co};
+  bodies.set(id, rb); colliders.set(id, co); return g;
+}
+function spawnRigid(idBase,type,x,y,vx=0,vy=0,r=0.32){
+  const id = `${idBase}_${Math.random().toString(36).slice(2,7)}`;
+  const rb = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(x,y).setLinvel(vx,vy).setLinearDamping(1.1).setAngularDamping(1.5));
+  const desc = type==='debris' ? R.ColliderDesc.cuboid(r,r*.55).setRestitution(.2).setFriction(.9) : R.ColliderDesc.cuboid(r,r).setRestitution(.35).setFriction(.8);
+  const co = world.createCollider(desc, rb);
+  bodies.set(id, rb); colliders.set(id, co);
+  return {id,rb,co,type};
+}
+function spawnWallColliders(){
+  // Recreate static tile colliders each frame would be awful. For this prototype we create them after major changes.
+  for (const [id, rb] of [...bodies]) if (id.startsWith('tile_')) { world.removeRigidBody(rb); bodies.delete(id); colliders.delete(id); }
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++) if(blocked(x,y)){
+    const id = `tile_${x}_${y}`;
+    const rb = world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(x+0.5,y+0.5));
+    const co = world.createCollider(R.ColliderDesc.cuboid(0.49,0.49).setFriction(1), rb);
+    bodies.set(id,rb); colliders.set(id,co);
+  }
+}
+
+function selectedGeebr(){ return geebrs.find(g=>g.id===selected) || geebrs[0]; }
+function say(g,text){ g.say = text; g.sayT = 180; log(`<b>${g.name}:</b> ${escapeHtml(text)}`); }
+function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function runCommand(raw){
+  raw = String(raw || '').trim().toLowerCase(); if(!raw) return;
+  const g = selectedGeebr();
+  const words = raw.split(/\s+/); const verb = words[0];
+  if (verb==='say') return say(g, raw.replace(/^say\s*/, '') || 'I have no content but much confidence.');
+  if (verb==='walk') return walk(g, words[1] || 'n');
+  if (verb==='push') return pushNearby(g, 8);
+  if (verb==='dig') return digAhead(g);
+  if (verb==='build') return buildAhead(g, words[1] || 'wall');
+  if (verb==='panic') return panic(g);
+  if (verb==='spell') {
+    const spell = words[1] || 'push';
+    if(spell==='spark' || spell==='fire') return spark(g);
+    if(spell==='push') return magicPush(g);
+    return say(g, `I mispronounced ${spell} and blamed a crate.`);
+  }
+  say(g, `Unknown command '${raw}'. I will stare instead.`);
+}
+window.runCommand = runCommand;
+
+function walk(g, dir){
+  const d = dirs[dir] || dirs.n; const nx=g.x+d[0], ny=g.y+d[1];
+  if(blocked(nx,ny)) { say(g,'The wall has denied my path.'); damageTile(nx,ny,1,`${g.name} bumped it`); return; }
+  g.x=nx; g.y=ny; g.rb.setNextKinematicTranslation({x:g.x+0.5,y:g.y+0.5}); say(g,`I walk ${dir}.`);
+}
+function ahead(g){ return {x:g.x+1,y:g.y}; }
+function digAhead(g){ const p=ahead(g); damageTile(p.x,p.y,4,`${g.name} dug`); say(g,'I am improving the architecture by subtracting it.'); }
+function buildAhead(g,kind){ const p=ahead(g); if(tileAt(p.x,p.y)?.kind==='floor') { setBlock(p.x,p.y,kind==='wood'?'wood':'wall'); spawnWallColliders(); say(g,'I have made an obstacle. This is progress.'); } else say(g,'There is already matter there. Suspicious.'); }
+function spark(g){ const p=ahead(g); const t=tileAt(p.x,p.y); if(!t) return; t.fire=140; say(g,'Tiny fire, large confidence.'); damageTile(p.x,p.y,1,`${g.name} sparked`); }
+function panic(g){ say(g,'PANIC PROTOCOL: physically persuasive wiggle.'); for(const [id,rb] of bodies) if(!id.startsWith('tile_') && !id.startsWith('g')){ const p=rb.translation(); const dx=p.x-(g.x+.5), dy=p.y-(g.y+.5); const m=Math.hypot(dx,dy); if(m<4) rb.applyImpulse({x:dx/(m||1)*rnd(1.8,4.2), y:dy/(m||1)*rnd(1.8,4.2)}, true); } }
+function magicPush(g){ say(g,'I push the concept of nearby objects.'); pushNearby(g, 16); }
+function pushNearby(g, strength){
+  let found=0;
+  for(const [id,rb] of bodies) if(!id.startsWith('tile_') && !id.startsWith('g')){
+    const p=rb.translation(); const dx=p.x-(g.x+.5), dy=p.y-(g.y+.5); const m=Math.hypot(dx,dy);
+    if(m<3.0){ found++; rb.applyImpulse({x:dx/(m||1)*strength*.25, y:dy/(m||1)*strength*.25}, true); }
+  }
+  if(!found) say(g,'I pushed nothing. Nothing resisted bravely.');
+}
+function damageTile(x,y,amount,source){
+  const t=tileAt(x,y); if(!t || t.kind==='floor') return;
+  t.hp -= amount; t.unstable = true;
+  log(`${escapeHtml(source)} damaged <b>${t.kind}</b> at ${x},${y}.`);
+  if(t.hp<=0) destroyTile(x,y,t.kind);
+}
+function destroyTile(x,y,kind){
+  setBlock(x,y,'floor'); spawnWallColliders();
+  log(`<b>${kind}</b> block collapsed at ${x},${y}; Rapier debris spawned.`, 'bad');
+  for(let i=0;i<5;i++) spawnRigid('debris','debris',x+.5+rnd(-.15,.15),y+.5+rnd(-.15,.15),rnd(-3,3),rnd(-3,3),rnd(.08,.18));
+  checkSupport();
+}
+function checkSupport(){
+  // Cartoon support rule: isolated non-floor blocks crack and may collapse.
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    const t=tileAt(x,y); if(!t || t.kind==='floor') continue;
+    const support = [[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dy])=>blocked(x+dx,y+dy)).length;
+    if(support===0 && Math.random()<.35) { t.hp -= 2; t.unstable=true; if(t.hp<=0) destroyTile(x,y,t.kind); }
+  }
+}
+
+function stepSim(){
+  tick++;
+  world.timestep = 1/60;
+  world.step();
+  // Fire and damage.
+  if(tick%12===0){
+    for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+      const t=tileAt(x,y); if(t.fire>0){ t.fire-=12; if(t.kind==='wood') damageTile(x,y,.25,'fire'); if(Math.random()<.08){ const [dx,dy]=[[1,0],[-1,0],[0,1],[0,-1]][Math.floor(Math.random()*4)]; const n=tileAt(x+dx,y+dy); if(n?.kind==='wood') n.fire=Math.max(n.fire,80); } }
+    }
+  }
+  // Dynamic bodies damage tiles on fast impact-ish proximity.
+  if(tick%6===0){
+    for(const [id,rb] of bodies){
+      if(id.startsWith('tile_') || id.startsWith('g')) continue;
+      const p=rb.translation(), v=rb.linvel(); const speed=Math.hypot(v.x,v.y);
+      if(speed>2.8){ const tx=Math.floor(p.x), ty=Math.floor(p.y); for(const [dx,dy] of [[0,0],[1,0],[-1,0],[0,1],[0,-1]]) if(blocked(tx+dx,ty+dy)) damageTile(tx+dx,ty+dy,.6,`${id.split('_')[0]} impact`); }
+      // delete far stray debris
+      if(p.x<-5||p.y<-5||p.x>W+5||p.y>H+5){ world.removeRigidBody(rb); bodies.delete(id); }
+    }
+  }
+  for(const g of geebrs) if(g.sayT>0) g.sayT--;
+}
+
+function render(){
+  const parts = [];
+  parts.push(`<rect x="${origin.x-18}" y="${origin.y-18}" width="${W*CELL+36}" height="${H*CELL+36}" rx="18" fill="#02061755" stroke="#1f2937"/>`);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const t=tiles[y][x], p=toScreen(x,y); const cls = `tile ${t.kind} ${t.unstable?'cracked':''}`;
+    parts.push(`<rect class="${cls}" x="${p.x-CELL/2}" y="${p.y-CELL/2}" width="${CELL-2}" height="${CELL-2}" rx="5"/>`);
+    if(t.fire>0) parts.push(`<circle class="tile fire" cx="${p.x}" cy="${p.y}" r="${10+Math.sin(tick/5)*2}"/>`);
+  }
+  // Rapier dynamic bodies
+  for(const [id,rb] of bodies){
+    if(id.startsWith('tile_') || id.startsWith('g')) continue;
+    const p = bodyPosToScreen(rb.translation()); const rot = rb.rotation()*180/Math.PI;
+    const type = id.split('_')[0]; const cls = type==='crate'?'crate':type==='barrel'?'barrel':'debris';
+    const size = type==='debris'?14:25;
+    parts.push(`<rect class="entity ${cls}" x="${p.x-size/2}" y="${p.y-size/2}" width="${size}" height="${size}" rx="${type==='barrel'?12:4}" transform="rotate(${rot} ${p.x} ${p.y})"/>`);
+  }
+  for(const g of geebrs){
+    const p=toScreen(g.x,g.y); const selectedCls = g.id===selected?'selectedBody':'';
+    parts.push(`<circle class="entity geebr ${selectedCls}" data-geebr="${g.id}" cx="${p.x}" cy="${p.y}" r="15"/>`);
+    parts.push(`<text class="label" x="${p.x}" y="${p.y+31}">${g.name}</text>`);
+    if(g.sayT>0){ const text=escapeHtml(g.say).slice(0,52); const w=clamp(18+text.length*6, 60, 310); parts.push(`<g class="bubble"><rect x="${p.x-w/2}" y="${p.y-58}" width="${w}" height="28"></rect><text x="${p.x-w/2+9}" y="${p.y-40}">${text}</text></g>`); }
+  }
+  camera.innerHTML = parts.join('');
+  hud.textContent = `Rapier: ${R ? 'loaded' : 'loading'}\ntick: ${tick}\nbodies: ${bodies.size}\nspawn/destroy works: yes\nselected: ${selectedGeebr().name}`;
+}
+
+function loop(){ stepSim(); render(); requestAnimationFrame(loop); }
+function bindUI(){
+  spawnWallColliders();
+  $('#run').onclick=()=>runCommand($('#cmd').value);
+  $('#cmd').addEventListener('keydown', e=>{ if(e.key==='Enter') runCommand($('#cmd').value); });
+  document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>{ $('#cmd').value=b.dataset.cmd; runCommand(b.dataset.cmd); });
+  $('#spawnCrate').onclick=()=>{ spawnRigid('crate','crate',rnd(2,W-2),rnd(2,H-2),rnd(-1,1),rnd(-1,1)); log('Spawned Rapier crate.'); };
+  $('#spawnDebris').onclick=()=>{ for(let i=0;i<12;i++) spawnRigid('debris','debris',7,7,rnd(-5,5),rnd(-5,5),rnd(.06,.18)); log('Spawned debris burst.'); };
+  $('#reset').onclick=reset;
+  svg.addEventListener('click', e=>{
+    const pt=svg.createSVGPoint(); pt.x=e.clientX; pt.y=e.clientY; const sp=pt.matrixTransform(svg.getScreenCTM().inverse());
+    const node = e.target.closest?.('[data-geebr]');
+    if(node){ selected=node.getAttribute('data-geebr'); selEl.textContent=selectedGeebr().name; render(); return; }
+    const t=screenToWorldTile(sp.x,sp.y); if(tileAt(t.x,t.y)) { damageTile(t.x,t.y,1,'cursor poked'); render(); }
+  });
+}
+boot();
+</script>
+</body>
+</html>
