@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>geebr.world physics prototype</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin:0; background:#101117; color:#f4f0e8; display:grid; grid-template-columns: 1fr 340px; height:100vh; overflow:hidden; }
+    canvas { width:100%; height:100%; background: radial-gradient(circle at center, #202331, #0d0e13 70%); cursor: crosshair; }
+    aside { border-left:1px solid #2d3040; padding:14px; background:#151721; display:flex; flex-direction:column; gap:12px; }
+    h1 { font-size:18px; margin:0; }
+    h2 { font-size:13px; margin:8px 0 4px; color:#b9b3ff; text-transform:uppercase; letter-spacing:.08em; }
+    button, input, select { background:#242737; color:#f4f0e8; border:1px solid #3c4058; border-radius:8px; padding:8px; }
+    button:hover { background:#30344a; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; }
+    .row > button { flex:1; min-width:72px; }
+    #log { flex:1; overflow:auto; background:#0f1018; border:1px solid #2d3040; border-radius:10px; padding:10px; font-size:12px; line-height:1.35; }
+    .hint { color:#b7b9ca; font-size:12px; line-height:1.35; }
+    .pill { display:inline-block; padding:2px 6px; border-radius:999px; background:#2c3045; color:#d9d7ff; margin:2px; font-size:11px; }
+    code { color:#ffd58a; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <aside>
+    <h1>geebr.world prototype</h1>
+    <div class="hint">Click a Geebr to select. This is intentionally AI-free: parser/LLM can call <code>runCommand()</code>.</div>
+    <div id="selected"></div>
+    <h2>Commands</h2>
+    <div class="row">
+      <button data-cmd="walk:n">walk N</button><button data-cmd="walk:s">walk S</button>
+      <button data-cmd="walk:w">walk W</button><button data-cmd="walk:e">walk E</button>
+    </div>
+    <div class="row">
+      <button data-cmd="push">push</button><button data-cmd="dig">dig</button><button data-cmd="spark">spark</button><button data-cmd="panic">panic</button>
+    </div>
+    <div class="row"><button id="spawn">spawn Geebr</button><button id="reset">reset</button></div>
+    <h2>Console</h2>
+    <input id="console" placeholder='say gravity is illegal | spell push | build wall' />
+    <div class="row"><button id="run">run</button><button id="step">step physics</button></div>
+    <h2>Grammar Surface</h2>
+    <div><span class="pill">say(text)</span><span class="pill">walk(dir)</span><span class="pill">push()</span><span class="pill">dig()</span><span class="pill">spell(push|spark)</span><span class="pill">build(wall)</span><span class="pill">panic()</span></div>
+    <h2>Event Log</h2>
+    <div id="log"></div>
+  </aside>
+  <script src="app.js"></script>
+</body>
+</html>

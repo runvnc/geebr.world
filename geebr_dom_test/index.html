@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>geebr.world DOM/SVG render test</title>
+<style>
+  :root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101218;color:#f6f1e8}
+  #app{position:fixed;inset:0;display:grid;grid-template-columns:minmax(420px,1fr) 330px}
+  #stage{position:relative;overflow:hidden;background:linear-gradient(135deg,#1d2230,#0b0c10)}
+  #hud{position:absolute;left:10px;top:10px;z-index:4;background:rgba(0,0,0,.55);padding:8px 10px;border-radius:9px;font:12px ui-monospace,monospace;color:#e8ebff}
+  #svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #topdown{position:absolute;right:10px;bottom:10px;z-index:3;width:220px;height:220px;border:1px solid #596071;background:#151823;display:grid;grid-template-columns:repeat(16,1fr);grid-template-rows:repeat(16,1fr);gap:1px;padding:3px}
+  .cell{background:#2f3542}.wall{background:#8a8278}.wood{background:#a87548}.glass{background:#79c3d9}.support{background:#d0a94d}.rubble{background:#58595f}.fire{outline:2px solid #ff7b37;outline-offset:-2px}.gcell{box-shadow:inset 0 0 0 3px #fff;border-radius:50%}
+  aside{border-left:1px solid #303544;background:#161923;padding:14px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+  button,input{background:#252a39;color:#f6f1e8;border:1px solid #444b62;border-radius:8px;padding:8px}button:hover{background:#343a4d}.row{display:flex;gap:7px;flex-wrap:wrap}.row button{flex:1}.hint{font-size:12px;color:#c2c4d0;line-height:1.35}#log{background:#0d0f15;border:1px solid #303544;border-radius:8px;padding:9px;font-size:12px;line-height:1.35;min-height:180px;overflow:auto}h1{font-size:18px;margin:0}h2{font-size:12px;text-transform:uppercase;color:#b7b3ff;letter-spacing:.08em;margin:8px 0 0}
+</style>
+</head>
+<body>
+<div id="app">
+  <main id="stage">
+    <svg id="svg"></svg>
+    <div id="topdown"></div>
+    <div id="hud">starting...</div>
+  </main>
+  <aside>
+    <h1>geebr.world render test</h1>
+    <div class="hint">This version uses SVG + DOM grid, not canvas polygons. It is intentionally ugly/obvious to isolate the previous blank render issue.</div>
+    <div id="selected"></div>
+    <h2>Commands</h2>
+    <div class="row"><button data-cmd="walk n">N</button><button data-cmd="walk s">S</button><button data-cmd="walk w">W</button><button data-cmd="walk e">E</button></div>
+    <div class="row"><button data-cmd="dig">dig</button><button data-cmd="push">push</button><button data-cmd="spell spark">spark</button><button data-cmd="spell push">spell push</button></div>
+    <div class="row"><button data-cmd="build wall">build wall</button><button data-cmd="panic">panic</button></div>
+    <div class="row"><button id="spawn">spawn</button><button id="reset">reset</button></div>
+    <input id="cmd" placeholder="say gravity is illegal | walk n | spell spark">
+    <div class="row"><button id="run">run</button><button id="step">step physics</button></div>
+    <h2>Event log</h2><div id="log"></div>
+  </aside>
+</div>
+<script>
+(() => {
+  const W=16,H=16,TW=48,TH=24,ZH=16;
+  const dirs={n:[0,-1],s:[0,1],w:[-1,0],e:[1,0]};
+  const colors={floor:'#313846',wall:'#8a8278',wood:'#a87548',glass:'#79c3d9',support:'#d0a94d',rubble:'#58595f'};
+  const solid={wall:1,wood:1,glass:1,support:1};
+  let world=[],geebrs=[],selected=0,tick=0;
+  const svg=document.getElementById('svg'),hud=document.getElementById('hud'),logEl=document.getElementById('log'),top=document.getElementById('topdown'),sel=document.getElementById('selected');
+  function rand(n){return Math.floor(Math.random()*n)}
+  function cell(x,y){return x>=0&&y>=0&&x<W&&y<H?world[y][x]:null}
+  function make(type='floor',z=0){return{type,z,hp:{wall:4,wood:2,glass:1,support:3,rubble:1,floor:999}[type]||1,burn:0}}
+  function geebr(name,x,y){return{name,x,y,facing:'s',bubble:'',bt:0,color:`hsl(${rand(360)} 80% 65%)`}}
+  function log(a,b){const d=document.createElement('div');d.innerHTML=`<b>${a}:</b> ${b}`;logEl.prepend(d)}
+  function iso(x,y,z=0){const r=svg.getBoundingClientRect();return{x:r.width/2+(x-y)*TW/2,y:45+(x+y)*TH/2-z*ZH}}
+  function points(arr){return arr.map(p=>`${p.x},${p.y}`).join(' ')}
+  function add(tag,attrs,parent=svg){const e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))e.setAttribute(k,v);parent.appendChild(e);return e}
+  function reset(){
+    world=Array.from({length:H},()=>Array.from({length:W},()=>make('floor')));
+    for(let y=2;y<H-2;y++)for(let x=2;x<W-2;x++)if(x===2||y===2||x===W-3||y===H-3)world[y][x]=make('wall',1);
+    for(let i=0;i<30;i++)world[3+rand(10)][3+rand(10)]=make(['wood','glass','support','wall'][rand(4)],1+rand(2));
+    geebrs=[geebr('Brindle',5,6),geebr('Mogo',10,9),geebr('Pim',7,11)]; selected=0; logEl.innerHTML=''; log('world','SVG/DOM renderer reset'); updateSel(); render();
+  }
+  function blocked(x,y){const c=cell(x,y);return !c||solid[c.type]}
+  function damage(x,y,n,src){const c=cell(x,y);if(!c||c.type==='floor'||c.type==='rubble')return;c.hp-=n;c.burn=Math.max(0,c.burn);if(c.hp<=0){world[y][x]=make('rubble');log(src||'damage',`broke block ${x},${y}`)}}
+  function front(g){const d=dirs[g.facing];return[g.x+d[0],g.y+d[1]]}
+  function say(g,msg){g.bubble=msg;g.bt=80;log(g.name,msg)}
+  function walk(g,dir){if(dirs[dir])g.facing=dir;const d=dirs[g.facing],nx=g.x+d[0],ny=g.y+d[1];if(!blocked(nx,ny)&&!geebrs.some(o=>o!==g&&o.x===nx&&o.y===ny)){g.x=nx;g.y=ny}else{say(g,'bonk');damage(nx,ny,.35,g.name)}}
+  function runCommand(raw,idx=selected){const g=geebrs[idx];if(!g)return;const p=String(raw||'').trim().split(/\s+/),v=p[0];if(!v)return;if(v==='say')say(g,p.slice(1).join(' ')||'hmm');else if(v==='walk')walk(g,p[1]||g.facing);else if(v==='dig'){const[t,u]=front(g);damage(t,u,2,g.name)}else if(v==='build'){const[t,u]=front(g);if(cell(t,u)&&!blocked(t,u))world[u][t]=make('wall',1)}else if(v==='spell'){const[t,u]=front(g);if(p[1]==='spark'){cell(t,u)&&(cell(t,u).burn=6);say(g,'spark!')}else{damage(t,u,1.5,g.name+' spell');say(g,'push?')}}else if(v==='push'){const[t,u]=front(g);damage(t,u,1,g.name)}else if(v==='panic'){say(g,'PANIC');for(let i=0;i<3;i++)walk(g,Object.keys(dirs)[rand(4)])}else say(g,'unknown command');updateSel();render()}
+  function step(){tick++;for(let y=0;y<H;y++)for(let x=0;x<W;x++){const c=world[y][x];if(c.burn>0){c.burn--;if(c.type==='wood'||c.type==='support')damage(x,y,.5,'fire')}if(solid[c.type]&&c.z>1&&Math.random()<.08){c.z--;log('physics',`sag ${x},${y}`)}}render()}
+  function render(){
+    svg.innerHTML='';
+    const bg=add('rect',{x:0,y:0,width:'100%',height:'100%',fill:'#10131d'});
+    for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+      const c=world[y][x],p=iso(x,y,c.z),col=c.burn>0?'#ff6b30':colors[c.type];
+      if(c.z>0)add('polygon',{points:points([{x:p.x-TW/2,y:p.y+TH/2},{x:p.x,y:p.y+TH},{x:p.x,y:p.y+TH+c.z*ZH},{x:p.x-TW/2,y:p.y+TH/2+c.z*ZH}]),fill:'#20242e'});
+      add('polygon',{points:points([{x:p.x,y:p.y},{x:p.x+TW/2,y:p.y+TH/2},{x:p.x,y:p.y+TH},{x:p.x-TW/2,y:p.y+TH/2}]),fill:col,stroke:'#151923','stroke-width':1});
+    }
+    geebrs.slice().sort((a,b)=>(a.x+a.y)-(b.x+b.y)).forEach((g,i)=>{const p=iso(g.x,g.y,1);add('ellipse',{cx:p.x,cy:p.y+25,rx:17,ry:7,fill:'rgba(0,0,0,.35)'});add('circle',{cx:p.x,cy:p.y+12,r:14,fill:g.color,stroke:geebrs[selected]===g?'#fff':'#111','stroke-width':geebrs[selected]===g?4:1});add('text',{x:p.x,y:p.y-9,fill:'#fff','font-size':12,'text-anchor':'middle'}).textContent=g.name;if(g.bt>0){add('rect',{x:p.x-45,y:p.y-51,width:90,height:24,rx:8,fill:'rgba(0,0,0,.75)'});add('text',{x:p.x,y:p.y-35,fill:'#fff','font-size':11,'text-anchor':'middle'}).textContent=g.bubble.slice(0,18);g.bt--}});
+    renderTopdown();
+    hud.textContent=`SVG alive | ${Math.round(svg.getBoundingClientRect().width)}x${Math.round(svg.getBoundingClientRect().height)} | geebrs ${geebrs.length} | tick ${tick}`;
+  }
+  function renderTopdown(){top.innerHTML='';for(let y=0;y<H;y++)for(let x=0;x<W;x++){const c=world[y][x];const d=document.createElement('div');d.className=`cell ${c.type}${c.burn>0?' fire':''}`;const g=geebrs.find(q=>q.x===x&&q.y===y);if(g){d.className+=' gcell';d.style.background=g.color}top.appendChild(d)}}
+  function updateSel(){const g=geebrs[selected];sel.innerHTML=g?`<b>Selected:</b> ${g.name}<br><span class="hint">facing ${g.facing}; position ${g.x},${g.y}</span>`:'none'}
+  document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>runCommand(b.dataset.cmd));
+  document.getElementById('run').onclick=()=>runCommand(document.getElementById('cmd').value);
+  document.getElementById('step').onclick=step;document.getElementById('reset').onclick=reset;document.getElementById('spawn').onclick=()=>{geebrs.push(geebr(['Nim','Greeb','Sog','Vetch'][rand(4)],4+rand(8),4+rand(8)));log('world','spawned another visible idiot');updateSel();render()};
+  window.addEventListener('resize',render);setInterval(step,700);reset();window.runCommand=runCommand;window.geebrWorld={runCommand,step,reset,geebrs:()=>geebrs,world:()=>world};
+})();
+</script>
+</body>
+</html>
