@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>geebr.world true 3D prototype</title>
+  <style>
+    :root{
+      --bg:#111419; --panel:#191e26; --panel2:#222936; --ink:#e9eef7; --muted:#96a2b6; --line:#313a4c; --accent:#80d8ff;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    #app{position:fixed;inset:0;display:grid;grid-template-columns:minmax(0,1fr) 360px;height:100dvh;overflow:hidden}
+    #stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:radial-gradient(circle at 30% 25%,#263042 0,#151a22 55%,#0b0d11 100%)}
+    canvas{display:block;width:100%;height:100%}
+    #hud{position:absolute;left:12px;top:12px;padding:10px 12px;border:1px solid #ffffff24;border-radius:12px;background:#05070acc;backdrop-filter:blur(8px);font-size:12px;color:#dbe7fb;white-space:pre;pointer-events:none;max-width:460px}
+    #toast{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);padding:9px 14px;border:1px solid #ffffff22;border-radius:999px;background:#05070acc;color:#e9eef7;opacity:0;transition:opacity .18s;pointer-events:none}
+    #side{min-height:0;overflow:hidden;border-left:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#12161d);display:grid;grid-template-rows:auto auto minmax(0,1fr) auto}
+    .section{padding:12px 14px;border-bottom:1px solid var(--line)}
+    h1{font-size:16px;margin:0 0 4px} h2{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px}
+    .small{color:var(--muted);font-size:12px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.stack{display:grid;gap:8px}
+    button,input,select{font:inherit;border-radius:9px;border:1px solid #3b465d;background:#10151d;color:var(--ink);padding:8px 9px}button{cursor:pointer;background:#242d3c}button:hover{background:#2e3a4d}button.primary{background:#155a76;border-color:#207fa5}
+    input{width:100%;background:#0d1118}kbd{border:1px solid #566177;border-bottom-width:2px;border-radius:5px;padding:1px 5px;background:#111721;color:#dce6f6;font-size:11px}
+    #log{min-height:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column-reverse;gap:6px}.event{padding:7px 8px;border-radius:9px;background:#222936;border:1px solid #30394b;color:#dbe5f7;font-size:12px}.event b{color:#9ee7ff}
+    #selected{padding:10px;border-radius:10px;background:#0e131b;border:1px solid #30394b}.pill{display:inline-flex;align-items:center;gap:4px;border:1px solid #3d4a60;background:#131a24;color:#cbd7ec;border-radius:999px;padding:2px 7px;font-size:12px}
+    #error{display:none;position:absolute;inset:18px;z-index:20;overflow:auto;white-space:pre-wrap;background:#240d0d;color:#ffd6d6;border:1px solid #ff8888;border-radius:14px;padding:14px;font:13px/1.45 ui-monospace,monospace}
+  </style>
+</head>
+<body>
+<div id="app">
+  <main id="stage">
+    <div id="error"></div>
+    <div id="hud">loading…</div>
+    <div id="toast"></div>
+  </main>
+  <aside id="side">
+    <div class="section">
+      <h1>geebr.world — true 3D prototype</h1>
+      <div class="small">Three.js real 3D scene + Rapier3D physics. No LLM/parser layer.</div>
+    </div>
+    <div class="section stack">
+      <h2>Command input</h2>
+      <input id="cmd" value="spell push" autocomplete="off" />
+      <div class="row">
+        <button class="primary" id="run">Run</button>
+        <button data-cmd="walk n">walk n</button><button data-cmd="walk e">walk e</button><button data-cmd="walk s">walk s</button><button data-cmd="walk w">walk w</button>
+        <button data-cmd="dig">dig</button><button data-cmd="build wall">build wall</button><button data-cmd="spell spark">spark</button><button data-cmd="spell push">push spell</button><button data-cmd="panic">panic</button>
+      </div>
+      <div id="selected"></div>
+      <div class="small">Click a Geebr to select. Click a cube to target. Drag not needed: camera is fixed for now.</div>
+    </div>
+    <div id="log"></div>
+    <div class="section stack">
+      <h2>Spawn</h2>
+      <div class="row"><button id="spawnGeebr">Geebr</button><button id="spawnCrate">Crate</button><button id="spawnBarrel">Barrel</button><button id="spawnTower">Bad Tower</button><button id="reset">Reset</button></div>
+      <div class="small"><kbd>window.runCommand("spell spark")</kbd> works from console.</div>
+    </div>
+  </aside>
+</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+import RAPIER from 'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.19.3/+esm';
+
+const $ = (id)=>document.getElementById(id);
+const stage=$('stage'), hud=$('hud'), logEl=$('log'), selectedEl=$('selected'), toastEl=$('toast'), errorEl=$('error');
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const GRID=14, HALF=GRID/2, CELL=1;
+let scene, camera, renderer, raycaster, pointer, rapierWorld;
+let groundGroup, blockGroup, entityGroup, dynamicGroup, fxGroup;
+let blocks = new Map();
+let dynamics = [];
+let geebrs = [];
+let selectedGeebr = null;
+let selectedBlock = null;
+let tick=0, last=performance.now();
+let nextId=1;
+let toastTimer=0;
+
+const mats={};
+const blockMaterials={
+  wall:{name:'stone', hp:4, color:0x7d8792, rough:0.9},
+  wood:{name:'wood', hp:3, color:0x9a6a3e, rough:0.9},
+  glass:{name:'glass', hp:2, color:0x76d7ff, rough:0.2, opacity:.45},
+  crystal:{name:'crystal', hp:2, color:0xb277ff, rough:0.35, emissive:0x301046},
+};
+
+function key(x,y,z){return `${x},${y},${z}`}
+function gridToWorld(x,y,z){return new THREE.Vector3(x-HALF+.5, y+.5, z-HALF+.5)}
+function worldToGrid(v){return {x:Math.floor(v.x+HALF), z:Math.floor(v.z+HALF)}}
+function addEvent(html){const d=document.createElement('div');d.className='event';d.innerHTML=html;logEl.prepend(d);while(logEl.children.length>80)logEl.lastChild.remove();}
+function toast(msg){toastEl.textContent=msg;toastEl.style.opacity=1;clearTimeout(toastTimer);toastTimer=setTimeout(()=>toastEl.style.opacity=0,1200)}
+function showError(e){errorEl.style.display='block';errorEl.textContent=(e&&e.stack)||String(e)}
+
+function makeMaterial(color, opts={}){
+  return new THREE.MeshStandardMaterial({
+    color, roughness: opts.rough ?? .75, metalness: opts.metal ?? 0,
+    transparent: !!opts.opacity, opacity: opts.opacity ?? 1,
+    emissive: opts.emissive ?? 0x000000, emissiveIntensity: opts.emissive ? .45 : 0
+  });
+}
+function initMaterials(){
+  mats.floorA=makeMaterial(0x48524a); mats.floorB=makeMaterial(0x3e4842);
+  mats.gridLine=new THREE.LineBasicMaterial({color:0x111820, transparent:true, opacity:.35});
+  mats.select=new THREE.MeshBasicMaterial({color:0x80d8ff, transparent:true, opacity:.22, depthWrite:false});
+  mats.geebrBody=makeMaterial(0x69d783); mats.geebrHead=makeMaterial(0xb6f0a6); mats.eye=makeMaterial(0x111111); mats.foot=makeMaterial(0x2f5d3b);
+  mats.crate=makeMaterial(0xb9874d); mats.barrel=makeMaterial(0x8a5a2e); mats.debris=makeMaterial(0x8e949b);
+  mats.fire=makeMaterial(0xff7a18,{emissive:0xff3a00});
+}
+
+function createRenderer(){
+  scene = new THREE.Scene(); scene.background = new THREE.Color(0x111419); scene.fog = new THREE.Fog(0x111419, 18, 40);
+  camera = new THREE.OrthographicCamera(-8,8,5,-5,.1,80);
+  camera.position.set(9,11,11); camera.lookAt(0,0,0);
+  renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  stage.appendChild(renderer.domElement);
+  raycaster = new THREE.Raycaster(); pointer = new THREE.Vector2();
+  const hemi=new THREE.HemisphereLight(0xd7edff,0x1b1d20,1.5); scene.add(hemi);
+  const sun=new THREE.DirectionalLight(0xffffff,2.4); sun.position.set(7,12,6); sun.castShadow=true; sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.left=-16; sun.shadow.camera.right=16; sun.shadow.camera.top=16; sun.shadow.camera.bottom=-16; scene.add(sun);
+  groundGroup=new THREE.Group(); blockGroup=new THREE.Group(); entityGroup=new THREE.Group(); dynamicGroup=new THREE.Group(); fxGroup=new THREE.Group();
+  scene.add(groundGroup, blockGroup, dynamicGroup, entityGroup, fxGroup);
+}
+function resize(){
+  const r=stage.getBoundingClientRect();
+  renderer.setSize(r.width,r.height,false);
+  const aspect=r.width/r.height;
+  const frustum=10;
+  camera.left=-frustum*aspect/2; camera.right=frustum*aspect/2; camera.top=frustum/2; camera.bottom=-frustum/2; camera.updateProjectionMatrix();
+}
+
+function makeGround(){
+  const geo=new THREE.BoxGeometry(.98,.08,.98);
+  for(let x=0;x<GRID;x++) for(let z=0;z<GRID;z++){
+    const m=new THREE.Mesh(geo,(x+z)%2?mats.floorA:mats.floorB); m.position.set(x-HALF+.5,-.04,z-HALF+.5); m.receiveShadow=true; m.userData={type:'floor',x,z}; groundGroup.add(m);
+  }
+  const baseBody=rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(0,-.08,0));
+  rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(GRID/2,.05,GRID/2).setFriction(1), baseBody);
+}
+function makeBlockMesh(kind, hp){
+  const cfg=blockMaterials[kind]||blockMaterials.wall;
+  const mat=makeMaterial(cfg.color,{rough:cfg.rough,opacity:cfg.opacity,emissive:cfg.emissive});
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(.96,.96,.96),mat);
+  mesh.castShadow=true; mesh.receiveShadow=true;
+  const edges=new THREE.EdgesGeometry(mesh.geometry); const line=new THREE.LineSegments(edges,new THREE.LineBasicMaterial({color:0x0f141b,transparent:true,opacity:.32})); mesh.add(line);
+  mesh.userData={type:'block'};
+  return mesh;
+}
+function addBlock(x,y,z,kind='wall'){
+  if(x<0||z<0||x>=GRID||z>=GRID||y<0||y>5) return null;
+  const k=key(x,y,z); if(blocks.has(k)) return null;
+  const cfg=blockMaterials[kind]||blockMaterials.wall;
+  const mesh=makeBlockMesh(kind,cfg.hp); mesh.position.copy(gridToWorld(x,y,z)); mesh.userData={type:'block',x,y,z,key:k}; blockGroup.add(mesh);
+  const body=rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(mesh.position.x,mesh.position.y,mesh.position.z));
+  const col=rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(.48,.48,.48).setFriction(1), body);
+  const b={x,y,z,kind,hp:cfg.hp,maxHp:cfg.hp,mesh,body,col,fire:0}; blocks.set(k,b); return b;
+}
+function removeBlock(b, reason='broke'){
+  if(!b || !blocks.has(b.key)) return;
+  blocks.delete(b.key); blockGroup.remove(b.mesh); b.mesh.geometry.dispose();
+  try{ rapierWorld.removeRigidBody(b.body); }catch{}
+  spawnDebrisAt(b.mesh.position,b.kind,reason);
+  addEvent(`<b>${b.kind}</b> block ${reason} at ${b.x},${b.z}`);
+  checkSupportAround(b.x,b.y,b.z);
+}
+function damageBlock(b, dmg, source='damage'){
+  if(!b)return; b.hp-=dmg;
+  const t=clamp(b.hp/b.maxHp,0,1); b.mesh.scale.setScalar(.88+.12*t); b.mesh.rotation.y += rnd(-.04,.04);
+  if(b.hp<=0) removeBlock(b,source); else puff(b.mesh.position,0xffd18a,5);
+}
+function checkSupportAround(x,y,z){
+  for(const b of [...blocks.values()]){
+    if(b.y>0){
+      const below=blocks.get(key(b.x,b.y-1,b.z));
+      if(!below && Math.abs(b.x-x)<=2 && Math.abs(b.z-z)<=2){
+        removeBlock(b,'lost support');
+      }
+    }
+  }
+}
+function spawnDebrisAt(pos,kind='wall',reason='break'){
+  const color = (blockMaterials[kind]||blockMaterials.wall).color;
+  for(let i=0;i<6;i++){
+    const size=rnd(.12,.24); const geo=new THREE.BoxGeometry(size,size,size); const mat=makeMaterial(color,{rough:.85}); const mesh=new THREE.Mesh(geo,mat); mesh.castShadow=true; mesh.receiveShadow=true;
+    mesh.position.copy(pos).add(new THREE.Vector3(rnd(-.25,.25),rnd(.05,.45),rnd(-.25,.25))); dynamicGroup.add(mesh);
+    const rb=rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(mesh.position.x,mesh.position.y,mesh.position.z).setLinvel(rnd(-1.8,1.8),rnd(1,3),rnd(-1.8,1.8)).setAngvel(rnd(-4,4),rnd(-4,4),rnd(-4,4)));
+    const co=rapierWorld.createCollider(RAPIER.ColliderDesc.cuboid(size/2,size/2,size/2).setDensity(.8).setRestitution(.35).setFriction(.7),rb);
+    dynamics.push({mesh,rb,co,kind:'debris',ttl:10});
+  }
+}
+function spawnDynamic(kind='crate',x=rnd(-3,3),z=rnd(-3,3),y=1.1){
+  let mesh, desc;
+  if(kind==='barrel'){
+    mesh=new THREE.Mesh(new THREE.CylinderGeometry(.32,.32,.72,16),mats.barrel); desc=RAPIER.ColliderDesc.cylinder(.36,.32);
+  } else {
+    mesh=new THREE.Mesh(new THREE.BoxGeometry(.68,.68,.68),mats.crate); desc=RAPIER.ColliderDesc.cuboid(.34,.34,.34);
+  }
+  mesh.castShadow=true; mesh.receiveShadow=true; mesh.position.set(x,y,z); dynamicGroup.add(mesh);
+  const rb=rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(x,y,z).setCanSleep(false));
+  const co=rapierWorld.createCollider(desc.setDensity(1).setRestitution(.28).setFriction(.9),rb);
+  const obj={mesh,rb,co,kind,ttl:Infinity}; mesh.userData={type:'dynamic',obj}; dynamics.push(obj); addEvent(`spawned <b>${kind}</b>`); return obj;
+}
+
+function makeGeebr(name,x,z,color=0x69d783){
+  const group=new THREE.Group(); group.userData={type:'geebr'};
+  const bodyMat=makeMaterial(color); const headMat=makeMaterial(0xb7f6a4); const eyeMat=mats.eye;
+  const body=new THREE.Mesh(new THREE.CapsuleGeometry(.26,.42,5,10),bodyMat); body.position.y=.55; body.castShadow=true; group.add(body);
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.26,16,12),headMat); head.position.y=1.08; head.castShadow=true; group.add(head);
+  const eyeGeo=new THREE.SphereGeometry(.045,8,6);
+  const eye1=new THREE.Mesh(eyeGeo,eyeMat); eye1.position.set(-.09,1.12,.23); const eye2=eye1.clone(); eye2.position.x=.09; group.add(eye1,eye2);
+  const footGeo=new THREE.BoxGeometry(.18,.09,.28); const f1=new THREE.Mesh(footGeo,mats.foot); f1.position.set(-.13,.08,.06); const f2=f1.clone(); f2.position.x=.13; group.add(f1,f2);
+  const hat=new THREE.Mesh(new THREE.ConeGeometry(.19,.28,8),makeMaterial(0xffd166)); hat.position.y=1.42; hat.castShadow=true; group.add(hat);
+  group.position.set(x-HALF+.5,0,z-HALF+.5); entityGroup.add(group);
+  const rb=rapierWorld.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(group.position.x,.5,group.position.z));
+  rapierWorld.createCollider(RAPIER.ColliderDesc.capsule(.35,.22).setFriction(1),rb);
+  const geebr={id:nextId++,name,x,z,y:0,group,rb,target:null,mood:'idle',bubble:null,bob:Math.random()*10,color};
+  group.userData.geebr=geebr; geebrs.push(geebr); if(!selectedGeebr) selectedGeebr=geebr; addEvent(`<b>${name}</b> appeared and immediately looked employable.`); updateSelected(); return geebr;
+}
+function say(g,text){
+  addEvent(`<b>${g.name}</b>: ${escapeHtml(text)}`);
+  if(g.bubble) g.group.remove(g.bubble);
+  const canvas=document.createElement('canvas'), ctx=canvas.getContext('2d'); canvas.width=512; canvas.height=128;
+  ctx.fillStyle='rgba(10,14,20,.92)'; ctx.strokeStyle='rgba(128,216,255,.85)'; ctx.lineWidth=4; roundRect(ctx,10,10,492,86,18); ctx.fill(); ctx.stroke(); ctx.fillStyle='#eaf4ff'; ctx.font='28px system-ui'; ctx.fillText(text.slice(0,34),28,62);
+  const tex=new THREE.CanvasTexture(canvas); const mat=new THREE.SpriteMaterial({map:tex,transparent:true}); const spr=new THREE.Sprite(mat); spr.scale.set(2.2,.55,1); spr.position.set(0,1.8,0); g.group.add(spr); g.bubble=spr; setTimeout(()=>{try{g.group.remove(spr)}catch{}},2600);
+}
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+
+function frontCell(g,dir='n'){
+  const d={n:[0,-1],s:[0,1],e:[1,0],w:[-1,0]}[dir]||[0,-1]; return {x:g.x+d[0],z:g.z+d[1]};
+}
+function walk(g,dir='n',steps=1){
+  const d={n:[0,-1],s:[0,1],e:[1,0],w:[-1,0]}[dir]||[0,-1];
+  for(let i=0;i<steps;i++){
+    const nx=clamp(g.x+d[0],0,GRID-1), nz=clamp(g.z+d[1],0,GRID-1);
+    if(blocks.has(key(nx,0,nz))){say(g,'wall says no'); break;} g.x=nx; g.z=nz;
+  }
+  g.target=gridToWorld(g.x,0,g.z); g.target.y=0; addEvent(`<b>${g.name}</b> walks ${dir}`);
+}
+function nearestDynamicTo(g,range=1.5){
+  const gp=new THREE.Vector3(g.group.position.x,.6,g.group.position.z); let best=null, bd=Infinity;
+  for(const d of dynamics){const p=d.rb.translation(); const dist=gp.distanceTo(new THREE.Vector3(p.x,p.y,p.z)); if(dist<range&&dist<bd){best=d;bd=dist}}
+  return best;
+}
+function command(raw){
+  const s=String(raw||'').trim(); if(!s)return; const g=selectedGeebr || geebrs[0]; if(!g)return;
+  const parts=s.toLowerCase().split(/\s+/); const c=parts[0];
+  if(c==='say'){say(g,s.replace(/^say\s*/i,'')||'geebr'); return;}
+  if(c==='walk'){walk(g,parts[1]||'n',Number(parts[2]||1)); return;}
+  if(c==='panic'){say(g,'I have optimized fear.'); g.mood='panic'; const obj=nearestDynamicTo(g,2.2); if(obj)obj.rb.applyImpulse({x:rnd(-3,3),y:4,z:rnd(-3,3)},true); return;}
+  if(c==='push') return push(g);
+  if(c==='dig') return dig(g);
+  if(c==='build') return build(g,parts[1]||'wall');
+  if(c==='spell'){
+    if(parts[1]==='spark') return spark(g);
+    if(parts[1]==='push') return push(g,true);
+    say(g,'spell unclear, confidence enormous'); return;
+  }
+  say(g,'unknown verb accepted spiritually');
+}
+function selectedOrFrontBlock(g){
+  if(selectedBlock && blocks.has(selectedBlock.key)) return selectedBlock;
+  const f=frontCell(g,'n'); return blocks.get(key(f.x,0,f.z));
+}
+function dig(g){const b=selectedOrFrontBlock(g); if(!b){say(g,'I dug the concept of floor.'); return;} damageBlock(b,1.4,'dug'); say(g,'structural opinions reduced');}
+function build(g,kind){const f=frontCell(g,'n'); const b=addBlock(f.x,0,f.z,blockMaterials[kind]?kind:'wall'); if(b){say(g,'architecture happened.')} else say(g,'building declined.');}
+function spark(g){
+  const b=selectedOrFrontBlock(g); say(g,'tiny fire paperwork complete');
+  if(b){damageBlock(b,1.2,'sparked'); fireAt(b.x,b.z);} else puff(g.group.position,0xff7a18,18);
+}
+function push(g,magic=false){
+  const obj=nearestDynamicTo(g, magic?5:1.8); const force=magic?9:4;
+  if(obj){const p=obj.rb.translation(); const dir=new THREE.Vector3(p.x-g.group.position.x,0,p.z-g.group.position.z).normalize(); if(!isFinite(dir.x))dir.set(1,0,0); obj.rb.applyImpulse({x:dir.x*force,y:magic?3:1,z:dir.z*force},true); say(g,magic?'physics has been advised':'I shoved a thing'); puff(new THREE.Vector3(p.x,p.y,p.z),magic?0x80d8ff:0xffffff,12); return;}
+  const b=selectedOrFrontBlock(g); if(b){damageBlock(b,magic?1.8:.8,magic?'force spell':'pushed'); say(g,'wall experienced feedback'); return;}
+  say(g,'I pushed the available air.');
+}
+function fireAt(x,z){for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++){const b=blocks.get(key(x+dx,0,z+dz)); if(b&&b.kind==='wood') damageBlock(b,.6,'singed');} puff(gridToWorld(x,0,z),0xff7a18,26)}
+function puff(pos,color=0xffffff,n=8){
+  for(let i=0;i<n;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(rnd(.025,.07),8,6),makeMaterial(color,{emissive:color})); m.position.copy(pos).add(new THREE.Vector3(rnd(-.35,.35),rnd(.2,.8),rnd(-.35,.35))); fxGroup.add(m);
+    const vel=new THREE.Vector3(rnd(-.02,.02),rnd(.015,.05),rnd(-.02,.02)); const born=performance.now();
+    m.userData={vel,born,life:rnd(300,700)};
+  }
+}
+
+function onPointer(ev){
+  const rect=renderer.domElement.getBoundingClientRect(); pointer.x=((ev.clientX-rect.left)/rect.width)*2-1; pointer.y=-((ev.clientY-rect.top)/rect.height)*2+1; raycaster.setFromCamera(pointer,camera);
+  const hits=raycaster.intersectObjects([...entityGroup.children,...blockGroup.children,...groundGroup.children],true);
+  if(!hits.length)return;
+  let obj=hits[0].object; while(obj.parent && !obj.userData.type) obj=obj.parent;
+  if(obj.userData.type==='geebr'){selectedGeebr=obj.userData.geebr; selectedBlock=null; toast(`selected ${selectedGeebr.name}`);}
+  else if(obj.userData.type==='block'){selectedBlock=blocks.get(obj.userData.key); toast(`target block ${obj.userData.x},${obj.userData.z}`);}
+  else if(obj.userData.type==='floor'){selectedBlock=null; toast(`floor ${obj.userData.x},${obj.userData.z}`);}
+  updateSelected();
+}
+function updateSelected(){
+  selectedEl.innerHTML = selectedGeebr ? `<div><b>${selectedGeebr.name}</b> <span class="pill">${selectedGeebr.mood}</span></div><div class="small">cell ${selectedGeebr.x},${selectedGeebr.z}${selectedBlock?` · target ${selectedBlock.kind} ${selectedBlock.x},${selectedBlock.z} hp ${selectedBlock.hp.toFixed(1)}`:''}</div>` : '<div class="small">No Geebr selected</div>';
+}
+function spawnBadTower(){
+  const x=Math.floor(rnd(4,10)), z=Math.floor(rnd(4,10)); addBlock(x,0,z,'wood'); addBlock(x,1,z,'glass'); addBlock(x,2,z,'crystal'); addBlock(x+1,0,z,'wall'); addEvent('a <b>bad tower</b> has entered the insurance market');
+}
+
+function resetWorld(){
+  for(const b of [...blocks.values()]) removeBlockNoDebris(b); blocks.clear();
+  for(const d of dynamics){dynamicGroup.remove(d.mesh); try{rapierWorld.removeRigidBody(d.rb)}catch{}} dynamics=[];
+  for(const g of geebrs){entityGroup.remove(g.group); try{rapierWorld.removeRigidBody(g.rb)}catch{}} geebrs=[]; selectedGeebr=null; selectedBlock=null;
+  seedWorld();
+}
+function removeBlockNoDebris(b){blockGroup.remove(b.mesh); try{rapierWorld.removeRigidBody(b.body)}catch{}}
+function seedWorld(){
+  for(let x=2;x<12;x++){addBlock(x,0,2,'wall'); addBlock(x,0,11,'wall')}
+  for(let z=3;z<11;z++){addBlock(2,0,z,'wall'); addBlock(11,0,z,'wood')}
+  addBlock(5,0,5,'glass'); addBlock(5,1,5,'glass'); addBlock(7,0,6,'wood'); addBlock(8,0,6,'wood'); addBlock(7,1,6,'crystal');
+  makeGeebr('Brindle',4,7,0x69d783); makeGeebr('Mogo',8,8,0xff8e72); makeGeebr('Pim',6,4,0x8aa4ff);
+  spawnDynamic('crate',-1,0,1.2); spawnDynamic('barrel',2,2,1.2);
+}
+
+function sync(){
+  rapierWorld.step();
+  for(const d of [...dynamics]){
+    const p=d.rb.translation(); const q=d.rb.rotation(); d.mesh.position.set(p.x,p.y,p.z); d.mesh.quaternion.set(q.x,q.y,q.z,q.w);
+    if(d.ttl!==Infinity){d.ttl-=1/60; if(d.ttl<=0 || p.y<-4){dynamicGroup.remove(d.mesh); try{rapierWorld.removeRigidBody(d.rb)}catch{}; dynamics.splice(dynamics.indexOf(d),1)}}
+  }
+  for(const g of geebrs){
+    if(g.target){g.group.position.lerp(g.target,.16); if(g.group.position.distanceTo(g.target)<.03)g.target=null;}
+    g.group.position.y = Math.sin(performance.now()/180+g.bob)*.035;
+    if(g.mood==='panic') g.group.rotation.y += .22; else g.group.rotation.y += (0-g.group.rotation.y)*.1;
+    g.rb.setNextKinematicTranslation({x:g.group.position.x,y:.5,z:g.group.position.z});
+  }
+  for(const f of [...fxGroup.children]){f.position.add(f.userData.vel); f.material.opacity = Math.max(0,1-(performance.now()-f.userData.born)/f.userData.life); f.material.transparent=true; if(performance.now()-f.userData.born>f.userData.life){fxGroup.remove(f)}}
+}
+function animate(now){
+  tick++; sync(); renderer.render(scene,camera);
+  if(tick%10===0){hud.textContent=`true 3D renderer alive\ncanvas ${renderer.domElement.width}×${renderer.domElement.height}\nblocks ${blocks.size} · bodies ${dynamics.length} · geebrs ${geebrs.length}\nselected ${selectedGeebr?selectedGeebr.name:'none'}\ncommands: walk n/e/s/w, dig, build wall, spell spark, spell push, panic`;}
+  requestAnimationFrame(animate);
+}
+async function main(){
+  try{
+    await RAPIER.init();
+    initMaterials(); createRenderer(); resize(); window.addEventListener('resize',resize); renderer.domElement.addEventListener('pointerdown',onPointer);
+    rapierWorld = new RAPIER.World({x:0,y:-9.81,z:0});
+    makeGround(); seedWorld();
+    $('run').onclick=()=>command($('cmd').value); $('cmd').addEventListener('keydown',e=>{if(e.key==='Enter')command($('cmd').value)});
+    document.querySelectorAll('button[data-cmd]').forEach(b=>b.onclick=()=>{ $('cmd').value=b.dataset.cmd; command(b.dataset.cmd); });
+    $('spawnGeebr').onclick=()=>makeGeebr(['Nim','Greeb','Wort','Dabble'][Math.floor(rnd(0,4))],Math.floor(rnd(3,11)),Math.floor(rnd(3,11)),Math.random()*0xffffff);
+    $('spawnCrate').onclick=()=>spawnDynamic('crate',rnd(-3,3),rnd(-3,3),2.4); $('spawnBarrel').onclick=()=>spawnDynamic('barrel',rnd(-3,3),rnd(-3,3),2.4); $('spawnTower').onclick=spawnBadTower; $('reset').onclick=resetWorld;
+    window.runCommand=command; addEvent('real 3D prototype loaded. Rapier3D physics active.'); requestAnimationFrame(animate);
+  }catch(e){showError(e)}
+}
+main();
+</script>
+</body>
+</html>
