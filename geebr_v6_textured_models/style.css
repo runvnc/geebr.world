@@ -1,0 +1,15 @@
+html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#171b21; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+#renderCanvas { width:100%; height:100%; display:block; outline:none; }
+#hud { position:fixed; left:18px; top:16px; color:#fff; pointer-events:none; text-shadow:0 2px 12px rgba(0,0,0,.38); }
+.brand { font-weight:900; letter-spacing:.02em; font-size:20px; margin-bottom:10px; }
+.brand span { font-weight:700; color:#d7e0cd; font-size:12px; margin-left:6px; opacity:.82; }
+.panel { pointer-events:auto; width:350px; background:rgba(21,25,30,.55); border:1px solid rgba(255,255,255,.15); box-shadow:0 14px 38px rgba(0,0,0,.25); backdrop-filter: blur(12px); border-radius:18px; padding:10px; }
+.row { display:flex; gap:7px; margin-bottom:7px; }
+button { border:0; background:rgba(255,255,255,.14); color:#fff; border-radius:10px; padding:8px 10px; font-weight:800; cursor:pointer; }
+button:hover { background:rgba(255,255,255,.24); }
+#cmd { width:calc(100% - 20px); border:1px solid rgba(255,255,255,.20); border-radius:12px; padding:9px 10px; background:rgba(0,0,0,.25); color:white; font-weight:700; }
+#log { margin-top:10px; width:350px; max-height:180px; overflow:hidden; font-size:12px; opacity:.92; }
+.logline { background:rgba(0,0,0,.28); border-left:3px solid rgba(175,225,160,.9); padding:6px 9px; margin-bottom:5px; border-radius:8px; }
+#hint { position:fixed; right:20px; bottom:18px; max-width:430px; color:#e8f1e4; background:rgba(20,24,29,.52); border:1px solid rgba(255,255,255,.14); border-radius:16px; padding:10px 14px; font-size:13px; backdrop-filter: blur(10px); }
+code { color:#ffe0a0; }
+.bubble { position:absolute; transform:translate(-50%, -100%); background:#fff6dc; color:#333; border:2px solid rgba(40,30,20,.24); border-radius:16px; padding:7px 10px; font-weight:900; pointer-events:none; white-space:nowrap; box-shadow:0 10px 18px rgba(0,0,0,.22); }

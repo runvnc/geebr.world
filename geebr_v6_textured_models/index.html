@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>geebr.world v6 — Textured Lowpoly Diorama</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="hud">
+    <div class="brand">geebr.world <span>v6 textured models</span></div>
+    <div class="panel">
+      <div class="row"><button data-cmd="walk n">walk n</button><button data-cmd="walk s">walk s</button><button data-cmd="walk e">walk e</button><button data-cmd="walk w">walk w</button></div>
+      <div class="row"><button data-cmd="push">push</button><button data-cmd="spell push">spell push</button><button data-cmd="spell spark">spark</button><button data-cmd="panic">panic</button></div>
+      <div class="row"><button data-cmd="build wall">build wall</button><button data-cmd="dig">dig</button><button data-cmd="say gravity is illegal">say</button></div>
+      <input id="cmd" value="say these barrels look load-bearing" spellcheck="false" />
+    </div>
+    <div id="log"></div>
+  </div>
+  <div id="hint">Click a Geebr, then click a prop/block target. Commands are still available via <code>window.runCommand("walk n")</code>.</div>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

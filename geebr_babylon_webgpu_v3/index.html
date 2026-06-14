@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>geebr.world — Babylon WebGPU + Havok Prototype v3 Visual Pass</title>
+  <style>
+    :root {
+      --bg:#0d1018; --panel:#151927; --panel2:#20283c; --text:#f0f4ff; --muted:#a8b2c7;
+      --accent:#8fd3ff; --danger:#ff8d8d; --good:#a5ffbd; --gold:#ffd57a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; width:100%; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font:14px/1.35 system-ui, -apple-system, Segoe UI, sans-serif; }
+    #app { position:fixed; inset:0; display:grid; grid-template-columns:minmax(0,1fr) 330px; min-height:0; }
+    #stage { position:relative; min-width:0; min-height:0; overflow:hidden; background: radial-gradient(circle at 52% 26%, #33415f, #151a27 48%, #070910 100%); }
+    #renderCanvas { width:100%; height:100%; display:block; outline:none; touch-action:none; }
+    #hud { position:absolute; left:12px; top:12px; padding:8px 10px; border-radius:10px; background:rgba(10,12,18,.72); backdrop-filter:blur(6px); color:#dfe7f6; font-size:12px; pointer-events:none; min-width:260px; }
+    #hud b { color:#fff; }
+    #error { position:absolute; inset:12px; display:none; padding:16px; border:1px solid #ff7777; border-radius:12px; background:rgba(60,10,10,.92); color:white; white-space:pre-wrap; overflow:auto; z-index:5; }
+    #side { min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; border-left:1px solid rgba(255,255,255,.08); background:linear-gradient(180deg,var(--panel),#11151e); }
+    header { padding:14px 14px 10px; border-bottom:1px solid rgba(255,255,255,.08); }
+    header h1 { margin:0; font-size:18px; letter-spacing:.2px; }
+    header p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+    .section { padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.07); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    button { appearance:none; border:1px solid rgba(255,255,255,.12); background:var(--panel2); color:var(--text); border-radius:9px; padding:8px 9px; cursor:pointer; font:inherit; }
+    button:hover { border-color:rgba(143,211,255,.55); background:#273147; }
+    input { width:100%; border:1px solid rgba(255,255,255,.12); background:#0f131c; color:var(--text); border-radius:10px; padding:10px; font:13px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    #log { flex:1; min-height:0; overflow:auto; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+    .event { padding:8px 9px; border-radius:9px; background:rgba(255,255,255,.055); color:#dce5f5; font-size:12px; border-left:3px solid rgba(143,211,255,.55); }
+    .event.bad { border-color:var(--danger); }
+    .event.good { border-color:var(--good); }
+    .pill { display:inline-block; margin:2px 4px 2px 0; padding:3px 7px; background:rgba(143,211,255,.10); border:1px solid rgba(143,211,255,.22); border-radius:999px; font-size:11px; color:#ccecff; }
+    .small { color:var(--muted); font-size:12px; }
+    #selected { color:#fff; font-weight:700; }
+    .kbd { font-family:ui-monospace, Menlo, monospace; background:#0d1118; padding:2px 5px; border-radius:5px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <main id="stage">
+    <canvas id="renderCanvas"></canvas>
+    <div id="hud">booting…</div>
+    <div id="error"></div>
+  </main>
+  <aside id="side">
+    <header>
+      <h1>geebr.world <span style='color:var(--gold);font-size:12px'>v3</span></h1>
+      <p>True 3D WebGPU + Havok. Visual polish pass: diorama lighting, richer Geebrs, props, debris, and pushable toys.</p>
+    </header>
+    <div class="section">
+      <div>Selected: <span id="selected">Brindle</span></div>
+      <div class="small">Click a Geebr to select. Click blocks to damage/target.</div>
+      <div class="row">
+        <button data-cmd="walk n">walk n</button><button data-cmd="walk e">walk e</button><button data-cmd="walk s">walk s</button><button data-cmd="walk w">walk w</button>
+        <button data-cmd="dig">dig</button><button data-cmd="build wall">build wall</button>
+        <button data-cmd="push">push</button><button data-cmd="spell push">spell push</button><button data-cmd="spell spark">spark</button><button data-cmd="panic">panic</button>
+      </div>
+    </div>
+    <div class="section">
+      <input id="cmd" value="say gravity is illegal" />
+      <div class="row"><button id="run">run command</button><button id="spawnCrate">spawn crate</button><button id="spawnDebris">debris burst</button></div>
+      <p class="small">Console: <span class="kbd">window.runCommand("spell push")</span></p>
+    </div>
+    <div class="section">
+      <span class="pill">WebGPU only</span><span class="pill">Havok physics</span><span class="pill">destructible cubes</span><span class="pill">component Geebrs</span><span class="pill">Geebr collisions</span><span class="pill">pushable props</span><span class="pill">visual pass</span><span class="pill">diorama toybox</span>
+    </div>
+    <div id="log"></div>
+  </aside>
+</div>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+<script>
+(() => {
+  const canvas = document.getElementById('renderCanvas');
+  const hud = document.getElementById('hud');
+  const errBox = document.getElementById('error');
+  const logEl = document.getElementById('log');
+  const selectedEl = document.getElementById('selected');
+  const cmdInput = document.getElementById('cmd');
+
+  const GRID = 13, HALF = Math.floor(GRID/2), TILE = 1.25;
+  let engine, scene, physicsPlugin;
+  let tick = 0, selected = null, targetBlock = null, targetBody = null;
+  const blocks = new Map();
+  const bodies = [];
+  const geebrs = [];
+  const mats = {};
+  let shadowGen = null, glow = null;
+
+  function key(x,z,y=0){ return `${x},${z},${y}`; }
+  function gridToWorld(x,z,y=0){ return new BABYLON.Vector3(x*TILE, y*TILE + 0.5*TILE, z*TILE); }
+  function log(msg, cls=''){
+    const el = document.createElement('div');
+    el.className = 'event ' + cls;
+    el.textContent = msg;
+    logEl.prepend(el);
+    while (logEl.children.length > 80) logEl.lastChild.remove();
+  }
+  function showError(e){
+    console.error(e);
+    errBox.style.display = 'block';
+    errBox.textContent = (e && e.stack) ? e.stack : String(e);
+  }
+  function rand(min,max){ return min + Math.random()*(max-min); }
+
+  async function boot(){
+    if (!navigator.gpu) throw new Error('navigator.gpu is unavailable. This prototype intentionally does not use WebGL fallback.');
+    engine = new BABYLON.WebGPUEngine(canvas, { antialias:true, adaptToDeviceRatio:true });
+    await engine.initAsync();
+    scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.045,0.055,0.085,1);
+
+    const havok = await HavokPhysics();
+    physicsPlugin = new BABYLON.HavokPlugin(true, havok);
+    scene.enablePhysics(new BABYLON.Vector3(0,-9.8,0), physicsPlugin);
+
+    setupMaterials();
+    setupCameraLights();
+    buildWorld();
+    createGeebr('Brindle', -3, -2, '#89d37d', 'bucket');
+    createGeebr('Mogo', 2, -1, '#e2a35f', 'cone');
+    createGeebr('Pim', 0, 3, '#86b7ff', 'cap');
+    selected = geebrs[0];
+    selectedEl.textContent = selected.name;
+    addCrate(1,1); addBarrel(-2,2);
+    hookUI();
+
+    scene.onPointerObservable.add(pointerInfo => {
+      if (pointerInfo.type !== BABYLON.PointerEventTypes.POINTERPICK) return;
+      const pick = pointerInfo.pickInfo;
+      if (!pick || !pick.hit || !pick.pickedMesh) return;
+      let root = pick.pickedMesh.metadata?.root || pick.pickedMesh;
+      while (root && !root.metadata?.kind && root.parent) root = root.parent;
+      if (root.metadata?.kind === 'geebr') selectGeebr(root.metadata.ref);
+      if (root.metadata?.kind === 'dynamic') { targetBody = root.metadata.ref; log(`targeted ${targetBody.kind}`); }
+      if (root.metadata?.kind === 'block') { targetBlock = root.metadata.ref; targetBody = null; damageBlock(targetBlock, 10, 'poked'); }
+    });
+
+    engine.runRenderLoop(() => {
+      tick++;
+      updateSpeech();
+      updateBodyMeshes();
+      scene.render();
+      hud.innerHTML = `<b>Babylon WebGPU + Havok</b><br>tick ${tick} · blocks ${blocks.size} · bodies ${bodies.length}<br>selected ${selected?.name || 'none'} · target ${targetBody ? targetBody.kind : (targetBlock ? targetBlock.k : 'none')}`;
+    });
+    window.addEventListener('resize', () => engine.resize());
+    log('WebGPU engine initialized. Havok physics active. Visual pass loaded.', 'good');
+  }
+
+  function setupMaterials(){
+    const mk = (name, color, spec=0.06, emissive=0) => {
+      const m = new BABYLON.StandardMaterial(name, scene);
+      m.diffuseColor = BABYLON.Color3.FromHexString(color);
+      m.specularColor = new BABYLON.Color3(spec,spec,spec);
+      if (emissive) m.emissiveColor = BABYLON.Color3.FromHexString(color).scale(emissive);
+      return m;
+    };
+    mats.ground = mk('velvet night grass', '#30384b'); mats.ground2 = mk('cool grass', '#39425a');
+    mats.moss = mk('moss trim', '#62784a'); mats.stone = mk('warm stone', '#747985'); mats.stoneTop = mk('stone worn top', '#9097a4');
+    mats.wood = mk('honey wood', '#a06f3f'); mats.woodTop = mk('fresh cut wood', '#c29357');
+    mats.glass = mk('blue candy glass', '#84d9ff', .12, .08); mats.crack = mk('terracotta crack', '#cc7d58');
+    mats.geebrEye = mk('inky eyes', '#101218'); mats.debris = mk('debris', '#b28b64');
+    mats.select = mk('selection cyan', '#b7f7ff', .2, .35); mats.fire = mk('ember orange', '#ff754a', .1, .55);
+    mats.red = mk('berry red', '#d86464'); mats.green = mk('leaf green', '#76ca79'); mats.blue = mk('pond blue', '#7ca8ee');
+    mats.yellow = mk('soft gold', '#ffd57a', .08, .05); mats.pink = mk('flower pink', '#ff8fca', .05, .05);
+    mats.black = mk('soft black', '#12151a'); mats.white = mk('cream', '#fff1d6');
+    mats.shadow = mk('blob shadow', '#050609'); mats.shadow.alpha = 0.28; mats.shadow.transparencyMode = BABYLON.Material.MATERIAL_ALPHABLEND;
+  }
+
+  function setupCameraLights(){
+    const camera = new BABYLON.ArcRotateCamera('camera', -Math.PI/4, Math.PI/3.2, 23, new BABYLON.Vector3(0,0,0), scene);
+    camera.mode = BABYLON.Camera.ORTHOGRAPHIC_CAMERA;
+    camera.orthoTop = 10; camera.orthoBottom = -10; camera.orthoLeft = -12.5; camera.orthoRight = 12.5;
+    camera.attachControl(canvas, true);
+    camera.lowerRadiusLimit = 10; camera.upperRadiusLimit = 34;
+    camera.wheelPrecision = 40;
+    const hemi = new BABYLON.HemisphericLight('hemi', new BABYLON.Vector3(0.25,1,0.3), scene); hemi.intensity = 0.72;
+    const sun = new BABYLON.DirectionalLight('sun', new BABYLON.Vector3(-0.65,-1.35,-0.85), scene); sun.position = new BABYLON.Vector3(10,15,11); sun.intensity = 1.55;
+    shadowGen = new BABYLON.ShadowGenerator(2048, sun); shadowGen.useBlurExponentialShadowMap = true; shadowGen.blurKernel = 32; shadowGen.darkness = 0.34;
+    glow = new BABYLON.GlowLayer('soft magical bloom', scene); glow.intensity = 0.22;
+  }
+
+  function castShadow(mesh){ try { shadowGen && shadowGen.addShadowCaster(mesh, true); } catch(e) {} mesh.receiveShadows = true; return mesh; }
+
+  function makeBlobShadow(parent, y=.025, scale=1){
+    const sh = BABYLON.MeshBuilder.CreateDisc('soft contact shadow', { radius:.62*scale, tessellation:34 }, scene);
+    sh.rotation.x = Math.PI/2; sh.position.y = y; sh.material = mats.shadow; sh.parent = parent; return sh;
+  }
+
+  function buildWorld(){
+    for (let x=-HALF; x<=HALF; x++) for (let z=-HALF; z<=HALF; z++) {
+      const floor = BABYLON.MeshBuilder.CreateBox(`floor ${x},${z}`, { width:TILE, height:0.16, depth:TILE }, scene);
+      floor.position = new BABYLON.Vector3(x*TILE, -0.08, z*TILE);
+      floor.material = ((x+z)&1) ? mats.ground : mats.ground2; floor.receiveShadows = true;
+      floor.metadata = { kind:'floor', x,z };
+      new BABYLON.PhysicsAggregate(floor, BABYLON.PhysicsShapeType.BOX, { mass:0, friction:0.9, restitution:0.05 }, scene);
+      if (Math.abs(x)===HALF || Math.abs(z)===HALF || (x===-1 && z>1 && z<5) || (z===-3 && x>-5 && x<2)) {
+        createBlock(x,z,0, Math.abs(x)===HALF||Math.abs(z)===HALF ? 'stone':'wood');
+      }
+    }
+    buildDioramaBase();
+    scatterDecor();
+    for (let i=0;i<4;i++) createBlock(-4+i,4,0,'glass');
+    createBlock(3,2,0,'wood'); createBlock(3,2,1,'wood'); createBlock(4,2,0,'wood');
+  }
+
+  
+
+  function buildDioramaBase(){
+    const base = BABYLON.MeshBuilder.CreateBox('floating beveled diorama base', { width:GRID*TILE+1.2, height:.55, depth:GRID*TILE+1.2 }, scene);
+    base.position.y = -.44; base.material = mats.black; base.receiveShadows = true;
+    const rim = BABYLON.MeshBuilder.CreateBox('golden toybox rim', { width:GRID*TILE+1.55, height:.16, depth:GRID*TILE+1.55 }, scene);
+    rim.position.y = -.08; rim.material = mats.yellow; rim.receiveShadows = true;
+    const inner = BABYLON.MeshBuilder.CreateBox('inset playfield cover', { width:GRID*TILE+.25, height:.18, depth:GRID*TILE+.25 }, scene);
+    inner.position.y = .02; inner.material = mats.ground; inner.receiveShadows = true;
+  }
+
+  function scatterDecor(){
+    const spots = [[-5,-4],[-4,-2],[5,3],[4,-5],[-2,5],[2,5],[5,-1],[-5,2],[1,-5],[-3,3]];
+    for (const [x,z] of spots) {
+      if (Math.random()<.55) makeMushroom(x,z); else makeGrassClump(x,z);
+    }
+    makeCrystal(4,4); makeCrystal(-4,-4); makeTinyLamp(0,-5); makeTinyLamp(5,0);
+  }
+  function makeGrassClump(x,z){
+    const root = new BABYLON.TransformNode('grass clump', scene); root.position = new BABYLON.Vector3(x*TILE, .06, z*TILE);
+    for(let i=0;i<5;i++){
+      const blade = BABYLON.MeshBuilder.CreateBox('grass blade', {width:.045,height:rand(.22,.42),depth:.035}, scene);
+      blade.position.set(rand(-.25,.25), blade.getBoundingInfo?.() ? .15 : .16, rand(-.25,.25)); blade.rotation.z=rand(-.35,.35); blade.rotation.x=rand(-.25,.25); blade.material=mats.moss; blade.parent=root;
+    }
+  }
+  function makeMushroom(x,z){
+    const root = new BABYLON.TransformNode('mushroom', scene); root.position = new BABYLON.Vector3(x*TILE, .06, z*TILE);
+    const stem = BABYLON.MeshBuilder.CreateCylinder('mushroom stem', {diameter:.16,height:.38,tessellation:10}, scene); stem.position.y=.19; stem.material=mats.white; stem.parent=root; castShadow(stem);
+    const cap = BABYLON.MeshBuilder.CreateSphere('mushroom cap', {diameter:.46,segments:12}, scene); cap.scaling.y=.45; cap.position.y=.44; cap.material=mats.red; cap.parent=root; castShadow(cap);
+    const dot = BABYLON.MeshBuilder.CreateSphere('mushroom dot', {diameter:.07,segments:6}, scene); dot.position.set(.08,.52,-.16); dot.material=mats.white; dot.parent=root;
+  }
+  function makeCrystal(x,z){
+    const c = BABYLON.MeshBuilder.CreateCylinder('glow crystal', {diameterTop:.08, diameterBottom:.38, height:.9, tessellation:5}, scene);
+    c.position = new BABYLON.Vector3(x*TILE,.5,z*TILE); c.rotation.y=.4; c.material=mats.glass; castShadow(c);
+    makeBlobShadow(c, -.48, .65);
+  }
+  function makeTinyLamp(x,z){
+    const root = new BABYLON.TransformNode('tiny lamp', scene); root.position = new BABYLON.Vector3(x*TILE,.05,z*TILE);
+    const post = BABYLON.MeshBuilder.CreateCylinder('lamp post', {diameter:.08,height:.75,tessellation:8}, scene); post.position.y=.37; post.material=mats.black; post.parent=root;
+    const bulb = BABYLON.MeshBuilder.CreateSphere('lamp bulb', {diameter:.26,segments:10}, scene); bulb.position.y=.82; bulb.material=mats.yellow; bulb.parent=root; castShadow(bulb);
+    const light = new BABYLON.PointLight('tiny warm lamp', new BABYLON.Vector3(x*TILE,.95,z*TILE), scene); light.diffuse = new BABYLON.Color3(1,.72,.34); light.intensity=.22; light.range=4;
+  }
+
+  function decorateEdges(mesh, color='rgba'){
+    try { mesh.enableEdgesRendering(); mesh.edgesWidth = 2.0; mesh.edgesColor = new BABYLON.Color4(0.05,0.06,0.08,0.45); } catch(e) {}
+  }
+
+  function createBlock(x,z,y=0, mat='stone'){
+    const k = key(x,z,y); if (blocks.has(k)) return blocks.get(k);
+    const mesh = BABYLON.MeshBuilder.CreateBox(`block ${k}`, { width:TILE*.98, height:TILE*.98, depth:TILE*.98 }, scene);
+    mesh.position = gridToWorld(x,z,y);
+    mesh.material = mats[mat] || mats.stone;
+    decorateEdges(mesh); castShadow(mesh);
+    const block = { k,x,z,y,mat,hp: mat==='glass'?26: mat==='wood'?42:70, maxhp: mat==='glass'?26: mat==='wood'?42:70, mesh, agg:null, fire:0 };
+    mesh.metadata = { kind:'block', ref:block };
+    block.agg = new BABYLON.PhysicsAggregate(mesh, BABYLON.PhysicsShapeType.BOX, { mass:0, friction:0.95, restitution:0.02 }, scene);
+    blocks.set(k, block);
+
+    // Cheap visual identity: planks/rivets/glass shine as child strips.
+    const capMat = mat==='wood' ? mats.woodTop : mat==='stone' ? mats.stoneTop : mat==='glass' ? mats.glass : mats.moss;
+    const topCap = BABYLON.MeshBuilder.CreateBox('soft highlighted top', { width:TILE*.86, height:.035, depth:TILE*.86 }, scene);
+    topCap.position.set(0,TILE*.505,0); topCap.material = capMat; topCap.parent=mesh;
+    if (mat === 'wood') {
+      for (let i=-1;i<=1;i+=2) {
+        const strip = BABYLON.MeshBuilder.CreateBox('wood strip', { width:TILE*.99, height:.035, depth:.045 }, scene);
+        strip.position.set(0, i*.23, -TILE*.501); strip.material = mats.black; strip.alphaIndex=1; strip.parent=mesh;
+        const strip2 = strip.clone('wood strip side'); strip2.position.set(-TILE*.501, i*.23, 0); strip2.rotation.y=Math.PI/2; strip2.parent=mesh;
+      }
+    }
+    if (mat === 'glass') {
+      const shine = BABYLON.MeshBuilder.CreateBox('glass shine', { width:.06, height:TILE*.82, depth:.03 }, scene);
+      shine.position.set(-.28,.08,-TILE*.505); shine.rotation.z=.5; shine.material = mats.select; shine.parent=mesh;
+    }
+    return block;
+  }
+
+  function destroyBlock(block, reason='destroyed'){
+    if (!block || !blocks.has(block.k)) return;
+    blocks.delete(block.k);
+    const pos = block.mesh.position.clone();
+    block.agg?.dispose(); block.mesh.dispose();
+    for (let i=0;i<6;i++) spawnChunk(pos.x+rand(-.25,.25), pos.y+rand(-.1,.3), pos.z+rand(-.25,.25), block.mat);
+    log(`${block.mat} block ${block.k} broke: ${reason}`, 'bad');
+    recomputeSupportAround(block.x, block.z, block.y);
+  }
+
+  function damageBlock(block, amount, reason='damaged'){
+    if (!block) return;
+    block.hp -= amount;
+    const ratio = Math.max(0, block.hp / block.maxhp);
+    if (ratio < 0.45) block.mesh.material = mats.crack;
+    block.mesh.scaling.y = 0.82 + 0.18*ratio;
+    if (block.hp <= 0) destroyBlock(block, reason);
+  }
+
+  function recomputeSupportAround(x,z,y){
+    for (const b of Array.from(blocks.values())) {
+      if (b.y <= 0) continue;
+      const below = blocks.get(key(b.x,b.z,b.y-1));
+      if (!below) {
+        b.agg?.dispose();
+        blocks.delete(b.k);
+        b.mesh.metadata = { kind:'looseBlock' };
+        const agg = new BABYLON.PhysicsAggregate(b.mesh, BABYLON.PhysicsShapeType.BOX, { mass:2.5, friction:0.7, restitution:0.25 }, scene);
+        bodies.push({ mesh:b.mesh, agg, ttl:9999, kind:'fallingBlock' });
+        agg.body.applyImpulse(new BABYLON.Vector3(rand(-.8,.8), rand(.5,1.5), rand(-.8,.8)), b.mesh.getAbsolutePosition());
+        log(`unsupported ${b.mat} block fell`, 'bad');
+      }
+    }
+  }
+
+  function safeBodyDamping(body, lin=5, ang=8){
+    try { if (body.setLinearDamping) body.setLinearDamping(lin); } catch(e) {}
+    try { if (body.setAngularDamping) body.setAngularDamping(ang); } catch(e) {}
+  }
+
+  function createGeebr(name,x,z,color,hat){
+    const root = new BABYLON.TransformNode(name, scene);
+    root.position = new BABYLON.Vector3(x*TILE, 0.15, z*TILE);
+
+    // Real physics body: an invisible dynamic sphere so Geebrs collide with each other and props.
+    const collider = BABYLON.MeshBuilder.CreateSphere(name+' collider', { diameter:.82, segments:12 }, scene);
+    collider.position = new BABYLON.Vector3(x*TILE, .58, z*TILE);
+    collider.isVisible = false;
+    const agg = new BABYLON.PhysicsAggregate(collider, BABYLON.PhysicsShapeType.SPHERE, { mass:2.8, friction:1.0, restitution:.05 }, scene);
+    safeBodyDamping(agg.body, 7, 10);
+
+    const bodyMat = new BABYLON.StandardMaterial(name+'mat', scene);
+    bodyMat.diffuseColor = BABYLON.Color3.FromHexString(color);
+    bodyMat.specularColor = new BABYLON.Color3(.04,.04,.04);
+    bodyMat.emissiveColor = BABYLON.Color3.FromHexString(color).scale(.06);
+
+    const bellyMat = new BABYLON.StandardMaterial(name+'belly', scene);
+    bellyMat.diffuseColor = BABYLON.Color3.FromHexString('#f1e7c9');
+    bellyMat.specularColor = new BABYLON.Color3(.03,.03,.03);
+
+    const body = BABYLON.MeshBuilder.CreateSphere(name+' body', { diameter:0.78, segments:16 }, scene); body.scaling.y=1.05; body.position.y=0.62; body.material=bodyMat; body.parent=root;
+    const belly = BABYLON.MeshBuilder.CreateSphere(name+' belly', { diameter:.38, segments:10 }, scene); belly.scaling.y=.72; belly.position.set(0,.56,-.33); belly.material=bellyMat; belly.parent=root;
+    const head = BABYLON.MeshBuilder.CreateSphere(name+' head', { diameter:0.56, segments:16 }, scene); head.position.y=1.18; head.material=bodyMat; head.parent=root;
+    const eye1 = BABYLON.MeshBuilder.CreateSphere(name+' eye1', { diameter:0.105, segments:8 }, scene); eye1.position.set(-.13,1.23,-.255); eye1.material=mats.geebrEye; eye1.parent=root;
+    const eye2 = eye1.clone(name+' eye2'); eye2.position.x=.13; eye2.parent=root;
+    const brow1 = BABYLON.MeshBuilder.CreateBox(name+' brow1', { width:.18,height:.035,depth:.04 }, scene); brow1.position.set(-.13,1.35,-.25); brow1.rotation.z=.20; brow1.material=mats.black; brow1.parent=root;
+    const brow2 = brow1.clone(name+' brow2'); brow2.position.x=.13; brow2.rotation.z=-.20; brow2.parent=root;
+    const foot1 = BABYLON.MeshBuilder.CreateBox(name+' foot1', { width:.25,height:.13,depth:.42 }, scene); foot1.position.set(-.22,.12,-.08); foot1.material=bodyMat; foot1.parent=root;
+    const foot2 = foot1.clone(name+' foot2'); foot2.position.x=.22; foot2.parent=root;
+    const arm1 = BABYLON.MeshBuilder.CreateCylinder(name+' arm1', { diameter:.11, height:.48, tessellation:8 }, scene); arm1.position.set(-.47,.66,-.02); arm1.rotation.z=.45; arm1.material=bodyMat; arm1.parent=root;
+    const arm2 = arm1.clone(name+' arm2'); arm2.position.x=.47; arm2.rotation.z=-.45; arm2.parent=root;
+    let hatMesh;
+    if (hat==='cone') hatMesh = BABYLON.MeshBuilder.CreateCylinder(name+' cone', { diameterTop:0, diameterBottom:.48, height:.55, tessellation:16 }, scene);
+    else if (hat==='bucket') hatMesh = BABYLON.MeshBuilder.CreateCylinder(name+' bucket', { diameterTop:.38, diameterBottom:.50, height:.32, tessellation:16 }, scene);
+    else hatMesh = BABYLON.MeshBuilder.CreateCylinder(name+' cap', { diameter:.50, height:.18, tessellation:16 }, scene);
+    hatMesh.position.y=1.58; hatMesh.material = hat==='bucket'?mats.blue:hat==='cone'?mats.red:mats.green; hatMesh.parent=root; decorateEdges(hatMesh);
+
+    root.metadata = { kind:'geebr', ref:null };
+    collider.metadata = { kind:'geebrCollider', root };
+    const nose = BABYLON.MeshBuilder.CreateSphere(name+' nose', { diameter:.075, segments:8 }, scene); nose.position.set(0,1.14,-.285); nose.material=mats.pink; nose.parent=root;
+    const cheek1 = BABYLON.MeshBuilder.CreateSphere(name+' cheek1', { diameter:.095, segments:8 }, scene); cheek1.scaling.y=.55; cheek1.position.set(-.22,1.12,-.265); cheek1.material=mats.pink; cheek1.parent=root;
+    const cheek2 = cheek1.clone(name+' cheek2'); cheek2.position.x=.22; cheek2.parent=root;
+    const pack = BABYLON.MeshBuilder.CreateBox(name+' backpack', { width:.42,height:.55,depth:.22 }, scene); pack.position.set(0,.73,.43); pack.material=mats.wood; pack.parent=root; decorateEdges(pack);
+    const antenna = BABYLON.MeshBuilder.CreateCylinder(name+' antenna', { diameter:.025, height:.42, tessellation:6 }, scene); antenna.position.set(.18,1.74,0); antenna.rotation.z=-.35; antenna.material=mats.black; antenna.parent=root;
+    const bead = BABYLON.MeshBuilder.CreateSphere(name+' antenna bead', { diameter:.105, segments:8 }, scene); bead.position.set(.26,1.93,0); bead.material=mats.yellow; bead.parent=root;
+    for (const m of [body,belly,head,eye1,eye2,brow1,brow2,foot1,foot2,arm1,arm2,hatMesh,nose,cheek1,cheek2,pack,antenna,bead]) { m.metadata = { root }; castShadow(m); }
+    makeBlobShadow(root, .03, 1.05);
+    const marker = BABYLON.MeshBuilder.CreateTorus(name+' select', { diameter:1.18, thickness:.04, tessellation:48 }, scene); marker.rotation.x=Math.PI/2; marker.position.y=.08; marker.material=mats.select; marker.parent=root; marker.setEnabled(false);
+    const geebr = { name, root, collider, agg, x,z, facing:new BABYLON.Vector3(0,0,-1), marker, speech:null, speechT:0, mood:'idle', queue:[], moveTarget:null, moveTicks:0, color };
+    root.metadata.ref = geebr;
+    geebrs.push(geebr);
+    return geebr;
+  }
+
+  function selectGeebr(g){ selected = g; selectedEl.textContent = g.name; log(`selected ${g.name}`); }
+
+  function updateSpeech(){
+    for (const g of geebrs) {
+      const p = g.collider.position;
+      g.root.position.set(p.x, Math.max(0.05, p.y-.43), p.z);
+      g.x = Math.round(p.x / TILE); g.z = Math.round(p.z / TILE);
+      g.marker.setEnabled(g===selected);
+
+      if (g.moveTarget) {
+        const diff = g.moveTarget.subtract(p); diff.y = 0;
+        const dist = diff.length();
+        g.moveTicks--;
+        if (dist < .18 || g.moveTicks <= 0) { g.moveTarget = null; }
+        else {
+          const v = diff.normalize().scale(Math.min(2.6, dist*3.6));
+          try { if (g.agg.body.setLinearVelocity) g.agg.body.setLinearVelocity(new BABYLON.Vector3(v.x, 0, v.z)); else g.agg.body.applyImpulse(new BABYLON.Vector3(v.x*.08,0,v.z*.08), p); }
+          catch(e) { g.agg.body.applyImpulse(new BABYLON.Vector3(v.x*.08,0,v.z*.08), p); }
+        }
+      }
+
+      if (g.facing) {
+        const yaw = Math.atan2(g.facing.x, g.facing.z);
+        g.root.rotation.y = yaw + Math.sin(tick/15 + g.x)*0.03;
+      }
+      g.root.position.y += Math.sin(tick/10 + g.z)*0.025;
+      if (g.speech) {
+        g.speechT--;
+        g.speech.position = g.root.position.add(new BABYLON.Vector3(0,2.15,0));
+        if (g.speechT <= 0) { g.speech.dispose(); g.speech=null; }
+      }
+    }
+  }
+
+  function say(g, text){
+    log(`${g.name}: ${text}`);
+    if (g.speech) g.speech.dispose();
+    const plane = BABYLON.MeshBuilder.CreatePlane('speech', { width: Math.min(4.8, 1.2 + text.length*.075), height:.42 }, scene);
+    plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+    plane.position = g.root.position.add(new BABYLON.Vector3(0,2.15,0));
+    const tex = new BABYLON.DynamicTexture('speechTex', { width:512, height:96 }, scene, false);
+    const ctx = tex.getContext(); ctx.clearRect(0,0,512,96); ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fillRect(0,0,512,96); ctx.fillStyle='#11151a'; ctx.font='bold 28px system-ui'; ctx.fillText(text.slice(0,42), 18, 57); tex.update();
+    const mat = new BABYLON.StandardMaterial('speechMat', scene); mat.diffuseTexture=tex; mat.emissiveColor = new BABYLON.Color3(1,1,1); mat.disableLighting=true;
+    plane.material=mat; g.speech=plane; g.speechT=190;
+  }
+
+  function moveGeebr(g, dx,dz){
+    g.facing = new BABYLON.Vector3(dx,0,dz).normalize();
+    const p = g.collider.position;
+    const nx = Math.max((-HALF+1)*TILE, Math.min((HALF-1)*TILE, p.x + dx*TILE));
+    const nz = Math.max((-HALF+1)*TILE, Math.min((HALF-1)*TILE, p.z + dz*TILE));
+    g.moveTarget = new BABYLON.Vector3(nx, p.y, nz);
+    g.moveTicks = 42;
+    // A little shoulder-check impulse makes walking into barrels/crates funny.
+    g.agg.body.applyImpulse(new BABYLON.Vector3(dx*.9, .02, dz*.9), p);
+  }
+
+  function makeBodyRecord(mesh, agg, kind, ttl=99999){
+    const rec = {mesh, agg, ttl, kind};
+    mesh.metadata = { kind:'dynamic', ref:rec };
+    bodies.push(rec);
+    return rec;
+  }
+
+  function addCrate(x=rand(-3,3), z=rand(-3,3)){
+    const mesh = BABYLON.MeshBuilder.CreateBox('crate', { width:.9, height:.9, depth:.9 }, scene);
+    mesh.position = new BABYLON.Vector3(x*TILE, 1.15, z*TILE); mesh.material=mats.wood; decorateEdges(mesh); castShadow(mesh); makeBlobShadow(mesh, -.46, .85);
+    for (let i=-1;i<=1;i+=2) {
+      const band = BABYLON.MeshBuilder.CreateBox('crate band', { width:.94, height:.06, depth:.05 }, scene); band.position.set(0,i*.22,-.48); band.material=mats.black; band.parent=mesh;
+      const band2 = band.clone('crate side band'); band2.position.set(-.48,i*.22,0); band2.rotation.y=Math.PI/2; band2.parent=mesh;
+    }
+    const agg = new BABYLON.PhysicsAggregate(mesh, BABYLON.PhysicsShapeType.BOX, { mass:1.4, friction:.72, restitution:.28 }, scene);
+    safeBodyDamping(agg.body, .35, .6);
+    makeBodyRecord(mesh,agg,'crate'); log('spawned pushable crate'); return mesh;
+  }
+  function addBarrel(x=rand(-3,3), z=rand(-3,3)){
+    const mesh = BABYLON.MeshBuilder.CreateCylinder('barrel', { diameter:.72, height:.95, tessellation:20 }, scene);
+    mesh.rotation.z = Math.PI/2; mesh.position = new BABYLON.Vector3(x*TILE, 1.2, z*TILE); mesh.material=mats.red; decorateEdges(mesh); castShadow(mesh); makeBlobShadow(mesh, -.48, .8);
+    for (const off of [-.32,.32]) {
+      const band = BABYLON.MeshBuilder.CreateTorus('barrel band', { diameter:.74, thickness:.025, tessellation:20 }, scene); band.rotation.y=Math.PI/2; band.position.x=off; band.material=mats.black; band.parent=mesh;
+    }
+    const agg = new BABYLON.PhysicsAggregate(mesh, BABYLON.PhysicsShapeType.CYLINDER, { mass:1.05, friction:.58, restitution:.42 }, scene);
+    safeBodyDamping(agg.body, .2, .3);
+    makeBodyRecord(mesh,agg,'barrel'); log('spawned rollable barrel'); return mesh;
+  }
+  function spawnChunk(x,y,z,mat='wood'){
+    const s = rand(.16,.34); const mesh = BABYLON.MeshBuilder.CreateBox('chunk', { width:s, height:s, depth:s }, scene);
+    mesh.position = new BABYLON.Vector3(x,y,z); mesh.rotation = new BABYLON.Vector3(rand(0,3),rand(0,3),rand(0,3)); mesh.material = mat==='glass'?mats.glass:mat==='stone'?mats.stone:mats.debris; decorateEdges(mesh); castShadow(mesh);
+    const agg = new BABYLON.PhysicsAggregate(mesh, BABYLON.PhysicsShapeType.BOX, { mass:.25, friction:.55, restitution:.45 }, scene);
+    agg.body.applyImpulse(new BABYLON.Vector3(rand(-1.8,1.8), rand(.8,3.2), rand(-1.8,1.8)), mesh.getAbsolutePosition());
+    makeBodyRecord(mesh,agg,'debris',700);
+  }
+
+  function updateBodyMeshes(){
+    for (let i=bodies.length-1;i>=0;i--) {
+      const b = bodies[i];
+      if (b.ttl !== 99999) b.ttl--;
+      if (b.ttl <= 0 || b.mesh.position.y < -12) { b.agg?.dispose(); b.mesh.dispose(); bodies.splice(i,1); }
+    }
+  }
+
+  function command(raw){
+    if (!selected) return;
+    const s = String(raw || '').trim(); if (!s) return;
+    const lower = s.toLowerCase();
+    if (lower.startsWith('say ')) { say(selected, s.slice(4)); return; }
+    if (lower.startsWith('walk')) {
+      const d = lower.match(/\b(n|s|e|w|north|south|east|west)\b/)?.[1] || ['n','s','e','w'][Math.floor(Math.random()*4)];
+      const m = {n:[0,-1],north:[0,-1],s:[0,1],south:[0,1],e:[1,0],east:[1,0],w:[-1,0],west:[-1,0]}[d]; moveGeebr(selected, m[0], m[1]); return;
+    }
+    if (lower.includes('panic')) { say(selected, 'I am handling this poorly'); for(let i=0;i<5;i++) setTimeout(()=>moveGeebr(selected, ...[[1,0],[-1,0],[0,1],[0,-1]][Math.floor(Math.random()*4)]), i*140); return; }
+    if (lower.includes('build')) { const bx=selected.x, bz=selected.z-1; createBlock(bx,bz,0,'wood'); log(`${selected.name} built a suspicious wall`, 'good'); return; }
+    if (lower.includes('dig')) { const b = targetBlock || blocks.get(key(selected.x, selected.z-1, 0)) || nearestBlock(selected); damageBlock(b, 36, `${selected.name} dug`); return; }
+    if (lower.includes('spark')) { const b = targetBlock || nearestBlock(selected); if (b) { damageBlock(b, 20, 'sparked'); for(let i=0;i<8;i++) spawnChunk(b.mesh.position.x,b.mesh.position.y+.3,b.mesh.position.z,'glass'); say(selected, 'tiny unsafe magic'); } return; }
+    if (lower.includes('push')) {
+      const origin = selected.collider.position;
+      const candidates = targetBody ? [targetBody] : bodies.slice().sort((a,b)=>BABYLON.Vector3.Distance(origin,a.mesh.position)-BABYLON.Vector3.Distance(origin,b.mesh.position)).slice(0,5);
+      let hit = 0;
+      for (const b of candidates) {
+        const d = BABYLON.Vector3.Distance(origin, b.mesh.position);
+        if (targetBody || d < 5.0) {
+          const dir = b.mesh.position.subtract(origin); dir.y = 0; if (dir.length() < .01) dir.copyFrom(selected.facing || new BABYLON.Vector3(0,0,-1));
+          const impulse = dir.normalize().scale(lower.includes('spell') ? 8.5 : 4.0);
+          b.agg.body.applyImpulse(new BABYLON.Vector3(impulse.x, lower.includes('spell') ? 2.4 : .8, impulse.z), b.mesh.getAbsolutePosition());
+          hit++;
+        }
+      }
+      if (!hit) {
+        const bl = targetBlock || nearestBlock(selected); if (bl) damageBlock(bl, lower.includes('spell') ? 20 : 10, 'pushed');
+      }
+      // Geebr also lunges, so direct body contact can shove props.
+      selected.agg.body.applyImpulse((selected.facing || new BABYLON.Vector3(0,0,-1)).scale(lower.includes('spell') ? 1.6 : 1.0), origin);
+      say(selected, lower.includes('spell') ? 'force misunderstanding' : 'shove protocol'); return;
+    }
+    log(`unknown command: ${s}`, 'bad'); say(selected, 'invalid thought');
+  }
+  function nearestBlock(g){
+    let best=null, bd=1e9; const p=g.root.position;
+    for (const b of blocks.values()) { const d=BABYLON.Vector3.Distance(p,b.mesh.position); if(d<bd){bd=d; best=b;} }
+    return best;
+  }
+
+  function hookUI(){
+    document.querySelectorAll('[data-cmd]').forEach(btn => btn.addEventListener('click', () => command(btn.dataset.cmd)));
+    document.getElementById('run').addEventListener('click', () => command(cmdInput.value));
+    cmdInput.addEventListener('keydown', e => { if(e.key==='Enter') command(cmdInput.value); });
+    document.getElementById('spawnCrate').addEventListener('click', () => Math.random()<.5 ? addCrate() : addBarrel());
+    document.getElementById('spawnDebris').addEventListener('click', () => { const p=selected.root.position; for(let i=0;i<24;i++) spawnChunk(p.x,p.y+1,p.z,'wood'); log('debris burst'); });
+    window.runCommand = command;
+  }
+
+  boot().catch(showError);
+})();
+</script>
+</body>
+</html>
