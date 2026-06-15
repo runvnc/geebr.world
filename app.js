@@ -1,4 +1,4 @@
-/* geebr.world v13.1 — action buttons fix + compact agent perception grid */
+/* geebr.world v14.1 — committed tile movement fix + turn-based LLM control */
 const canvas = document.getElementById('renderCanvas');
 const ASSET = './assets/textures/';
 const PROP_ASSET = './assets/models/props/';
@@ -8,7 +8,8 @@ const WORLD = { size: 32, half: 16 };
 const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','spell.push','spell.spark','spell.fireball'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
-  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(COMMANDS), zoomFocus:null, animSources:null
+  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(COMMANDS), zoomFocus:null, animSources:null,
+  turn:{index:0, phase:'ready', command:null, resolveMs:1250, lastEndedAt:0, mode:true}
 };
 function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
@@ -218,7 +219,8 @@ async function createKayKitGeebr(scene,id,pos,file,label){
   const collider=BABYLON.MeshBuilder.CreateBox(id+'_collider',{width:.66,height:1.35,depth:.58},scene);
   collider.position.copyFrom(root.position); collider.position.y+=.68; collider.isVisible=false; collider.metadata={ownerId:id};
   const agg=addBody(collider,'dynamic','BOX',1.25,{friction:.92,restitution:.02});
-  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:label,traits:{fireball:78,obedience:48},rigged:true,rigRoot:importedRoot,rigAnims:cloneAnimGroupsForRig(root,id),rigMode:null,activeRigAnim:null,cosmetic:{}};
+  agg?.body?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
+  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:label,traits:{fireball:78,obedience:48},rigged:true,rigRoot:importedRoot,rigAnims:cloneAnimGroupsForRig(root,id),rigMode:null,activeRigAnim:null,cosmetic:{},logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true);
   state.geebrs.push(geebr);
   return geebr;
@@ -292,7 +294,32 @@ function createGeebr(scene,id,pos,palette,style='goblin'){
   const geebr={id,root,body,head,arms:[armL,armR],feet:[footL,footR],collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style,traits:{fireball:82,obedience:45},cosmetic:{hat,pack,wand}};
   state.geebrs.push(geebr); return geebr;
 }
-function syncGeebr(g){ if(g.collider){ g.root.position.x=g.collider.position.x; g.root.position.z=g.collider.position.z; g.root.position.y=0; } }
+function forceBodyTransform(mesh,pos){
+  if(!mesh) return;
+  mesh.position.copyFrom(pos);
+  const q=mesh.rotationQuaternion || BABYLON.Quaternion.FromEulerAngles(mesh.rotation.x||0,mesh.rotation.y||0,mesh.rotation.z||0);
+  try{ mesh.physicsBody?.setTargetTransform?.(pos,q); }catch{}
+  try{ mesh.physicsBody?.setPrestepType?.(BABYLON.PhysicsPrestepType.ACTION); }catch{}
+}
+function setGeebrLogicalPosition(g,pos){
+  if(!g) return;
+  g.logicalPos = new BABYLON.Vector3(pos.x, 0, pos.z);
+  if(g.root){ g.root.position.x=g.logicalPos.x; g.root.position.z=g.logicalPos.z; g.root.position.y=0; }
+  if(g.collider){
+    const cpos=new BABYLON.Vector3(g.logicalPos.x,.74,g.logicalPos.z);
+    forceBodyTransform(g.collider,cpos);
+    g.collider.physicsBody?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
+    zeroMeshMotion(g.collider);
+  }
+}
+function syncGeebr(g){
+  // v14.1: authoritative character position is logical/grid position, not Havok momentum.
+  // Otherwise the invisible physics body can snap the visual rig back to its old position after a turn.
+  if(!g.collider) return;
+  if(!g.logicalPos) g.logicalPos=new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
+  if(g.turnMove) return;
+  setGeebrLogicalPosition(g,g.logicalPos);
+}
 function makeTile(scene,x,z,material='grass'){ const t=BABYLON.MeshBuilder.CreateBox('tile_'+material,{width:1,height:.06,depth:1},scene); t.position.set(x,-.065,z); t.material=state.materials[material+'Base']||state.materials[material]; t.receiveShadows=true; t.isPickable=true; tag(t,'tile',{interactive:false,tileMaterial:material}); state.tiles.push(t); return t; }
 function makeBlock(scene,x,z,cracked=false){ const b=BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:.62,depth:.96},scene); b.position.set(x,.31,z); addToScene(b,cracked?state.materials.cracked:state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(b,'wall',{health:cracked?1:3,material:'stone',state:cracked?'cracked':'intact'}); state.blocks.push(b); return b; }
 function makeCrate(scene,x,z){ const m=BABYLON.MeshBuilder.CreateBox('crate',{size:.72},scene); m.position.set(x,.38,z); addToScene(m,state.materials.wood,{shape:'BOX',mass:1.4,restitution:.12}); tag(m,'crate',{health:2,material:'wood',flammable:true}); state.props.push(m); return m; }
@@ -380,16 +407,83 @@ async function addRealPropPass(scene){
   log('v8 real prop assets loaded: '+specs.length+' Quaternius GLTF placements');
 }
 
+
+function bodyOf(mesh){ return mesh?.physicsBody || mesh?.agg?.body || null; }
+function zeroBody(body){
+  if(!body) return;
+  try{ body.setLinearVelocity?.(BABYLON.Vector3.Zero()); }catch{}
+  try{ body.setAngularVelocity?.(BABYLON.Vector3.Zero()); }catch{}
+}
+function zeroMeshMotion(mesh){ zeroBody(mesh?.physicsBody); }
+function settleWorld(reason='settled'){
+  for(const g of state.geebrs){
+    if(g.turnMove){
+      setGeebrLogicalPosition(g,g.turnMove.end || g.logicalPos || g.root.position);
+      delete g.turnMove;
+    } else {
+      setGeebrLogicalPosition(g,g.logicalPos || g.root.position);
+    }
+    if(g.anim==='walk'||g.anim==='panic'||g.anim==='push'||g.anim==='cast') { g.anim='idle'; playRig(g,'idle',true); }
+  }
+  for(const m of state.props.concat(state.blocks)){
+    if(!m || m.isDisposed?.()) continue;
+    const heldBy=[...state.held.values()].includes(m);
+    if(!heldBy) zeroMeshMotion(m);
+    const mm=meta(m);
+    if(mm?.state==='rolling') mm.state='intact';
+  }
+  state.turn.phase='ready'; state.turn.command=null; state.turn.lastEndedAt=performance.now();
+  updateTurnUI(); updatePerceptionUI();
+  if(reason) log('turn '+state.turn.index+' resolved: '+reason);
+}
+function isTurnMode(){ return document.getElementById('turnMode')?.checked !== false; }
+function updateTurnUI(){
+  const status=document.getElementById('turnStatus');
+  if(status) status.textContent = `turn ${state.turn.index} · ${state.turn.phase}`;
+  document.querySelectorAll('button[data-cmd]').forEach(btn=>{
+    const cmd=parseCommand(btn.dataset.cmd);
+    const disabled=!!(cmd&&!canRun(cmd.kind,cmd.spell)) || (isTurnMode() && state.turn.phase==='resolving');
+    btn.disabled=disabled;
+  });
+}
+function beginTurn(cmd,source='command'){
+  if(!cmd) return;
+  if(!isTurnMode()) { executeGameCommandImmediate(cmd); setTimeout(updatePerceptionUI,80); return; }
+  if(state.turn.phase==='resolving') { log('wait: current turn is still resolving'); return; }
+  state.turn.index++; state.turn.phase='resolving'; state.turn.command=cmd;
+  updateTurnUI(); log(`turn ${state.turn.index}: ${source} → ${cmd.kind}${cmd.spell?' '+cmd.spell:''}`);
+  executeGameCommandImmediate(cmd);
+  setTimeout(()=>settleWorld('physics frozen for next LLM choice'), state.turn.resolveMs);
+}
+function yawForDir(d){ return Math.atan2(d.x||0,d.z||0); }
+function setGeebrFacing(g,d){
+  if(!g || !d) return;
+  if(Math.abs(d.x||0)+Math.abs(d.z||0)<.001) return;
+  g.dir = new BABYLON.Vector3(Math.sign(d.x||0),0,Math.sign(d.z||0));
+  const yaw=yawForDir(g.dir);
+  if(g.root) g.root.rotation.y=yaw;
+}
+function startTurnMove(g,d){
+  setGeebrFacing(g,d);
+  const lp=g.logicalPos || new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
+  const start=new BABYLON.Vector3(Math.round(lp.x),0,Math.round(lp.z));
+  const end=start.add(d.scale(1.0));
+  end.x=clamp(Math.round(end.x),-15.5,15.5); end.z=clamp(Math.round(end.z),-15.5,15.5); end.y=0;
+  g.turnMove={start,end,t:0,dur:.48};
+  g.collider?.physicsBody?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
+  zeroMeshMotion(g.collider);
+}
+
 function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=g.root.position.clone(); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); }
 function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
 function parseCommand(raw){ const [a,b,...rest]=raw.trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:raw.replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(['walk','look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,dir:b,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
-function executeGameCommand(cmd){ const g=state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const temptation=+document.getElementById('fireballTemptation').value; if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
+function executeGameCommandImmediate(cmd){ const g=state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const temptation=+document.getElementById('fireballTemptation').value; if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
   switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); default: return say(g,'unknown command object'); } }
-function runCommand(raw){ executeGameCommand(parseCommand(raw)); setTimeout(updatePerceptionUI,80); }
-window.runCommand=runCommand; window.executeCommand=(cmd)=>{ executeGameCommand(cmd); setTimeout(updatePerceptionUI,80); };
+function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
+window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
 // v13.2: avoid global executeCommand recursion; direct controls should keep working even if the perception panel changes/reflows.
 // Use one delegated handler instead of fragile per-button onclick assignments.
@@ -406,7 +500,7 @@ function installDirectControlHandlers(){
   }, true);
 }
 
-function walk(g,dir){ const dirs={n:[0,0,-1],s:[0,0,1],e:[1,0,0],w:[-1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); g.dir=d; g.collider.physicsBody?.applyImpulse(d.scale(1.9),g.collider.getAbsolutePosition()); g.anim='walk'; playRig(g,'walk',true); log(g.id+' walks '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
+function walk(g,dir){ const dirs={n:[0,0,-1],s:[0,0,1],e:[1,0,0],w:[-1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); setGeebrFacing(g,d); startTurnMove(g,d); g.anim='walk'; playRig(g,'walk',true); log(g.id+' steps '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
 function look(g){ const t=nearestTarget(g,6); if(!t) return say(g,'I see many legal surfaces'); const m=meta(t); say(g,`that ${m?.type||t.name} is ${m?.state||'suspicious'}`); }
 function touch(g){ const t=nearestTarget(g); if(!t) return say(g,'touching the air respectfully'); const m=meta(t); if(m?.soft){ impulse(t,g.root.position,1.7,.45); say(g,'boing verified'); } else { damage(t,.35,'touch'); say(g,'texture report: probably real'); } }
 function push(g,sign=1){ const t=nearestTarget(g); if(!t) return say(g,'nothing to shove'); const from=sign>0?g.root.position:t.position.add(g.root.position.subtract(t.position).scale(2)); impulse(t,from,sign>0?4.8:2.2,.18); const m=meta(t); if(m?.type==='barrel') { m.state='rolling'; emitBadge(t,'roll'); } if(m?.type==='mushroom') emitBadge(t,'boing'); damage(t,.25,'push'); g.anim='push'; playRig(g,'push',false); say(g,sign>0?'helpfully pushing the wrong thing':'pulling with moral uncertainty'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); },540); }
@@ -415,7 +509,7 @@ function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g
 function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); say(g,'hole installed'); } }
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 function build(g,thing='wall'){ const p=g.root.position.add(g.dir.scale(1.25)); const x=clamp(Math.round(p.x),-15,15),z=clamp(Math.round(p.z),-15,15); if(thing==='crate') makeCrate(state.scene,x,z); else makeBlock(state.scene,x,z,false); say(g,'construction happened near the plan'); }
-function panic(g){ g.anim='panic'; playRig(g,'panic',true); say(g,'I have promoted the floor to manager'); for(let i=0;i<5;i++) setTimeout(()=>{ const v=new BABYLON.Vector3(Math.random()-.5,0,Math.random()-.5).normalize(); g.collider.physicsBody?.applyImpulse(v.scale(1.15),g.collider.position); },i*160); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); },1350); }
+function panic(g){ g.anim='panic'; playRig(g,'panic',true); say(g,'I have promoted the floor to manager'); if(!isTurnMode()){ for(let i=0;i<5;i++) setTimeout(()=>{ const v=new BABYLON.Vector3(Math.random()-.5,0,Math.random()-.5).normalize(); g.collider.physicsBody?.applyImpulse(v.scale(1.15),g.collider.position); },i*160); } else emitBadge(g,'panic'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); zeroMeshMotion(g.collider); },1050); }
 function castSpell(g,spell){ g.anim='cast'; playRig(g,'cast',true); const origin=g.root.position.clone(); makeRing(origin,spell==='fireball'?state.materials.fire:state.materials.magic); if(spell==='spark'){ const t=nearestTarget(g,3); if(t){ const m=meta(t); if(m?.type==='lamp'||m?.type==='crystal') emitBadge(t,'glow'); else damage(t,.35,'spark'); } return setTimeout(()=>{ say(g,'sparkles are a valid plan'); g.anim='idle'; playRig(g,'idle',true); },220); }
   if(spell==='push'){ for(const m of state.props) if(!m.isDisposed() && BABYLON.Vector3.Distance(origin,m.position)<3.4) impulse(m,origin,6.5,.28); setTimeout(()=>{ say(g,'physics has been consulted'); g.anim='idle'; },220); return; }
   if(spell==='fireball'){ const target=nearestTarget(g,4.5); const hit=target?.getAbsolutePosition?.() || origin.add(g.dir.scale(3)); fireballVfx(origin.add(new BABYLON.Vector3(0,.85,0)),hit); setTimeout(()=>{ for(const m of state.props.concat(state.blocks)){ if(!m.isDisposed() && BABYLON.Vector3.Distance(hit,m.position)<2.25){ impulse(m,hit.add(new BABYLON.Vector3(0,.1,0)),7.2,.55); damage(m,meta(m)?.flammable?2:1,'fire'); } } for(const other of state.geebrs){ if(other!==g && BABYLON.Vector3.Distance(hit,other.root.position)<2.4){ other.anim='panic'; say(other,pickRandom(['hot weather attack','the sun is local now','why did you invite fire'])); setTimeout(()=>other.anim='idle',1100); } } say(g,pickRandom(['fireball is basically planning','wood is now bridge ingredients','careful fireball is still careful'])); g.anim='idle'; },420); }
@@ -437,6 +531,69 @@ function baseGlyphForTile(x,z){
   if(mat==='dirt') return ':';
   if(mat==='stone') return '^';
   return ',';
+}
+function isOpaqueType(type){
+  return ['wall','bakery','cracked_shrine_plinth','rock','rubble'].includes(type);
+}
+function opaqueCells(){
+  const out=new Set();
+  for(const m of state.blocks.concat(state.props)){
+    if(!m || m.isDisposed?.()) continue;
+    const mm=meta(m);
+    if(!mm) continue;
+    const p=m.getAbsolutePosition?.() || m.position;
+    const glyph=typeGlyph(mm.type);
+    if(isOpaqueType(mm.type) || glyph==='^' || mm.material==='stone'){
+      out.add(gridKey(Math.round(p.x),Math.round(p.z)));
+    }
+  }
+  return out;
+}
+function lineCells(x0,z0,x1,z1){
+  // Bresenham cells from origin to target, inclusive.
+  x0=Math.round(x0); z0=Math.round(z0); x1=Math.round(x1); z1=Math.round(z1);
+  const cells=[]; let dx=Math.abs(x1-x0), dz=Math.abs(z1-z0);
+  const sx=x0<x1?1:-1, sz=z0<z1?1:-1; let err=dx-dz;
+  while(true){
+    cells.push([x0,z0]);
+    if(x0===x1 && z0===z1) break;
+    const e2=2*err;
+    if(e2>-dz){ err-=dz; x0+=sx; }
+    if(e2< dx){ err+=dx; z0+=sz; }
+  }
+  return cells;
+}
+function canSeeCell(cx,cz,x,z,opaque){
+  if(x===cx && z===cz) return true;
+  const ray=lineCells(cx,cz,x,z);
+  // Ignore the start and allow the target cell itself to be visible if it is the wall/blocker.
+  for(let i=1;i<ray.length-1;i++){ if(opaque.has(gridKey(ray[i][0],ray[i][1]))) return false; }
+  return true;
+}
+function facingNameFromDir(dir){
+  if(!dir) return 'north';
+  const x=Math.round(dir.x||0), z=Math.round(dir.z||0);
+  if(Math.abs(x)>=Math.abs(z)) return x>=0 ? 'east' : 'west';
+  return z>=0 ? 'south' : 'north';
+}
+function rightVecFromDir(dir){
+  const fx=Math.sign(dir?.x||0), fz=Math.sign(dir?.z||-1) || -1;
+  return {x:-fz, z:fx};
+}
+function isWithinFacingVision(g,cx,cz,x,z,radius){
+  const dx=x-cx, dz=z-cz;
+  const cheb=Math.max(Math.abs(dx),Math.abs(dz));
+  if(cheb===0) return true;
+  // Small awareness bubble: adjacent tiles can always be noticed.
+  if(cheb<=1) return true;
+  const fx=Math.sign(g?.dir?.x||0), fz=Math.sign(g?.dir?.z||-1) || -1;
+  const forward=dx*fx + dz*fz;
+  if(forward<=0) return false;
+  if(forward>radius) return false;
+  // Cardinal-facing cone: lateral width widens with distance.
+  const lateral=Math.abs(dx*fz - dz*fx);
+  const maxLateral=Math.max(1, Math.floor((forward+1)*0.6));
+  return lateral<=maxLateral;
 }
 function typeGlyph(type){
   const map={
@@ -472,15 +629,23 @@ function buildVisiblePerception(agentId=null, radius=5){
   if(!g) return 'No agent selected.';
   radius=clamp(Number(radius)||5,2,8);
   const cx=Math.round(g.root.position.x), cz=Math.round(g.root.position.z);
+  const opaque=opaqueCells();
+  const facingName=facingNameFromDir(g.dir);
   const cells=new Map(); const details=[];
-  for(let z=cz-radius; z<=cz+radius; z++) for(let x=cx-radius; x<=cx+radius; x++) cells.set(gridKey(x,z), {base:baseGlyphForTile(x,z), marks:'', prio:0});
-  function put(x,z,base,marks,prio){ const k=gridKey(x,z); const c=cells.get(k); if(!c) return; if(prio>=c.prio){ c.base=base; c.marks=marks||''; c.prio=prio; } else if(marks && !c.marks) c.marks=marks; }
+  for(let z=cz-radius; z<=cz+radius; z++) for(let x=cx-radius; x<=cx+radius; x++){
+    const inCone=isWithinFacingVision(g,cx,cz,x,z,radius);
+    const visible=inCone && canSeeCell(cx,cz,x,z,opaque);
+    cells.set(gridKey(x,z), {base:visible?baseGlyphForTile(x,z):' ', marks:'', prio:visible?0:99, visible});
+  }
+  function put(x,z,base,marks,prio){ const k=gridKey(x,z); const c=cells.get(k); if(!c || !c.visible) return; if(prio>=c.prio){ c.base=base; c.marks=marks||''; c.prio=prio; } else if(marks && !c.marks) c.marks=marks; }
   let objectNumber=1;
   for(const m of state.blocks.concat(state.props)){
     if(!m || m.isDisposed?.()) continue;
     const p=m.getAbsolutePosition?.() || m.position; if(!p) continue;
     const x=Math.round(p.x), z=Math.round(p.z);
     if(Math.abs(x-cx)>radius || Math.abs(z-cz)>radius) continue;
+    if(!isWithinFacingVision(g,cx,cz,x,z,radius)) continue;
+    if(!canSeeCell(cx,cz,x,z,opaque)) continue;
     const mm=meta(m); if(!mm || mm.type==='tile') continue;
     const glyph=typeGlyph(mm.type), marks=stateMarksFor(mm,m);
     put(x,z,glyph,marks,55);
@@ -489,29 +654,37 @@ function buildVisiblePerception(agentId=null, radius=5){
   for(const other of state.geebrs){
     const p=other.root.position; const x=Math.round(p.x), z=Math.round(p.z);
     if(Math.abs(x-cx)>radius || Math.abs(z-cz)>radius) continue;
+    if(!isWithinFacingVision(g,cx,cz,x,z,radius)) continue;
+    if(!canSeeCell(cx,cz,x,z,opaque)) continue;
     const isSelf=other===g; put(x,z,isSelf?'@':'g', other.anim==='panic'?'?':'', 90);
     if(!isSelf) details.push(`${other.id} other_geebr at (${x},${z}), anim=${other.anim||'idle'}`);
   }
   const rows=[];
   for(let z=cz-radius; z<=cz+radius; z++){
-    let row=''; for(let x=cx-radius; x<=cx+radius; x++){ const c=cells.get(gridKey(x,z)); row+=compactCell(c.base,c.marks); }
+    let row='';
+    for(let x=cx-radius; x<=cx+radius; x++){
+      const c=cells.get(gridKey(x,z));
+      row += compactCell(c.base,c.marks);
+    }
     rows.push(`${String(z-cz).padStart(3,' ')} ${row}`);
   }
   const held=state.held.get(g.id); const heldMeta=held?meta(held):null;
   const target=state.target&&!state.target.isDisposed?.()?state.target:null; const targetMeta=target?meta(target):null;
   const legend=[
-    'Legend: @ self, g other, , grass, : dirt/path, ~ water, ^ wall/stone, = bridge, C crate, B barrel, M mushroom, L lamp, * crystal/magic, H house, ? unknown/confused',
+    'Legend: @ self, g other, , grass, : dirt/path, ~ water, ^ wall/stone, = bridge, C crate, B barrel, M mushroom, L lamp, * crystal/magic, H house.',
+    'View model: fixed north-up map. Hidden cells are blank spaces. Facing is listed separately and visibility still uses a forward cone plus a 1-tile awareness bubble.',
+    'Line of sight: walls/stone/large solid objects occlude tiles behind them. The blocking wall cell itself remains visible.',
     'Marks: ! burned/fire, # cracked/damaged, ~ moving/rolling, * soft/glowing, x broken. Grid cells are two chars: base+mark-or-space.'
   ];
   return [
     `Agent perception for ${g.id}`,
-    `Center: (${cx},${cz})  Facing: (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
+    `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
     `Holding: ${held ? (heldMeta?.type||held.name) : 'none'}  Target: ${target ? (targetMeta?.type||target.name)+' at ('+Math.round(target.position.x)+','+Math.round(target.position.z)+')' : 'none'}`,
     '',
-    `Visible ${(radius*2+1)}x${(radius*2+1)} map, rows are relative z:`,
+    `North-up ${(radius*2+1)}x${(radius*2+1)} map, rows are relative z:`,
     ...rows,
     '',
-    details.length ? 'Nearby objects:' : 'Nearby objects: none',
+    details.length ? 'Nearby visible objects:' : 'Nearby visible objects: none',
     ...details.slice(0,24),
     '',
     ...legend,
@@ -555,20 +728,22 @@ function setupUI(){
   if(bodyStyle) bodyStyle.onchange=e=>{ const g=state.selected; if(!g) return; g.style=e.target.value; if(g.rigged){ say(g,'visual style comes from KayKit character asset now'); updatePerceptionUI(); return; } const isM=e.target.value==='mushroom', isB=e.target.value==='bot'; g.cosmetic.hat.material=isM?state.materials.mushroom:(isB?state.materials.bot:g.cosmetic.hat.material); g.head.material=isB?state.materials.bot:state.materials.geebr; say(g,'new body style: '+e.target.value); updatePerceptionUI(); };
   const refresh=document.getElementById('refreshPerception'); if(refresh) refresh.onclick=updatePerceptionUI;
   const radius=document.getElementById('visionRadius'); if(radius) radius.onchange=updatePerceptionUI;
+  const turnMode=document.getElementById('turnMode'); if(turnMode) turnMode.onchange=()=>{ state.turn.mode=turnMode.checked; settleWorld(turnMode.checked?'turn mode on':'turn mode off'); };
+  const settle=document.getElementById('settleNow'); if(settle) settle.onclick=()=>settleWorld('manual settle');
   const copy=document.getElementById('copyPerception'); if(copy) copy.onclick=()=>{ const text=buildVisiblePerception(null,document.getElementById('visionRadius')?.value||5); navigator.clipboard?.writeText(text); log('copied perception text'); };
-  updatePerceptionUI();
-  setInterval(updatePerceptionUI,700);
+  updatePerceptionUI(); updateTurnUI();
+  setInterval(()=>{ updatePerceptionUI(); updateTurnUI(); },700);
 }
 
 function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
-function animate(dt){ for(const g of state.geebrs){ syncGeebr(g); g.t+=dt; if(g.rigged){ if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
-    const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; g.root.rotation.y=Math.atan2(g.dir.x,g.dir.z); }
+function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
+    const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
     else if(g.anim==='cast'){ g.arms[0].rotation.z=1.05+Math.sin(g.t*18)*.1; g.arms[1].rotation.z=-1.05-Math.sin(g.t*18)*.1; g.head.position.y=1.15; }
     else if(g.anim==='push'){ g.body.rotation.x=Math.sin(g.t*18)*.08; g.arms[0].rotation.z=.72; g.arms[1].rotation.z=-.72; }
     else { g.head.scaling.set(1,1,1); g.body.rotation.x=0; g.arms[0].rotation.z=.28+Math.sin(g.t*2)*.04; g.arms[1].rotation.z=-.28-Math.sin(g.t*2.1)*.04; }
-  } updateBubbles(dt); }
+  } if(isTurnMode() && state.turn.phase==='ready'){ for(const g of state.geebrs) zeroMeshMotion(g.collider); } updateBubbles(dt); }
 
 // v12 terrain patch: avoid WebGPU vertex-color/material weirdness and water z-fighting.
 // Uses simple StandardMaterial colored meshes at separated Y heights.
@@ -664,5 +839,5 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   };
   buildWorld(scene); addTerrainPolish(scene); await addRealPropPass(scene); const realChars=await createAgentCast(scene); if(!realChars){ createGeebr(scene,'gib',new BABYLON.Vector3(-1,.06,-.7),{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); createGeebr(scene,'momo',new BABYLON.Vector3(.45,.06,-.55),{hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},'mushroom'); createGeebr(scene,'zap',new BABYLON.Vector3(1.2,.06,.15),{hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},'bot'); } selectGeebr(state.geebrs[0]);
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=g.root.position.clone(); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=pi.pickInfo.pickedPoint.clone(); if(mm?.interactive){ state.target=target; state.zoomFocus=target.getAbsolutePosition?.().clone?.() || state.zoomFocus; log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
-  setupUI(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v13 loaded: compact perception grid/API added'); updatePerceptionUI(); }
+  setupUI(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
 main().catch(err=>{ console.error(err); document.body.innerHTML='<pre style="color:white;padding:20px;white-space:pre-wrap">'+err.stack+'</pre>'; });
