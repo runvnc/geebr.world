@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>geebr.world v14 — Turn-Based LLM Toybox</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="hud">
+    <div class="brand">geebr.world <span>v14 turn-based perception</span></div>
+    <div class="panel">
+      <div class="section-title">Turn-based direct controls</div>
+      <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
+      <div class="row"><button data-cmd="walk n">walk n</button><button data-cmd="walk s">walk s</button><button data-cmd="walk e">walk e</button><button data-cmd="walk w">walk w</button></div>
+      <div class="row"><button data-cmd="push">push</button><button data-cmd="carry">carry</button><button data-cmd="drop">drop</button><button data-cmd="throw">throw</button></div>
+      <div class="row"><button data-cmd="spell fireball">fireball</button><button data-cmd="spell push">spell push</button><button data-cmd="spell spark">spark</button><button data-cmd="repair">repair</button></div>
+      <div class="row"><button data-cmd="build wall">build</button><button data-cmd="dig">dig</button><button data-cmd="panic">panic</button><button data-cmd="say gravity is illegal">say</button></div>
+      <input id="cmd" value="spell fireball" spellcheck="false" />
+      <div class="section-title customize-title">Agent customization stub</div>
+      <div class="custom-grid">
+        <label>Agent <select id="agentSelect"></select></label>
+        <label>Brain style <select id="brainStyle"><option>helpful idiot</option><option>builder</option><option selected>fireball goblin</option><option>coward</option></select></label>
+        <label>Body <select id="bodyStyle"><option value="goblin">goblin</option><option value="mushroom">mushroom</option><option value="bot">tiny bot</option></select></label>
+        <label>Fireball temptation <input id="fireballTemptation" type="range" min="0" max="100" value="82" /></label>
+      </div>
+      <div id="allowedCommands"></div>
+      <div class="section-title customize-title">Agent perception text</div>
+      <div class="perception-controls">
+        <label>Vision radius <select id="visionRadius"><option value="4">9×9</option><option value="5" selected>11×11</option><option value="6">13×13</option></select></label>
+        <button id="refreshPerception" type="button">refresh</button>
+        <button id="copyPerception" type="button">copy</button>
+      </div>
+      <pre id="perceptionOut" spellcheck="false"></pre>
+    </div>
+    <div id="log"></div>
+  </div>
+  <div id="hint">Turn mode resolves one command, lets physics settle, then freezes the board for the next LLM choice. Future WebLLM can call <code>window.getAgentPerception()</code>, <code>window.executeCommand({...})</code>, or <code>window.runCommand("spell fireball")</code>.</div>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
