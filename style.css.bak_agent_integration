@@ -31,11 +31,3 @@ code { color:#ffe0a0; }
 .turnbar label { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:900; color:#ecf7df; white-space:nowrap; }
 #turnStatus { flex:1; font-size:11px; font-weight:900; color:#ffe1a8; text-align:center; }
 #settleNow { flex:0 0 72px; padding:7px 8px; }
-
-.brainbar { display:flex; gap:7px; margin-bottom:7px; }
-.brainbar button { padding:8px 9px; }
-#brainStatus { font-size:11px; font-weight:850; color:#ffe1a8; background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.11); border-radius:12px; padding:7px 9px; margin-bottom:8px; }
-.setup-row button { min-width:0; }
-.personality-label { display:flex; flex-direction:column; gap:5px; font-size:11px; font-weight:850; color:#eaf2df; margin:7px 0 8px; }
-#agentPersonality { width:calc(100% - 18px); resize:vertical; border:1px solid rgba(255,255,255,.18); color:#fff; background:rgba(0,0,0,.28); border-radius:10px; padding:8px; font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.custom-grid input[type="checkbox"] { width:18px; height:18px; accent-color:#d7ff9a; }

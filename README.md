@@ -69,3 +69,19 @@ python3 -m http.server 8080
 - Perception panel is fixed north-up again
 - Hidden cells remain blank spaces
 - Facing still controls what is visible, but the text UI no longer rotates with the agent
+
+
+## Current dev server
+
+Use the custom geebr server on port 8000 so WebLLM model assets can be proxied same-origin:
+
+```bash
+cd /files/geebr.world
+python3 geebr_server.py 8000
+```
+
+Open:
+
+```txt
+http://localhost:8000
+```

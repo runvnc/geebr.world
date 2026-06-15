@@ -9,8 +9,7 @@ const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','thro
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
   blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(COMMANDS), zoomFocus:null, animSources:null,
-  turn:{index:0, phase:'ready', command:null, resolveMs:1250, lastEndedAt:0, mode:true},
-  brainConfigs:new Map(), nextSpawnId:1
+  turn:{index:0, phase:'ready', command:null, resolveMs:1250, lastEndedAt:0, mode:true}
 };
 function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
@@ -447,21 +446,14 @@ function updateTurnUI(){
     btn.disabled=disabled;
   });
 }
-function beginTurn(cmd,source='command'){ return beginTurnForAgent(null,cmd,source); }
-function beginTurnForAgent(agentId,cmd,source='agent'){
-  return new Promise(resolve=>{
-    if(!cmd) { resolve(false); return; }
-    const actor=agentId ? state.geebrs.find(g=>g.id===agentId) : null;
-    if(agentId && !actor){ log('unknown agent: '+agentId); resolve(false); return; }
-    if(!isTurnMode()) { executeGameCommandImmediate(cmd,actor); setTimeout(updatePerceptionUI,80); resolve(true); return; }
-    if(state.turn.phase==='resolving') { log('wait: current turn is still resolving'); resolve(false); return; }
-    state.turn.index++; state.turn.phase='resolving'; state.turn.command=cmd;
-    updateTurnUI();
-    const who=actor ? actor.id+' ' : '';
-    log(`turn ${state.turn.index}: ${source} → ${who}${cmd.kind}${cmd.spell?' '+cmd.spell:''}${cmd.dir?' '+cmd.dir:''}`);
-    executeGameCommandImmediate(cmd,actor);
-    setTimeout(()=>{ settleWorld('physics frozen for next LLM choice'); resolve(true); }, state.turn.resolveMs);
-  });
+function beginTurn(cmd,source='command'){
+  if(!cmd) return;
+  if(!isTurnMode()) { executeGameCommandImmediate(cmd); setTimeout(updatePerceptionUI,80); return; }
+  if(state.turn.phase==='resolving') { log('wait: current turn is still resolving'); return; }
+  state.turn.index++; state.turn.phase='resolving'; state.turn.command=cmd;
+  updateTurnUI(); log(`turn ${state.turn.index}: ${source} → ${cmd.kind}${cmd.spell?' '+cmd.spell:''}`);
+  executeGameCommandImmediate(cmd);
+  setTimeout(()=>settleWorld('physics frozen for next LLM choice'), state.turn.resolveMs);
 }
 function yawForDir(d){ return Math.atan2(d.x||0,d.z||0); }
 function setGeebrFacing(g,d){
@@ -482,32 +474,16 @@ function startTurnMove(g,d){
   zeroMeshMotion(g.collider);
 }
 
-function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=g.root.position.clone(); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
+function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=g.root.position.clone(); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); }
 function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
-function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(['walk','look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,dir:b,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
-function parseLLMCommandLine(line){
-  line=String(line||'').trim();
-  if(!line) return null;
-  const m=line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\((.*)\)$/);
-  if(!m) return parseCommand(line);
-  const name=m[1].toLowerCase();
-  let arg=m[2].trim();
-  if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1);
-  const dirMap={north:'n',south:'s',east:'e',west:'w',n:'n',s:'s',e:'e',w:'w'};
-  if(name==='say') return {kind:'say',text:arg||'...'};
-  if(name==='walk') return {kind:'walk',dir:dirMap[arg.toLowerCase()]||'n'};
-  if(name==='spell') return {kind:'spell',spell:(arg.split(',')[0]||'spark').trim()||'spark'};
-  if(name==='build') return {kind:'build',thing:(arg.split(',')[0]||'wall').trim()||'wall'};
-  if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(name)) return {kind:name};
-  return null;
-}
-function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
+function parseCommand(raw){ const [a,b,...rest]=raw.trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:raw.replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(['walk','look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,dir:b,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
+function executeGameCommandImmediate(cmd){ const g=state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const temptation=+document.getElementById('fireballTemptation').value; if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
   switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
-window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
+window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
 // v13.2: avoid global executeCommand recursion; direct controls should keep working even if the perception panel changes/reflows.
 // Use one delegated handler instead of fragile per-button onclick assignments.
@@ -722,74 +698,14 @@ function buildVisiblePerception(agentId=null, radius=5){
 function updatePerceptionUI(){ const out=document.getElementById('perceptionOut'); if(!out) return; const r=document.getElementById('visionRadius')?.value || 5; out.textContent=buildVisiblePerception(null,r); }
 window.getAgentPerception=(agentId=null,radius=5)=>buildVisiblePerception(agentId,radius);
 
-
-function getBrainConfig(agentId){
-  if(!state.brainConfigs.has(agentId)){
-    const g=state.geebrs.find(x=>x.id===agentId);
-    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'reckless mage':'fireball goblin',personality:'goofy, curious, imperfect, tries to be useful but often misunderstands',goals:'explore, interact with nearby objects, react to other geebrs, and be funny',fireballTemptation:g?.traits?.fireball??60,chaos:55,recent:[]});
-  }
-  return state.brainConfigs.get(agentId);
-}
-function setBrainConfig(agentId,cfg){
-  const old=getBrainConfig(agentId);
-  const next={...old,...(cfg||{})};
-  state.brainConfigs.set(agentId,next);
-  const g=state.geebrs.find(x=>x.id===agentId);
-  if(g){ g.brain=next; if(g.traits) g.traits.fireball=Number(next.fireballTemptation ?? g.traits.fireball ?? 50); }
-  return next;
-}
-function refreshAgentSelect(){
-  const agent=document.getElementById('agentSelect');
-  if(!agent) return;
-  const prev=agent.value || state.selected?.id;
-  agent.textContent='';
-  state.geebrs.forEach(g=>{ const o=document.createElement('option'); o.value=g.id; o.textContent=g.id; agent.appendChild(o); });
-  if(prev && state.geebrs.some(g=>g.id===prev)) agent.value=prev;
-  agent.onchange=()=>selectGeebr(state.geebrs.find(g=>g.id===agent.value));
-}
-function spawnCharacter(){
-  const base=state.selected?.root?.position || new BABYLON.Vector3(0,0,0);
-  const pos=new BABYLON.Vector3(clamp(Math.round(base.x+1+Math.random()*2),-14,14),.06,clamp(Math.round(base.z+1+Math.random()*2),-14,14));
-  const id='geebr'+state.nextSpawnId++;
-  const palettes=[
-    {hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},
-    {hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},
-    {hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot}
-  ];
-  const styles=['goblin','mushroom','bot'];
-  const g=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
-  setGeebrLogicalPosition(g,pos);
-  setBrainConfig(id,{style:'helpful idiot',personality:'newly spawned, confused, eager to participate',fireballTemptation:45,chaos:60});
-  refreshAgentSelect(); selectGeebr(g); log('spawned character '+id); updatePerceptionUI(); return g;
-}
-function spawnProp(kind='crate'){
-  const g=state.selected||state.geebrs[0];
-  const p=(g?.root?.position||BABYLON.Vector3.Zero()).add((g?.dir||new BABYLON.Vector3(0,0,-1)).scale(2));
-  const x=clamp(Math.round(p.x),-14,14), z=clamp(Math.round(p.z),-14,14);
-  let obj;
-  if(kind==='barrel') obj=makeBarrel(state.scene,x,z);
-  else if(kind==='wall') obj=makeBlock(state.scene,x,z,false);
-  else obj=makeCrate(state.scene,x,z);
-  state.target=obj; log('spawned '+kind+' at '+x+','+z); updatePerceptionUI(); return obj;
-}
-function installWorldAPI(){
-  const prior=window.geebrWorld||{};
-  window.geebrWorld={...prior,ready:true,state,log,parseCommand,parseLLMCommandLine,
-    getAgents:()=>state.geebrs.slice(), getSelectedAgent:()=>state.selected,
-    getBrainConfig, setBrainConfig, refreshAgentSelect,
-    getAllowedCommands:()=>Array.from(state.allowed), canRun,
-    getAgentPerception:(agentId=null,radius=5)=>buildVisiblePerception(agentId,radius),
-    executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
-    runAgentCommand:(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'),
-    stepAgentTurn:beginTurnForAgent,
-    isTurnReady:()=>state.turn.phase==='ready',
-    spawnCharacter, spawnProp,
-  };
-}
-
 function setupUI(){
   installDirectControlHandlers();
-  refreshAgentSelect();
+  const agent=document.getElementById('agentSelect');
+  if(agent){
+    agent.textContent='';
+    state.geebrs.forEach(g=>{ const o=document.createElement('option'); o.value=g.id; o.textContent=g.id; agent.appendChild(o); });
+    agent.onchange=()=>selectGeebr(state.geebrs.find(g=>g.id===agent.value));
+  }
   const inp=document.getElementById('cmd');
   if(inp) inp.addEventListener('keydown',e=>{ if(e.key==='Enter') runCommand(inp.value); });
   const allowed=document.getElementById('allowedCommands');
@@ -923,5 +839,5 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   };
   buildWorld(scene); addTerrainPolish(scene); await addRealPropPass(scene); const realChars=await createAgentCast(scene); if(!realChars){ createGeebr(scene,'gib',new BABYLON.Vector3(-1,.06,-.7),{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); createGeebr(scene,'momo',new BABYLON.Vector3(.45,.06,-.55),{hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},'mushroom'); createGeebr(scene,'zap',new BABYLON.Vector3(1.2,.06,.15),{hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},'bot'); } selectGeebr(state.geebrs[0]);
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=g.root.position.clone(); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=pi.pickInfo.pickedPoint.clone(); if(mm?.interactive){ state.target=target; state.zoomFocus=target.getAbsolutePosition?.().clone?.() || state.zoomFocus; log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
-  setupUI(); installWorldAPI(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
+  setupUI(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
 main().catch(err=>{ console.error(err); document.body.innerHTML='<pre style="color:white;padding:20px;white-space:pre-wrap">'+err.stack+'</pre>'; });

@@ -22,25 +22,6 @@ export const GRAMMARS = {
 walk(direction: north|south|east|west)`),
     instruction: 'Output only plain command lines, one command per line. Choose only commands that are relevant to the user request.',
   },
-  geebrCommands: {
-    label: 'geebr.world one-turn agent command',
-    grammar: commandSpecToGrammar(`@one
-say(text)
-walk(direction: north|south|east|west)
-look()
-touch()
-push()
-pull()
-carry()
-drop()
-throw()
-dig()
-build(thing: wall|crate)
-repair()
-panic()
-spell(name: push|spark|fireball)`),
-    instruction: 'Output exactly one plain command line matching the geebr.world command syntax. Do not output JSON. Do not explain. Pick one action for this character based on perception, personality, and goals.',
-  },
   choice: { label: 'Custom choice example', grammar: `root ::= "option-a" | "option-b" | "option-c"` },
 };
 
