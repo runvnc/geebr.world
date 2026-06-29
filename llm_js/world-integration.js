@@ -179,9 +179,7 @@ ${commandReminder}`;
         if (!world.isTurnReady()) { await sleep(150); continue; }
        world.state.nextAgentId = g.id;
         await runOneAgentTurn(g);
-        await sleep(250);
       }
-      await sleep(150);
     }
   });
 
@@ -214,6 +212,23 @@ ${commandReminder}`;
   el('spawnCrate')?.addEventListener('click', () => world.spawnProp('crate'));
   el('spawnBarrel')?.addEventListener('click', () => world.spawnProp('barrel'));
   el('spawnWall')?.addEventListener('click', () => world.spawnProp('wall'));
+
+  function sendChatToAgent() {
+    const input = el('chatInput');
+    const name = el('chatName')?.value || 'God';
+    const text = input?.value?.trim();
+    if (!text) return;
+    const g = world.getSelectedAgent?.();
+    if (!g) { appendLog('no agent selected'); return; }
+    const cfg = world.getBrainConfig(g.id);
+    cfg.messages = (cfg.messages || []).concat([{ role: 'user', content: name + ': ' + text }]);
+    if (cfg.messages.length > 20) cfg.messages = cfg.messages.slice(-20);
+    world.setBrainConfig(g.id, cfg);
+    appendLog(name + ' -> ' + g.id + ': ' + text);
+    input.value = '';
+  }
+  el('chatSend')?.addEventListener('click', sendChatToAgent);
+  el('chatInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatToAgent(); });
 }
 
 main().catch(err => {

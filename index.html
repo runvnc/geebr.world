@@ -15,6 +15,13 @@
         <summary>World setup</summary>
         <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
         <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
+        <div class="chat-input-section">
+          <label class="chat-name-label">Chat name <input id="chatName" type="text" value="God" placeholder="Your name" /></label>
+          <div class="chat-send-row">
+            <input id="chatInput" type="text" placeholder="Send message to selected agent..." />
+            <button id="chatSend" type="button">send</button>
+          </div>
+        </div>
         <div class="row setup-row"><button id="clearMap" type="button" class="danger-btn">clear map</button></div>
         <div class="section-subtitle">Click-to-spawn mode</div>
         <div class="spawn-panel">
