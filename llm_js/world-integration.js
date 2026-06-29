@@ -106,6 +106,8 @@ async function main() {
     if (cfg.enabled === false) return false;
     if (!world.isTurnReady()) { return false; }
     try {
+      world.state.nextAgentId = g.id;
+      updatePerceptionUI();
       const chatTestMode = el('chatTestMode')?.checked;
       let messages;
       if (chatTestMode) {
@@ -159,6 +161,7 @@ async function main() {
 `;
       showPrompt(g.id, displayText, messages[0]?.content || '');
       appendLog(g.id + ' sending ' + messages.length + ' messages to LLM (' + (cfg.messages||[]).length + ' history)' + (chatTestMode ? ' [CHAT TEST]' : ''));
+      console.log('[' + g.id + '] Full prompt messages:', JSON.stringify(messages, null, 2));
       const line = await manager.decide({
         agentId: g.id,
         messages,

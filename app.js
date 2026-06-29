@@ -756,12 +756,32 @@ function buildVisiblePerception(agentId=null, radius=5){
   }
   const held=state.held.get(g.id); const heldMeta=held?meta(held):null;
   const target=state.target&&!state.target.isDisposed?.()?state.target:null; const targetMeta=target?meta(target):null;
-  const legend=[
-    'Legend: @ self, g other, , grass, : dirt/path, ~ water, ^ wall/stone, = bridge, C crate, B barrel, M mushroom, L lamp, * crystal/magic, H house.',
-    'View model: fixed north-up map. Hidden cells are blank spaces. Facing is listed separately and visibility still uses a forward cone plus a 1-tile awareness bubble.',
-    'Line of sight: walls/stone/large solid objects occlude tiles behind them. The blocking wall cell itself remains visible.',
-    'Marks: ! burned/fire, # cracked/damaged, ~ moving/rolling, * soft/glowing, x broken. Grid cells are two chars: base+mark-or-space.'
-  ];
+  // Build dynamic legend: only include glyphs that appear in the current view
+  const visibleGlyphs = new Set();
+  for (const [key, c] of cells) { if (c.visible && c.base && c.base !== ' ') visibleGlyphs.add(c.base); }
+  const glyphNames = {
+    '@':'self', 'g':'other geebr', ',':'grass', ':':'dirt/path', '~':'water',
+    '^':'wall/stone', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
+    'L':'lamp', '*':'crystal/magic', 'H':'house', 'r':'rock', 'x':'rubble',
+    'f':'fence', 'h':'chest', 'w':'workbench', 't':'table', 'n':'bench',
+    's':'stool', 'o':'cauldron', 'a':'anvil', 'W':'weapon stand',
+    '/':'axe', 'p':'pickaxe', 'u':'bucket', 'b':'bag', 'P':'potion',
+    'S':'scroll', '$':'coins', '?':'unknown'
+  };
+  const legendParts = [];
+  for (const glyph of visibleGlyphs) {
+    const name = glyphNames[glyph] || 'unknown';
+    legendParts.push(glyph + '=' + name);
+  }
+  // Check for marks in visible cells
+  const visibleMarks = new Set();
+  for (const [key, c] of cells) { if (c.visible && c.marks) { for (const ch of c.marks) visibleMarks.add(ch); } }
+  const markNames = {'!':'burned','#':'cracked','~':'moving','*':'soft/glowing','x':'broken'};
+  const markParts = [];
+  for (const mark of visibleMarks) { if (markNames[mark]) markParts.push(mark + '=' + markNames[mark]); }
+  const legend = [];
+  if (legendParts.length) legend.push('Legend: ' + legendParts.join(', ') + '.');
+  if (markParts.length) legend.push('Marks: ' + markParts.join(', ') + '.');
   return [
     `Agent perception for ${g.id}`,
     `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
@@ -831,6 +851,7 @@ function buildAgentPrompt(g, cfg) {
   return { systemMessage, commandReminder };
 }
 function updatePerceptionUI(){
+  updateTurnUI();
   const out=document.getElementById('promptOut'); if(!out) return;
   const g=state.selected || (state.nextAgentId && state.geebrs.find(x=>x.id===state.nextAgentId)) || state.geebrs[0];
   if(!g){ out.textContent='No agent selected.'; return; }
@@ -1020,7 +1041,6 @@ function setupUI(){
     if(state.spawnMode.enabled) log('spawn type: ' + state.spawnMode.type);
   };
   updatePerceptionUI(); updateTurnUI();
-  setInterval(()=>{ updatePerceptionUI(); updateTurnUI(); },700);
 }
 
 function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
