@@ -1,6 +1,6 @@
 import { loadModel, getCapabilityInfo } from './model-loader.js';
 import { generate } from './gpt-runner.js';
-import { getBuiltInResponseFormat, getGrammarInstruction } from './grammar.js';
+import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js';
 
 const FIXED_MODEL_KEY = 'qwen3.5-0.8b';
 
@@ -34,8 +34,16 @@ export function createAgentBrainManager(config = {}) {
 
   async function decide(agent) {
     if (!engine) await load();
-    const responseFormat = getBuiltInResponseFormat('geebrCommands');
-    const constraintInstruction = getGrammarInstruction('geebrCommands');
+    const useGrammar = agent.useGrammar !== false;
+    let responseFormat = null;
+    let constraintInstruction = '';
+    if (useGrammar) {
+      const allowed = agent.allowedCommands || [];
+      const allowedSet = new Set(Array.isArray(allowed) ? allowed : []);
+      const dyn = buildDynamicGrammar(allowedSet);
+      responseFormat = dyn.responseFormat;
+      constraintInstruction = dyn.instruction;
+    }
     const text = await generate(engine, '', {
       maxTokens: agent.maxTokens || 48,
       temperature: agent.temperature ?? 0,

@@ -835,6 +835,20 @@ function updatePerceptionUI(){
   const g=state.selected || (state.nextAgentId && state.geebrs.find(x=>x.id===state.nextAgentId)) || state.geebrs[0];
   if(!g){ out.textContent='No agent selected.'; return; }
   const cfg=getBrainConfig(g.id);
+  const chatTestMode=document.getElementById('chatTestMode')?.checked;
+  if (chatTestMode) {
+    // In chat test mode, show bare conversation messages
+    let text = `[AGENT: ${g.id}]\n\n`;
+    text += `[SYSTEM] have a conversation. use the say command\n\n`;
+    const hist = cfg.messages || [];
+    for (const m of hist) {
+      if (m.role === 'assistant' || (m.role === 'user' && !m.content.startsWith('SYSTEM RESULT:') && !m.content.startsWith('GEEBR ') && !m.content.startsWith('SYSTEM:'))) {
+        text += `[${m.role.toUpperCase()}] ${m.content}\n`;
+      }
+    }
+    out.textContent = text;
+    return;
+  }
   const { systemMessage, commandReminder } = buildAgentPrompt(g, cfg);
   const hist = cfg.messages || [];
   let histText = '';

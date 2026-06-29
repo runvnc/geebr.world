@@ -106,28 +106,64 @@ async function main() {
     if (cfg.enabled === false) return false;
     if (!world.isTurnReady()) { return false; }
     try {
-      const { systemMessage, commandReminder } = world.buildAgentPrompt(g, cfg);
-      // Build messages array: system + history + current command reminder
-      const messages = [{ role: 'system', content: systemMessage }];
-      const hist = cfg.messages || [];
-      for (const m of hist) messages.push(m);
-      messages.push({ role: 'user', content: commandReminder });
+      const chatTestMode = el('chatTestMode')?.checked;
+      let messages;
+      if (chatTestMode) {
+        // Bare conversation mode: minimal system message, only user/assistant messages
+        messages = [{ role: 'system', content: 'have a conversation. use the say command' }];
+        const hist = cfg.messages || [];
+        for (const m of hist) {
+          // Only include user and assistant messages, skip SYSTEM RESULT and GEEBR ACTION
+          if (m.role === 'assistant' || (m.role === 'user' && !m.content.startsWith('SYSTEM RESULT:') && !m.content.startsWith('GEEBR ') && !m.content.startsWith('SYSTEM:'))) {
+            const last = messages[messages.length - 1];
+            if (last && last.role === m.role) {
+              last.content += '\n' + m.content;
+            } else {
+              messages.push({ role: m.role, content: m.content });
+            }
+          }
+        }
+        // Add a simple prompt if last message is not user
+        const lastM = messages[messages.length - 1];
+        if (!lastM || lastM.role !== 'user') {
+          messages.push({ role: 'user', content: 'respond' });
+        }
+      } else {
+        const { systemMessage, commandReminder } = world.buildAgentPrompt(g, cfg);
+        // Build messages array: system + history + current command reminder
+        // Merge consecutive same-role messages to help the small model
+        messages = [{ role: 'system', content: systemMessage }];
+        const hist = cfg.messages || [];
+        for (const m of hist) {
+          const last = messages[messages.length - 1];
+          if (last && last.role === m.role) {
+            last.content += '\n' + m.content;
+          } else {
+            messages.push({ role: m.role, content: m.content });
+          }
+        }
+        // Merge command reminder with last user message if it's also user role
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.role === 'user') {
+          lastMsg.content += '\n\n' + commandReminder;
+        } else {
+          messages.push({ role: 'user', content: commandReminder });
+        }
+      }
       // Show in prompt panel
       let displayText = `[AGENT: ${g.id}]
 
-[SYSTEM]
-${systemMessage}
+`;
+      for (const m of messages) displayText += `[${m.role.toUpperCase()}] ${m.content.slice(0,200)}${m.content.length > 200 ? '...' : ''}
 
 `;
-      for (const m of hist) displayText += `[${m.role.toUpperCase()}] ${m.content}
-`;
-      displayText += `
-[USER]
-${commandReminder}`;
-      showPrompt(g.id, displayText, systemMessage);
+      showPrompt(g.id, displayText, messages[0]?.content || '');
+      appendLog(g.id + ' sending ' + messages.length + ' messages to LLM (' + (cfg.messages||[]).length + ' history)' + (chatTestMode ? ' [CHAT TEST]' : ''));
       const line = await manager.decide({
         agentId: g.id,
         messages,
+        useGrammar: !chatTestMode,
+        allowedCommands: world.getAllowedCommands(),
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
       });
       const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
@@ -226,6 +262,9 @@ ${commandReminder}`;
     world.setBrainConfig(g.id, cfg);
     appendLog(name + ' -> ' + g.id + ': ' + text);
     input.value = '';
+    // Auto-step the agent so it responds immediately
+    const stepBtn = el('stepBrains');
+    if (stepBtn && !stepBtn.disabled) stepBtn.click();
   }
   el('chatSend')?.addEventListener('click', sendChatToAgent);
   el('chatInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatToAgent(); });

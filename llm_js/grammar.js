@@ -191,3 +191,32 @@ export function parseCustomConstraint(text) {
   const grammar = commandSpecToGrammar(raw);
   return { responseFormat: { type: 'grammar', grammar }, instruction: commandSpecInstruction(raw) };
 }
+
+export function buildDynamicGrammar(allowedCommands) {
+  const parts = ['@one'];
+  if (allowedCommands.has('say')) parts.push('say(text)');
+  if (allowedCommands.has('walk')) parts.push('walk(direction: north|south|east|west)');
+  if (allowedCommands.has('look')) parts.push('look()');
+  if (allowedCommands.has('touch')) parts.push('touch(target)');
+  if (allowedCommands.has('push')) parts.push('push()');
+  if (allowedCommands.has('pull')) parts.push('pull()');
+  if (allowedCommands.has('carry')) parts.push('carry()');
+  if (allowedCommands.has('drop')) parts.push('drop()');
+  if (allowedCommands.has('throw')) parts.push('throw()');
+  if (allowedCommands.has('dig')) parts.push('dig()');
+  if (allowedCommands.has('build')) parts.push('build(thing: wall|crate)');
+  if (allowedCommands.has('repair')) parts.push('repair()');
+  if (allowedCommands.has('panic')) parts.push('panic()');
+  if (allowedCommands.has('spell.push')) parts.push('spell(name: push)');
+  if (allowedCommands.has('spell.spark')) parts.push('spell(name: spark)');
+  if (allowedCommands.has('spell.fireball')) parts.push('spell(name: fireball)');
+  if (allowedCommands.has('goal')) parts.push('goal(text)');
+  if (allowedCommands.has('give_quest')) parts.push('give_quest(text)');
+  if (parts.length <= 1) parts.push('say(text)'); // fallback
+  const spec = parts.join('\n');
+  return {
+    grammar: commandSpecToGrammar(spec),
+    instruction: 'Output exactly one plain command line matching the command syntax. Do not output JSON. Do not explain.',
+    responseFormat: { type: 'grammar', grammar: commandSpecToGrammar(spec) },
+  };
+}
