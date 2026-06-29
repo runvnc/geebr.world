@@ -11,31 +11,45 @@
   <div id="hud">
     <div class="brand">geebr.world <span>v14 turn-based perception</span></div>
     <div class="panel">
-      <div class="section-title">World setup</div>
-      <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
-      <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
-      <div class="section-title customize-title">Agent brains</div>
-      <div class="brainbar"><button id="loadBrains" type="button">load Qwen3.5-0.8B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stopBrains" type="button" disabled>stop</button></div>
-      <div id="brainStatus">local brain not loaded</div>
-      <div class="custom-grid">
-        <label>Agent <select id="agentSelect"></select></label>
-        <label>Brain style <select id="brainStyle"><option>helpful idiot</option><option>builder</option><option selected>fireball goblin</option><option>coward</option><option>reckless mage</option><option>nervous mushroom</option></select></label>
-        <label>Body <select id="bodyStyle"><option value="goblin">goblin</option><option value="mushroom">mushroom</option><option value="bot">tiny bot</option></select></label>
-        <label>Brain enabled <input id="brainEnabled" type="checkbox" checked /></label>
-        <label>Fireball temptation <input id="fireballTemptation" type="range" min="0" max="100" value="82" /></label>
-        <label>Chaos <input id="chaosLevel" type="range" min="0" max="100" value="55" /></label>
-      </div>
-      <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">goofy, curious, imperfect, tries to be useful but often misunderstands</textarea></label>
-      <div id="allowedCommands"></div>
-      <div class="section-title customize-title">Agent perception text</div>
-      <div class="perception-controls">
-        <label>Vision radius <select id="visionRadius"><option value="4">9×9</option><option value="5" selected>11×11</option><option value="6">13×13</option></select></label>
-        <button id="refreshPerception" type="button">refresh</button>
-        <button id="copyPerception" type="button">copy</button>
-      </div>
-      <pre id="perceptionOut" spellcheck="false"></pre>
+      <details open class="panel-section">
+        <summary>World setup</summary>
+        <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
+        <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
+        <div class="section-subtitle">Agent brains</div>
+        <div class="brainbar"><button id="loadBrains" type="button">load Qwen3.5-0.8B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
+        <div id="brainStatus">local brain not loaded</div>
+      </details>
+
+      <details open class="panel-section">
+        <summary>Agent customization</summary>
+        <div class="custom-grid">
+          <label>Agent <select id="agentSelect"></select></label>
+          <label>Brain style <select id="brainStyle"><option>helpful idiot</option><option>builder</option><option selected>fireball goblin</option><option>coward</option><option>reckless mage</option><option>nervous mushroom</option></select></label>
+          <label>Body <select id="bodyStyle"><option value="goblin">goblin</option><option value="mushroom">mushroom</option><option value="bot">tiny bot</option></select></label>
+          <label>Brain enabled <input id="brainEnabled" type="checkbox" checked /></label>
+          <label>Fireball temptation <input id="fireballTemptation" type="range" min="0" max="100" value="82" /></label>
+          <label>Chaos <input id="chaosLevel" type="range" min="0" max="100" value="55" /></label>
+        </div>
+        <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">goofy, curious, imperfect, tries to be useful but often misunderstands</textarea></label>
+        <div id="allowedCommands"></div>
+      </details>
+
+      <details open class="panel-section">
+        <summary>Agent info & prompt</summary>
+        <div class="perception-controls">
+          <label>Vision radius <select id="visionRadius"><option value="4">9×9</option><option value="5" selected>11×11</option><option value="6">13×13</option></select></label>
+          <button id="refreshPerception" type="button">refresh</button>
+          <button id="copyPerception" type="button">copy</button>
+        </div>
+        <div class="section-subtitle">Full prompt (upcoming turn)</div>
+        <pre id="promptOut" spellcheck="false">Load brain and step to see prompt...</pre>
+      </details>
+
+      <details class="panel-section">
+        <summary>History</summary>
+        <div id="log"></div>
+      </details>
     </div>
-    <div id="log"></div>
   </div>
   <div id="hint">Set up the world, customize characters, then let tiny local Qwen brains choose one constrained command per turn. Manual command buttons are gone on purpose; the agents drive the toybox now.</div>
   <script src="https://cdn.babylonjs.com/babylon.js"></script>
