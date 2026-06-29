@@ -82,7 +82,7 @@ async function main() {
   for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest']) {
     const node = el(id);
     if (node) node.addEventListener('change', () => saveSelectedBrainUI(world));
-    if (node && node.type === 'range') node.addEventListener('input', () => saveSelectedBrainUI(world));
+    if (node && (node.type === 'range' || node.type === 'text' || node.tagName === 'TEXTAREA')) node.addEventListener('input', () => saveSelectedBrainUI(world));
   }
 
   el('loadBrains')?.addEventListener('click', async () => {
@@ -106,43 +106,56 @@ async function main() {
     if (cfg.enabled === false) return false;
     if (!world.isTurnReady()) { return false; }
     try {
-      const perception = world.getAgentPerception(g.id, cfg.radius || 5);
-      const style = (cfg.style || 'goofy little creature').replace(/\s+/g, ' ').trim();
-      const personality = (cfg.personality || 'curious, imperfect, funny, not very smart').replace(/\s+/g, ' ').trim();
-      const quest = (cfg.quest || '').replace(/\s+/g, ' ').trim();
-      const goal = (cfg.goal || '').replace(/\s+/g, ' ').trim();
-      const recent = (world.state?.globalHistory || []).slice(-5).map(x => '- ' + x.replace(/\s+/g, ' ').trim()).join('\n') || '- none';
-      const allowedCommands = world.getAllowedCommands();
-      const canGiveQuest = allowedCommands.includes('give_quest');
-      const systemMessage = [
-        'You are a tiny browser-local character brain inside geebr.world.',
-        'You are intentionally imperfect, goofy, and limited. Do not be a genius planner.',
-        'Choose exactly one command for only your own character. Vary your actions - walk around, touch things, push objects, say something funny, or cast spells.',
-        'Do not just look at things every turn. Be active and silly.',
-        'Use short funny speech when saying things.',
-        'Use goal() to set a short-term reminder goal for yourself.',
-        ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
-        ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
-        'Do not explain. Do not output anything except the command line.',
-      ].join('\n');
-      const displayPrompt = `Character: ${g.id}\nStyle: ${style}\nPersonality: ${personality}\n${quest?'Quest: '+quest+'\n':''}${goal?'Current goal: '+goal+'\n':''}Recent events:\n${recent}\n\nCurrent perception:\n${String(perception).slice(0, 2400)}\n\nPick one next action.`;
-      showPrompt(g.id, displayPrompt, systemMessage);
+      const { systemMessage, commandReminder } = world.buildAgentPrompt(g, cfg);
+      // Build messages array: system + history + current command reminder
+      const messages = [{ role: 'system', content: systemMessage }];
+      const hist = cfg.messages || [];
+      for (const m of hist) messages.push(m);
+      messages.push({ role: 'user', content: commandReminder });
+      // Show in prompt panel
+      let displayText = `[AGENT: ${g.id}]
+
+[SYSTEM]
+${systemMessage}
+
+`;
+      for (const m of hist) displayText += `[${m.role.toUpperCase()}] ${m.content}
+`;
+      displayText += `
+[USER]
+${commandReminder}`;
+      showPrompt(g.id, displayText, systemMessage);
       const line = await manager.decide({
         agentId: g.id,
-        brainStyle: cfg.style,
-        personality: cfg.personality,
-        quest: cfg.quest,
-        goal: cfg.goal,
-        allowedCommands,
-        recent: (world.state?.globalHistory || []).slice(-5),
-        perception,
+        messages,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
       });
       const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
+      // Add agent's action as assistant message
+      cfg.messages = (cfg.messages || []).concat([{ role: 'assistant', content: line || 'look()' }]);
       cfg.recent = (cfg.recent || []).concat(`chose ${line || 'nothing'}`).slice(-6);
       world.setBrainConfig(g.id, cfg);
       appendLog(`${g.id} brain -> ${line || 'look()'}`);
       await world.stepAgentTurn(g.id, cmd, 'llm');
+      // After turn resolves, add system result as user message
+      const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';
+      cfg.messages = cfg.messages.concat([{ role: 'user', content: 'SYSTEM RESULT: ' + resultDesc }]);
+      // Keep only last 20 messages
+      if (cfg.messages.length > 20) cfg.messages = cfg.messages.slice(-20);
+      world.setBrainConfig(g.id, cfg);
+      // Add this agent's action and result to ALL OTHER agents' message histories
+      const actionMsg = `GEEBR ${g.id} ACTION: ${line || 'look()'}`;
+      const resultMsg = `SYSTEM RESULT: ${resultDesc}`;
+      for (const other of world.getAgents()) {
+        if (other.id === g.id) continue;
+        const ocfg = world.getBrainConfig(other.id);
+        ocfg.messages = (ocfg.messages || []).concat([
+          { role: 'user', content: actionMsg },
+          { role: 'user', content: resultMsg },
+        ]);
+        if (ocfg.messages.length > 20) ocfg.messages = ocfg.messages.slice(-20);
+        world.setBrainConfig(other.id, ocfg);
+      }
       return true;
     } catch (err) {
       appendLog(`${g.id} brain error: ${err.message}`);

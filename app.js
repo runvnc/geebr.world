@@ -502,7 +502,7 @@ function startTurnMove(g,d){
   zeroMeshMotion(g.collider);
 }
 
-function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
+function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.nextAgentId=g.id; state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
 function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; } }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
@@ -738,9 +738,6 @@ function buildVisiblePerception(agentId=null, radius=5){
     ...details.slice(0,24),
     '',
     ...legend,
-    '',
-    'Command syntax examples (use exactly one):',
-    ...buildCommandExamples()
   ].join('\n');
 }
 function buildCommandExamples(){
@@ -765,55 +762,49 @@ function buildCommandExamples(){
   if(state.allowed.has('give_quest')) ex.push('give_quest(find the magic sword)');
   return ex.length?ex:['walk(north)'];
 }
+function buildAgentPrompt(g, cfg) {
+  if (!g || !cfg) return { systemMessage: '', commandReminder: '' };
+  const r=document.getElementById('visionRadius')?.value || 5;
+  const perception = buildVisiblePerception(g.id, r);
+  const style = (cfg.style || 'goofy little creature').replace(/\s+/g, ' ').trim();
+  const personality = (cfg.personality || '').replace(/\s+/g, ' ').trim();
+  const quest = (cfg.quest || '').replace(/\s+/g, ' ').trim();
+  const goal = (cfg.goal || '').replace(/\s+/g, ' ').trim();
+  const canGiveQuest = state.allowed.has('give_quest');
+  const cmds = buildCommandExamples();
+  const systemMessage = [
+    `Character: ${g.id}`,
+    `Style: ${style}`,
+    `Personality: ${personality}`,
+    '',
+    'Choose exactly one command for only your own character.',
+    ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
+    'Use goal() to set a short-term reminder goal for yourself.',
+    ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
+    'Do not output anything except the command line.',
+  ].join('\n');
+  const commandReminder = [
+    'SYSTEM: ' + String(perception).slice(0, 2400),
+    '',
+    'Command syntax examples (use exactly one):',
+    ...cmds,
+    '',
+    ...(quest ? ['Quest: ' + quest] : []),
+    ...(goal ? ['Current goal: ' + goal] : []),
+    'Pick one next action.',
+  ].join('\n');
+  return { systemMessage, commandReminder };
+}
 function updatePerceptionUI(){
   const out=document.getElementById('promptOut'); if(!out) return;
-  const r=document.getElementById('visionRadius')?.value || 5;
-  const g=(state.nextAgentId && state.geebrs.find(x=>x.id===state.nextAgentId)) || state.selected || state.geebrs[0];
+  const g=state.selected || (state.nextAgentId && state.geebrs.find(x=>x.id===state.nextAgentId)) || state.geebrs[0];
   if(!g){ out.textContent='No agent selected.'; return; }
   const cfg=getBrainConfig(g.id);
-  const perception=buildVisiblePerception(g.id,r);
-  const style=(cfg.style||'goofy little creature').replace(/\s+/g,' ').trim();
-  const personality=(cfg.personality||'curious, imperfect, funny, not very smart').replace(/\s+/g,' ').trim();
-  const quest=(cfg.quest||'').replace(/\s+/g,' ').trim();
-  const goal=(cfg.goal||'').replace(/\s+/g,' ').trim();
-  const recent=(state.globalHistory||[]).slice(-5).map(x=>'- '+x.replace(/\s+/g,' ').trim()).join('\n')||'- none';
-  const systemMessage=[
-    'You are a tiny browser-local character brain inside geebr.world.',
-    'You are intentionally imperfect, goofy, and limited. Do not be a genius planner.',
-    'Choose exactly one command for only your own character. Vary your actions - walk around, touch things, push objects, say something funny, or cast spells.',
-    'Do not just look at things every turn. Be active and silly.',
-    'Use short funny speech when saying things.',
-   ...(state.allowed.has('give_quest') ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
-   'Use goal() to set a short-term reminder goal for yourself.',
-   ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
-    'Do not explain. Do not output anything except the command line.',
-     'Command syntax examples (use exactly one):',
-    ...buildCommandExamples()
- ].join('\n');
-function buildCommandExamples(){
-  const ex=[];
-  if(state.allowed.has('walk')) ex.push('walk(north)','walk(south)','walk(east)','walk(west)');
-  if(state.allowed.has('say')) ex.push('say("hello there")');
-  if(state.allowed.has('look')) ex.push('look()');
-  if(state.allowed.has('touch')) ex.push('touch()');
-  if(state.allowed.has('push')) ex.push('push()');
-  if(state.allowed.has('pull')) ex.push('pull()');
-  if(state.allowed.has('carry')) ex.push('carry()');
-  if(state.allowed.has('drop')) ex.push('drop()');
-  if(state.allowed.has('throw')) ex.push('throw()');
-  if(state.allowed.has('dig')) ex.push('dig()');
-  if(state.allowed.has('build')) ex.push('build(wall)','build(crate)');
-  if(state.allowed.has('repair')) ex.push('repair()');
-  if(state.allowed.has('panic')) ex.push('panic()');
-  if(state.allowed.has('spell.push')) ex.push('spell(push)');
-  if(state.allowed.has('spell.spark')) ex.push('spell(spark)');
-  if(state.allowed.has('spell.fireball')) ex.push('spell(fireball)');
-  if(state.allowed.has('goal')) ex.push('goal(get axe)');
-  if(state.allowed.has('give_quest')) ex.push('give_quest(find the magic sword)');
-  return ex.length?ex:['walk(north)'];
-}
-  const userPrompt=`Character: ${g.id}\nStyle: ${style}\nPersonality: ${personality}\n${quest?'Quest: '+quest+'\n':''}${goal?'Current goal: '+goal+'\n':''}Recent events:\n${recent}\n\nCurrent perception:\n${String(perception).slice(0,2400)}\n\nPick one next action.`;
-  out.textContent=`[AGENT: ${g.id}]\n\n[SYSTEM]\n${systemMessage}\n\n[USER]\n${userPrompt}`;
+  const { systemMessage, commandReminder } = buildAgentPrompt(g, cfg);
+  const hist = cfg.messages || [];
+  let histText = '';
+  for (const m of hist) { histText += `[${m.role.toUpperCase()}] ${m.content}\n`; }
+  out.textContent=`[AGENT: ${g.id}]\n\n[SYSTEM]\n${systemMessage}\n\n${histText ? '--- MESSAGE HISTORY ---\n' + histText + '\n' : ''}[USER]\n${commandReminder}`;
 }
 window.getAgentPerception=(agentId=null,radius=5)=>buildVisiblePerception(agentId,radius);
 
@@ -884,6 +875,7 @@ function spawnAt(type, x, z) {
     setGeebrLogicalPosition(obj, pos);
     setBrainConfig(id, {style:'helpful idiot', personality:'newly spawned, confused, eager to participate', fireballTemptation:45, chaos:60});
     refreshAgentSelect();
+    selectGeebr(obj);
     log('spawned ' + id + ' at ' + x + ',' + z);
   } else if (type === 'barrel') {
     obj = makeBarrel(state.scene, x, z);
@@ -934,7 +926,7 @@ function installWorldAPI(){
     runAgentCommand:(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'),
     stepAgentTurn:beginTurnForAgent,
     isTurnReady:()=>state.turn.phase==='ready',
-    spawnCharacter, spawnProp, spawnAt, clearWorld,
+    spawnCharacter, spawnProp, spawnAt, clearWorld, buildAgentPrompt,
   };
 }
 

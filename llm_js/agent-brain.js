@@ -36,34 +36,13 @@ export function createAgentBrainManager(config = {}) {
     if (!engine) await load();
     const responseFormat = getBuiltInResponseFormat('geebrCommands');
     const constraintInstruction = getGrammarInstruction('geebrCommands');
-    const style = oneLine(agent.brainStyle || 'goofy little creature');
-    const personality = oneLine(agent.personality || 'curious, imperfect, funny, not very smart');
-    const recent = (agent.recent || []).slice(-4).map(x => '- ' + oneLine(x)).join('\n') || '- none';
-    const perception = String(agent.perception || '').slice(0, 2400);
-    const quest = oneLine(agent.quest || '');
-    const goal = oneLine(agent.goal || '');
-    const allowedCommands = agent.allowedCommands || [];
-    const canGiveQuest = allowedCommands.includes('give_quest');
-    const systemMessage = [
-      'You are a tiny browser-local character brain inside geebr.world.',
-      'You are intentionally imperfect, goofy, and limited. Do not be a genius planner.',
-      'Choose exactly one command for only your own character. Vary your actions - walk around, touch things, push objects, say something funny, or cast spells.',
-      'Do not just look at things every turn. Be active and silly.',
-      'Use short funny speech when saying things.',
-      'Use goal() to set a short-term reminder goal for yourself.',
-      ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
-      ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
-      'Do not explain. Do not output anything except the command line.',
-    ].join('\n');
-    const prompt = `Character: ${agent.agentId}\nStyle: ${style}\nPersonality: ${personality}\n${quest?'Quest: '+quest+'\n':''}${goal?'Current goal: '+goal+'\n':''}Recent events:\n${recent}\n\nCurrent perception:\n${perception}\n\nPick one next action.`;
-    onDebug('prompt', { agentId: agent.agentId, prompt });
-    const text = await generate(engine, prompt, {
+    const text = await generate(engine, '', {
       maxTokens: agent.maxTokens || 48,
       temperature: agent.temperature ?? 0,
       frequencyPenalty: agent.frequencyPenalty ?? 0.15,
       responseFormat,
       constraintInstruction,
-      systemMessage,
+      messages: agent.messages || [],
       enableThinking: false,
       debugLog: (msg, data) => onDebug(msg, data),
     });
