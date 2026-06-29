@@ -38,8 +38,10 @@ dig()
 build(thing: wall|crate)
 repair()
 panic()
-spell(name: push|spark|fireball)`),
-    instruction: 'Output exactly one plain command line matching the geebr.world command syntax. Do not output JSON. Do not explain. Pick one action for this character based on perception, personality, and goals.',
+spell(name: push|spark|fireball)
+goal(text)
+give_quest(text)`),
+    instruction: 'Output exactly one plain command line matching the geebr.world command syntax. Do not output JSON. Do not explain. Pick one action for this character based on perception, personality, goals, quest, and current goal.',
   },
   choice: { label: 'Custom choice example', grammar: `root ::= "option-a" | "option-b" | "option-c"` },
 };

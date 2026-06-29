@@ -47,6 +47,8 @@ export function createAgentBrainManager(config = {}) {
       'Choose exactly one command for only your own character. Vary your actions - walk around, touch things, push objects, say something funny, or cast spells.',
       'Do not just look at things every turn. Be active and silly.',
       'Use short funny speech when saying things.',
+      'Use goal() to set a short-term reminder goal for yourself. Use give_quest() only if you have the give quest ability to bestow a quest on nearby agents.',
+      'Your quest is set by the world and cannot be changed by you. Work toward it.',
       'Do not explain. Do not output anything except the command line.',
     ].join('\n');
     const prompt = `Character: ${agent.agentId}\nStyle: ${style}\nPersonality: ${personality}\nGoals: ${goals}\nRecent events:\n${recent}\n\nCurrent perception:\n${perception}\n\nPick one next action.`;

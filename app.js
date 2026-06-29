@@ -5,10 +5,10 @@ const PROP_ASSET = './assets/models/props/';
 const CHAR_ASSET = './assets/models/characters/kaykit/';
 const ANIM_ASSET = './assets/models/animations/kaykit/';
 const WORLD = { size: 32, half: 16 };
-const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','spell.push','spell.spark','spell.fireball'];
+const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
-  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(COMMANDS), zoomFocus:null, animSources:null,
+  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(['walk']), zoomFocus:null, animSources:null,
   turn:{index:0, phase:'ready', command:null, resolveMs:1250, lastEndedAt:0, mode:true}, globalHistory:[], nextAgentId:null,
   brainConfigs:new Map(), nextSpawnId:1
 };
@@ -503,11 +503,11 @@ function startTurnMove(g,d){
 }
 
 function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
-function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); }
+function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; } }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
-function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(['walk','look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,dir:b,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
+function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(['walk','look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,dir:b,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
 function parseLLMCommandLine(line){
   line=String(line||'').trim();
   if(!line) return null;
@@ -521,11 +521,13 @@ function parseLLMCommandLine(line){
   if(name==='walk') return {kind:'walk',dir:dirMap[arg.toLowerCase()]||'n'};
   if(name==='spell') return {kind:'spell',spell:(arg.split(',')[0]||'spark').trim()||'spark'};
   if(name==='build') return {kind:'build',thing:(arg.split(',')[0]||'wall').trim()||'wall'};
+  if(name==='goal') return {kind:'goal',text:arg||''};
+  if(name==='give_quest') return {kind:'give_quest',text:arg||''};
   if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(name)) return {kind:name};
   return null;
 }
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
-  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); default: return say(g,'unknown command object'); } }
+  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
 window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
@@ -554,6 +556,8 @@ function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),9
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 function build(g,thing='wall'){ const p=g.root.position.add(g.dir.scale(1.25)); const x=clamp(Math.round(p.x),-15,15),z=clamp(Math.round(p.z),-15,15); if(thing==='crate') makeCrate(state.scene,x,z); else makeBlock(state.scene,x,z,false); say(g,'construction happened near the plan'); }
 function panic(g){ g.anim='panic'; playRig(g,'panic',true); say(g,'I have promoted the floor to manager'); if(!isTurnMode()){ for(let i=0;i<5;i++) setTimeout(()=>{ const v=new BABYLON.Vector3(Math.random()-.5,0,Math.random()-.5).normalize(); g.collider.physicsBody?.applyImpulse(v.scale(1.15),g.collider.position); },i*160); } else emitBadge(g,'panic'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); zeroMeshMotion(g.collider); },1050); }
+function setGoal(g,text){ const cfg=getBrainConfig(g.id); cfg.goal=text||''; setBrainConfig(g.id,cfg); say(g,text?`goal set: ${text}`:'goal cleared'); updatePerceptionUI(); }
+function giveQuest(g,text){ if(!state.allowed.has('give_quest')){ return say(g,'I cannot bestow quests'); } const targets=state.geebrs.filter(x=>x!==g && BABYLON.Vector3.Distance(g.root.position,x.root.position)<=2.0); if(!targets.length){ return say(g,'no one nearby to quest upon'); } const target=pickRandom(targets); const tcfg=getBrainConfig(target.id); tcfg.quest=text||''; setBrainConfig(target.id,tcfg); say(g,`bestowed quest upon ${target.id}: ${text}`); say(target,`received quest: ${text}`); updatePerceptionUI(); }
 function castSpell(g,spell){ g.anim='cast'; playRig(g,'cast',true); const origin=g.root.position.clone(); makeRing(origin,spell==='fireball'?state.materials.fire:state.materials.magic); if(spell==='spark'){ const t=nearestTarget(g,3); if(t){ const m=meta(t); if(m?.type==='lamp'||m?.type==='crystal') emitBadge(t,'glow'); else damage(t,.35,'spark'); } return setTimeout(()=>{ say(g,'sparkles are a valid plan'); g.anim='idle'; playRig(g,'idle',true); },220); }
   if(spell==='push'){ for(const m of state.props) if(!m.isDisposed() && BABYLON.Vector3.Distance(origin,m.position)<3.4) impulse(m,origin,6.5,.28); setTimeout(()=>{ say(g,'physics has been consulted'); g.anim='idle'; },220); return; }
   if(spell==='fireball'){ const target=nearestTarget(g,4.5); const hit=target?.getAbsolutePosition?.() || origin.add(g.dir.scale(3)); fireballVfx(origin.add(new BABYLON.Vector3(0,.85,0)),hit); setTimeout(()=>{ for(const m of state.props.concat(state.blocks)){ if(!m.isDisposed() && BABYLON.Vector3.Distance(hit,m.position)<2.25){ impulse(m,hit.add(new BABYLON.Vector3(0,.1,0)),7.2,.55); damage(m,meta(m)?.flammable?2:1,'fire'); } } for(const other of state.geebrs){ if(other!==g && BABYLON.Vector3.Distance(hit,other.root.position)<2.4){ other.anim='panic'; say(other,pickRandom(['hot weather attack','the sun is local now','why did you invite fire'])); setTimeout(()=>other.anim='idle',1100); } } say(g,pickRandom(['fireball is basically planning','wood is now bridge ingredients','careful fireball is still careful'])); g.anim='idle'; },420); }
@@ -736,12 +740,30 @@ function buildVisiblePerception(agentId=null, radius=5){
     ...legend,
     '',
     'Command syntax examples (use exactly one):',
-    'look()',
-    'walk(north)',
-    'push()',
-    'say("hello there")',
-    'spell(fireball)'
+    ...buildCommandExamples()
   ].join('\n');
+}
+function buildCommandExamples(){
+  const ex=[];
+  if(state.allowed.has('walk')) ex.push('walk(north)','walk(south)','walk(east)','walk(west)');
+  if(state.allowed.has('say')) ex.push('say("hello there")');
+  if(state.allowed.has('look')) ex.push('look()');
+  if(state.allowed.has('touch')) ex.push('touch()');
+  if(state.allowed.has('push')) ex.push('push()');
+  if(state.allowed.has('pull')) ex.push('pull()');
+  if(state.allowed.has('carry')) ex.push('carry()');
+  if(state.allowed.has('drop')) ex.push('drop()');
+  if(state.allowed.has('throw')) ex.push('throw()');
+  if(state.allowed.has('dig')) ex.push('dig()');
+  if(state.allowed.has('build')) ex.push('build(wall)','build(crate)');
+  if(state.allowed.has('repair')) ex.push('repair()');
+  if(state.allowed.has('panic')) ex.push('panic()');
+  if(state.allowed.has('spell.push')) ex.push('spell(push)');
+  if(state.allowed.has('spell.spark')) ex.push('spell(spark)');
+  if(state.allowed.has('spell.fireball')) ex.push('spell(fireball)');
+  if(state.allowed.has('goal')) ex.push('goal(get axe)');
+  if(state.allowed.has('give_quest')) ex.push('give_quest(find the magic sword)');
+  return ex.length?ex:['walk(north)'];
 }
 function updatePerceptionUI(){
   const out=document.getElementById('promptOut'); if(!out) return;
@@ -753,6 +775,8 @@ function updatePerceptionUI(){
   const style=(cfg.style||'goofy little creature').replace(/\s+/g,' ').trim();
   const personality=(cfg.personality||'curious, imperfect, funny, not very smart').replace(/\s+/g,' ').trim();
   const goals=(cfg.goals||'explore, interact with nearby things, react believably, and be amusing').replace(/\s+/g,' ').trim();
+  const quest=(cfg.quest||'').replace(/\s+/g,' ').trim();
+  const goal=(cfg.goal||'').replace(/\s+/g,' ').trim();
   const recent=(state.globalHistory||[]).slice(-5).map(x=>'- '+x.replace(/\s+/g,' ').trim()).join('\n')||'- none';
   const systemMessage=[
     'You are a tiny browser-local character brain inside geebr.world.',
@@ -761,8 +785,32 @@ function updatePerceptionUI(){
     'Do not just look at things every turn. Be active and silly.',
     'Use short funny speech when saying things.',
     'Do not explain. Do not output anything except the command line.',
-  ].join('\n');
-  const userPrompt=`Character: ${g.id}\nStyle: ${style}\nPersonality: ${personality}\nGoals: ${goals}\nRecent events:\n${recent}\n\nCurrent perception:\n${String(perception).slice(0,2400)}\n\nPick one next action.`;
+     'Command syntax examples (use exactly one):',
+    ...buildCommandExamples()
+ ].join('\n');
+function buildCommandExamples(){
+  const ex=[];
+  if(state.allowed.has('walk')) ex.push('walk(north)','walk(south)','walk(east)','walk(west)');
+  if(state.allowed.has('say')) ex.push('say("hello there")');
+  if(state.allowed.has('look')) ex.push('look()');
+  if(state.allowed.has('touch')) ex.push('touch()');
+  if(state.allowed.has('push')) ex.push('push()');
+  if(state.allowed.has('pull')) ex.push('pull()');
+  if(state.allowed.has('carry')) ex.push('carry()');
+  if(state.allowed.has('drop')) ex.push('drop()');
+  if(state.allowed.has('throw')) ex.push('throw()');
+  if(state.allowed.has('dig')) ex.push('dig()');
+  if(state.allowed.has('build')) ex.push('build(wall)','build(crate)');
+  if(state.allowed.has('repair')) ex.push('repair()');
+  if(state.allowed.has('panic')) ex.push('panic()');
+  if(state.allowed.has('spell.push')) ex.push('spell(push)');
+  if(state.allowed.has('spell.spark')) ex.push('spell(spark)');
+  if(state.allowed.has('spell.fireball')) ex.push('spell(fireball)');
+  if(state.allowed.has('goal')) ex.push('goal(get axe)');
+  if(state.allowed.has('give_quest')) ex.push('give_quest(find the magic sword)');
+  return ex.length?ex:['walk(north)'];
+}
+  const userPrompt=`Character: ${g.id}\nStyle: ${style}\nPersonality: ${personality}\nGoals: ${goals}\n${quest?'Quest: '+quest+'\n':''}${goal?'Current goal: '+goal+'\n':''}Recent events:\n${recent}\n\nCurrent perception:\n${String(perception).slice(0,2400)}\n\nPick one next action.`;
   out.textContent=`[AGENT: ${g.id}]\n\n[SYSTEM]\n${systemMessage}\n\n[USER]\n${userPrompt}`;
 }
 window.getAgentPerception=(agentId=null,radius=5)=>buildVisiblePerception(agentId,radius);
@@ -771,7 +819,7 @@ window.getAgentPerception=(agentId=null,radius=5)=>buildVisiblePerception(agentI
 function getBrainConfig(agentId){
   if(!state.brainConfigs.has(agentId)){
     const g=state.geebrs.find(x=>x.id===agentId);
-    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'reckless mage':'fireball goblin',personality:'goofy, curious, imperfect, tries to be useful but often misunderstands',goals:'explore, interact with nearby objects, react to other geebrs, and be funny',fireballTemptation:g?.traits?.fireball??60,chaos:55,recent:[]});
+    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'reckless mage':'fireball goblin',personality:'goofy, curious, imperfect, tries to be useful but often misunderstands',goals:'explore, interact with nearby objects, react to other geebrs, and be funny',fireballTemptation:g?.traits?.fireball??60,chaos:55,recent:[],quest:'',goal:'',giveQuest:false});
   }
   return state.brainConfigs.get(agentId);
 }
