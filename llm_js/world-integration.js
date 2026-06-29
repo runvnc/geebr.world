@@ -109,27 +109,31 @@ async function main() {
       const perception = world.getAgentPerception(g.id, cfg.radius || 5);
       const style = (cfg.style || 'goofy little creature').replace(/\s+/g, ' ').trim();
       const personality = (cfg.personality || 'curious, imperfect, funny, not very smart').replace(/\s+/g, ' ').trim();
-      const goals = (cfg.goals || 'explore, interact with nearby things, react believably, and be amusing').replace(/\s+/g, ' ').trim();
       const quest = (cfg.quest || '').replace(/\s+/g, ' ').trim();
       const goal = (cfg.goal || '').replace(/\s+/g, ' ').trim();
       const recent = (world.state?.globalHistory || []).slice(-5).map(x => '- ' + x.replace(/\s+/g, ' ').trim()).join('\n') || '- none';
+      const allowedCommands = world.getAllowedCommands();
+      const canGiveQuest = allowedCommands.includes('give_quest');
       const systemMessage = [
         'You are a tiny browser-local character brain inside geebr.world.',
         'You are intentionally imperfect, goofy, and limited. Do not be a genius planner.',
         'Choose exactly one command for only your own character. Vary your actions - walk around, touch things, push objects, say something funny, or cast spells.',
         'Do not just look at things every turn. Be active and silly.',
         'Use short funny speech when saying things.',
-        'Use goal() to set a short-term reminder goal for yourself. Use give_quest() only if you have the give quest ability to bestow a quest on nearby agents.',
-        'Your quest is set by the world and cannot be changed by you. Work toward it.',
+        'Use goal() to set a short-term reminder goal for yourself.',
+        ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
+        ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
         'Do not explain. Do not output anything except the command line.',
       ].join('\n');
-      const displayPrompt = `Character: ${g.id}\nStyle: ${style}\nPersonality: ${personality}\nGoals: ${goals}\n${quest?'Quest: '+quest+'\n':''}${goal?'Current goal: '+goal+'\n':''}Recent events:\n${recent}\n\nCurrent perception:\n${String(perception).slice(0, 2400)}\n\nPick one next action.`;
+      const displayPrompt = `Character: ${g.id}\nStyle: ${style}\nPersonality: ${personality}\n${quest?'Quest: '+quest+'\n':''}${goal?'Current goal: '+goal+'\n':''}Recent events:\n${recent}\n\nCurrent perception:\n${String(perception).slice(0, 2400)}\n\nPick one next action.`;
       showPrompt(g.id, displayPrompt, systemMessage);
       const line = await manager.decide({
         agentId: g.id,
         brainStyle: cfg.style,
         personality: cfg.personality,
-        goals: cfg.goals,
+        quest: cfg.quest,
+        goal: cfg.goal,
+        allowedCommands,
         recent: (world.state?.globalHistory || []).slice(-5),
         perception,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),

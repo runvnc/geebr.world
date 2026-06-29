@@ -15,6 +15,19 @@
         <summary>World setup</summary>
         <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
         <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
+        <div class="row setup-row"><button id="clearMap" type="button" class="danger-btn">clear map</button></div>
+        <div class="section-subtitle">Click-to-spawn mode</div>
+        <div class="spawn-panel">
+          <label class="spawn-mode-toggle"><input id="spawnModeEnabled" type="checkbox" /> enable click-to-spawn</label>
+          <select id="spawnModeType">
+            <option value="geebr">geebr</option>
+            <option value="crate">crate</option>
+            <option value="barrel">barrel</option>
+            <option value="wall">wall</option>
+            <option value="mushroom">mushroom</option>
+            <option value="lamp">lamp</option>
+          </select>
+        </div>
         <div class="section-subtitle">Agent brains</div>
         <div class="brainbar"><button id="loadBrains" type="button">load Qwen3.5-0.8B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
         <div id="brainStatus">local brain not loaded</div>

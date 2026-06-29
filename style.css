@@ -48,3 +48,12 @@ code { color:#ffe0a0; }
 .personality-label { display:flex; flex-direction:column; gap:5px; font-size:11px; font-weight:850; color:#eaf2df; margin:7px 0 8px; }
 #agentPersonality, #agentQuest, #agentGoal { width:calc(100% - 16px); resize:vertical; border:1px solid rgba(255,255,255,.18); color:#fff; background:rgba(0,0,0,.28); border-radius:10px; padding:8px; font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .custom-grid input[type="checkbox"] { width:18px; height:18px; accent-color:#d7ff9a; }
+
+.danger-btn { background:rgba(220,60,60,.32) !important; border:1px solid rgba(255,80,80,.4) !important; }
+.danger-btn:hover { background:rgba(240,80,80,.5) !important; }
+
+.spawn-panel { display:flex; flex-direction:column; gap:7px; margin-bottom:8px; background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:8px; }
+.spawn-mode-toggle { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:850; color:#eaf2df; cursor:pointer; }
+.spawn-mode-toggle input { width:18px; height:18px; accent-color:#d7ff9a; }
+.spawn-panel select { width:100%; }
+.spawn-panel select option { background:#1a1f25; color:#fff; }
