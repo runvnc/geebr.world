@@ -799,7 +799,7 @@ function buildVisiblePerception(agentId=null, radius=5){
 function buildCommandExamples(){
   const ex=[];
   if(state.allowed.has('walk')) ex.push('walk(north)','walk(south)','walk(east)','walk(west)');
-  if(state.allowed.has('say')) ex.push('say("hello there")');
+  if(state.allowed.has('say')) ex.push('say("...")');
   if(state.allowed.has('look')) ex.push('look()');
   if(state.allowed.has('touch')) ex.push('touch()','touch(crate)');
   if(state.allowed.has('push')) ex.push('push()');
@@ -841,7 +841,7 @@ function buildAgentPrompt(g, cfg) {
   const commandReminder = [
     'SYSTEM: ' + String(perception).slice(0, 2400),
     '',
-    'Command syntax examples (use exactly one):',
+    'Command syntax:',
     ...cmds,
     '',
     ...(quest ? ['Quest: ' + quest] : []),
@@ -1017,6 +1017,7 @@ function setupUI(){
           const cmd=parseCommand(btn.dataset.cmd);
           btn.disabled=!!(cmd&&!canRun(cmd.kind,cmd.spell));
         });
+        updatePerceptionUI();
       };
       lab.append(chk,document.createTextNode(c)); allowed.appendChild(lab);
     }
