@@ -50,7 +50,7 @@ function setupMouseWheelZoom(camera){
     const focus=state.zoomFocus || state.target?.getAbsolutePosition?.() || state.selected?.root?.position;
     if(focus){
       const f=focus.clone ? focus.clone() : new BABYLON.Vector3(focus.x||0,focus.y||0,focus.z||0);
-      f.y=.25;
+      f.y=0.6;
       camera.setTarget(BABYLON.Vector3.Lerp(camera.target,f,ev.deltaY>0?.18:.42));
     }
     setOrthoZoom(camera,clamp(current*factor,4.2,24.5));
@@ -340,11 +340,13 @@ async function scatterRealProps(scene){
     ['Bag.gltf',{type:'bag',w:.55,h:.62,d:.55,mass:.45,scale:.85,visualYOffset:.31,flammable:true}],
     ['Chest_Wood.gltf',{type:'chest',w:1.05,h:.75,d:.75,mass:1.2,scale:.55,visualYOffset:.38,flammable:true}],
   ];
+  const fixedPositions=[[-1.8,1.2],[1.8,1.7],[0.2,2.7],[2.8,0.1],[-6.0,-2.9],[-5.0,-3.2],[-7.7,-3.2],[-7.9,-5.8],[-5.9,-6.1],[-6.8,-6.2],[4.2,-4.8],[5.4,-5.2],[6.5,-4.6],[3.4,-7.5],[3.0,-6.4],[3.7,-6.1],[8.2,3.3],[-3.4,1.0],[5.0,-6.0],[5.4,-6.25],[-6.8,-4.7],[4.8,-4.3],[-8.7,-3.95],[-1.5,1.8],[5.8,2.2]];
+  function tooClose(x,z){ for(const [fx,fz] of fixedPositions){ if(Math.abs(x-fx)<1.5 && Math.abs(z-fz)<1.5) return true; } for(const p of state.props){ if(p.isDisposed?.()) continue; const pp=p.getAbsolutePosition?.()||p.position; if(Math.abs(x-pp.x)<1.2 && Math.abs(z-pp.z)<1.2) return true; } return false; }
   for(let i=0;i<12;i++){
     const [file,base]=pickRandom(scatterProps);
-    const x=clamp(Math.round(-4+Math.random()*10),-14,14);
-    const z=clamp(Math.round(-2+Math.random()*7),-14,14);
-    await importPropAsset(scene,file,{...base,x,z});
+    let x,z,tries=0;
+    do { x=clamp(Math.round(-4+Math.random()*10),-14,14); z=clamp(Math.round(-2+Math.random()*7),-14,14); tries++; } while(tooClose(x,z) && tries<20);
+    await importPropAsset(scene,file,{...base,x,z,y:0.5});
   }
   log('scattered 12 real GLTF props');
 }
@@ -500,7 +502,7 @@ function startTurnMove(g,d){
   zeroMeshMotion(g.collider);
 }
 
-function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=g.root.position.clone(); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
+function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
 function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
@@ -630,11 +632,13 @@ function isWithinFacingVision(g,cx,cz,x,z,radius){
   if(cheb<=1) return true;
   const fx=Math.sign(g?.dir?.x||0), fz=Math.sign(g?.dir?.z||-1) || -1;
   const forward=dx*fx + dz*fz;
+  // Small peripheral awareness directly behind
+  if(forward<0 && cheb<=2) return true;
   if(forward<=0) return false;
   if(forward>radius) return false;
   // Cardinal-facing cone: lateral width widens with distance.
   const lateral=Math.abs(dx*fz - dz*fx);
-  const maxLateral=Math.max(1, Math.floor((forward+1)*0.6));
+  const maxLateral=Math.max(1, Math.floor((forward+1)*1.0));
   return lateral<=maxLateral;
 }
 function typeGlyph(type){
@@ -938,6 +942,9 @@ function addTerrainPolish(scene){
   }
   const grass=BABYLON.MeshBuilder.CreateGround('continuous_safe_grass',{width:31.8,height:31.8,subdivisions:8},scene);
   grass.position.set(0,.018,0); grass.material=terrainMat(scene,'v12_safe_grass',new BABYLON.Color3(.23,.36,.16),.010); grass.receiveShadows=true; grass.isPickable=false;
+  // Add static ground physics body so props don't fall through
+  const groundBody=new BABYLON.PhysicsAggregate(grass,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
+  groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
   makePathRibbon(scene);
   makeStoneQuarrySurface(scene);
   makeBetterWater(scene);
@@ -954,14 +961,14 @@ function addTerrainPolish(scene){
 }
 
 async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.055,.071,.088,1); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,1.05,18,new BABYLON.Vector3(0,.2,0),scene); state.camera=camera; camera.mode=BABYLON.Camera.ORTHOGRAPHIC_CAMERA; camera.lowerRadiusLimit=10; camera.upperRadiusLimit=28; camera.panningSensibility=60; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
-  // Left-click drag to pan; disable camera rotation drag
-  if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[2]; }
-  let panStart=null;
-  canvas.addEventListener('pointerdown',e=>{ if(e.button===0){ panStart={x:e.clientX,y:e.clientY,tgt:camera.target.clone()}; canvas.setPointerCapture(e.pointerId); } else if(e.button===2){ canvas.setPointerCapture(e.pointerId); } });
-  canvas.addEventListener('pointermove',e=>{ if(panStart && e.buttons&1){ const dx=(e.clientX-panStart.x)*0.02; const dy=(e.clientY-panStart.y)*0.02; const fwd=camera.getDirection(BABYLON.Vector3.Forward()); const right=camera.getDirection(BABYLON.Vector3.Right()); const up=camera.getDirection(BABYLON.Vector3.Up()); camera.target.copyFrom(panStart.tgt.add(right.scale(dx)).subtract(up.scale(dy))); state.zoomFocus=camera.target.clone(); } });
-  canvas.addEventListener('pointerup',e=>{ if(panStart){ panStart=null; try{canvas.releasePointerCapture(e.pointerId);}catch{} } });
-  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,1.05,18,new BABYLON.Vector3(0,.6,0),scene); state.camera=camera; camera.mode=BABYLON.Camera.ORTHOGRAPHIC_CAMERA; camera.lowerRadiusLimit=10; camera.upperRadiusLimit=28; camera.panningSensibility=60; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
+  if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
+  let clickStart=null;
+  canvas.addEventListener('pointerdown',e=>{ if(e.button===0){ clickStart={x:e.clientX,y:e.clientY}; } });
+  canvas.addEventListener('pointerup',e=>{ if(e.button===0 && clickStart){ const moved=Math.abs(e.clientX-clickStart.x)+Math.abs(e.clientY-clickStart.y); clickStart=null; if(moved<5){ const pick=scene.pick(scene.pointerX,scene.pointerY); if(pick?.hit && pick.pickedPoint){ const tx=Math.round(pick.pickedPoint.x), tz=Math.round(pick.pickedPoint.z); camera.target=new BABYLON.Vector3(tx,0.6,tz); state.zoomFocus=camera.target.clone(); } } } });
+  canvas.addEventListener('contextmenu',e=>{ e.preventDefault(); const pick=scene.pick(scene.pointerX,scene.pointerY); if(pick?.hit && pick.pickedPoint){ const tx=Math.round(pick.pickedPoint.x), tz=Math.round(pick.pickedPoint.z); let info=`tile (${tx},${tz})`; const m=pick.pickedMesh; const mm=meta(m); if(mm?.type && mm.type!=='tile') info+=` - ${mm.type} (${mm.state||'intact'})`; const owner=m?.metadata?.ownerId; if(owner){ const g=state.geebrs.find(x=>x.id===owner); if(g) info+=` - ${g.id} (${g.anim||'idle'})`; } log(info); } });
+  canvas.addEventListener('pointermove',e=>{ if(e.buttons&2){ e.preventDefault(); const dx=e.movementX*0.02, dy=e.movementY*0.02; const right=camera.getDirection(BABYLON.Vector3.Right()); const up=camera.getDirection(BABYLON.Vector3.Up()); const newTarget=camera.target.add(right.scale(dx)).subtract(up.scale(dy)); newTarget.y=0.6; camera.target.copyFrom(newTarget); state.zoomFocus=camera.target.clone(); } });
   const hemi=new BABYLON.HemisphericLight('soft_overall',new BABYLON.Vector3(.2,1,.1),scene); hemi.intensity=.30; hemi.groundColor=new BABYLON.Color3(.13,.16,.15); const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.42,-.92,.55),scene); sun.position=new BABYLON.Vector3(8,14,-9); sun.intensity=.88; sun.diffuse=new BABYLON.Color3(1,.88,.70); const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-8,4,6),scene); fill.intensity=.20; fill.diffuse=new BABYLON.Color3(.50,.67,1); fill.range=18; state.shadow=new BABYLON.ShadowGenerator(2048,sun); state.shadow.useBlurExponentialShadowMap=true; state.shadow.blurKernel=24;
   state.materials={
     grass:mat(scene,'grass','grass_meadow.png',{uScale:1,vScale:1}), dirt:mat(scene,'dirt','dirt_loam.png',{uScale:1,vScale:1}), stone:mat(scene,'stone','stone_soft.png',{uScale:1,vScale:1}),
@@ -970,6 +977,6 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
     cracked:mat(scene,'cracked','cracked_wall.png',{uScale:1.2,vScale:1.2}), wood:mat(scene,'wood','wood_planks.png',{uScale:1.2,vScale:1.2}), mushroom:mat(scene,'mushroom','mushroom_cap.png',{uScale:1.05,vScale:1.05}), canvas:mat(scene,'canvas','canvas_fabric.png',{uScale:1.4,vScale:1.4}), geebr:mat(scene,'geebr_clay','geebr_clay.png',{uScale:1,vScale:1}), magic:mat(scene,'magic','magic_crystal.png',{emissive:new BABYLON.Color3(.07,.34,.34)}), fire:colorMat(scene,'fire',new BABYLON.Color3(1,.31,.08),new BABYLON.Color3(.85,.18,.04)), burned:colorMat(scene,'burned',new BABYLON.Color3(.12,.09,.07)), water:makeWaterMaterial(scene), grassBlade:colorMat(scene,'grass_blade',new BABYLON.Color3(.25,.43,.18)), grassBlade2:colorMat(scene,'grass_blade2',new BABYLON.Color3(.36,.49,.20)), pebble:colorMat(scene,'pebble',new BABYLON.Color3(.39,.38,.32)), hole:colorMat(scene,'hole',new BABYLON.Color3(.06,.035,.022)), bot:colorMat(scene,'bot',new BABYLON.Color3(.47,.55,.58)), darkwood:colorMat(scene,'darkwood',new BABYLON.Color3(.26,.14,.07)), hat1:colorMat(scene,'hat_moss',new BABYLON.Color3(.18,.38,.21)), hat2:colorMat(scene,'hat_clay',new BABYLON.Color3(.58,.25,.16)), hat3:colorMat(scene,'hat_blue',new BABYLON.Color3(.18,.28,.48)), belly1:colorMat(scene,'belly_cream',new BABYLON.Color3(.78,.72,.48)), belly2:colorMat(scene,'belly_blue',new BABYLON.Color3(.36,.55,.68)), belly3:colorMat(scene,'belly_pink',new BABYLON.Color3(.70,.42,.53)), foot:colorMat(scene,'foot_dark',new BABYLON.Color3(.12,.17,.13))
   };
   buildWorld(scene); addTerrainPolish(scene); await addRealPropPass(scene); await scatterRealProps(scene); const realChars=await createAgentCast(scene); if(!realChars){ createGeebr(scene,'gib',new BABYLON.Vector3(-1,.06,-.7),{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); createGeebr(scene,'momo',new BABYLON.Vector3(.45,.06,-.55),{hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},'mushroom'); createGeebr(scene,'zap',new BABYLON.Vector3(1.2,.06,.15),{hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},'bot'); } selectGeebr(state.geebrs[0]);
-  scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=g.root.position.clone(); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=pi.pickInfo.pickedPoint.clone(); if(mm?.interactive){ state.target=target; state.zoomFocus=target.getAbsolutePosition?.().clone?.() || state.zoomFocus; log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
+  scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=new BABYLON.Vector3(pi.pickInfo.pickedPoint.x,0.6,pi.pickInfo.pickedPoint.z); if(mm?.interactive){ state.target=target; const tp=target.getAbsolutePosition?.()||pi.pickInfo.pickedPoint; state.zoomFocus=new BABYLON.Vector3(tp.x,0.6,tp.z); log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
   setupUI(); installWorldAPI(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
 main().catch(err=>{ console.error(err); document.body.innerHTML='<pre style="color:white;padding:20px;white-space:pre-wrap">'+err.stack+'</pre>'; });
