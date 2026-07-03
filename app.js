@@ -832,7 +832,6 @@ function buildAgentPrompt(g, cfg) {
     `Style: ${style}`,
     `Personality: ${personality}`,
     '',
-    'Choose exactly one command for only your own character.',
     ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
     ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
     'Do not output anything except the command line.',

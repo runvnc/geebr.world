@@ -172,6 +172,7 @@ async function main() {
       updatePerceptionUI();
       const chatTestMode = el('chatTestMode')?.checked;
       let messages;
+     let chatSuffix = '';
       if (chatTestMode) {
         // Bare conversation mode: minimal system message, only user/assistant messages
         messages = [{ role: 'system', content: 'have a conversation. use the say command' }];
@@ -208,8 +209,7 @@ async function main() {
         }
         // Merge command reminder with last user message if it's also user role
         const lastMsg = messages[messages.length - 1];
-        let chatSuffix = '';
-        if (cfg.pendingChat && cfg.pendingChat.length > 0) {
+         if (cfg.pendingChat && cfg.pendingChat.length > 0) {
           chatSuffix = '\n\n' + cfg.pendingChat.join('\n');
           cfg.pendingChat = [];
           world.setBrainConfig(g.id, cfg);
@@ -238,6 +238,13 @@ async function main() {
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
       });
       const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
+      // Persist chat messages to history so they're remembered in future turns
+      if (chatSuffix) {
+        const chatLines = chatSuffix.trim().split('\n').filter(l => l.trim());
+        for (const cl of chatLines) {
+          cfg.messages = (cfg.messages || []).concat([{ role: 'user', content: cl }]);
+        }
+      }
       // Add agent's action as assistant message
       cfg.messages = (cfg.messages || []).concat([{ role: 'assistant', content: line || 'look()' }]);
       cfg.recent = (cfg.recent || []).concat(`chose ${line || 'nothing'}`).slice(-6);
