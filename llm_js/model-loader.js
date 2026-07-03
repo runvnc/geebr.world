@@ -1,6 +1,7 @@
 // WebLLM model loader with WebGPU capability detection and fallback.
-// Keep this path intentionally close to the original llm.html lab path because
-// that is the known-working Qwen3.5-0.8B WebLLM load behavior.
+// Uses IndexedDB cache backend by default to avoid Cache API ERR_FAILED 200
+// issues with HuggingFace Xet/CAS CDN. Browser downloads directly from HF,
+// no server-side proxy needed.
 import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
 const MODEL_VARIANTS = {
@@ -15,6 +16,16 @@ let engine = null;
 let currentModel = null;
 let loading = false;
 let hasShaderF16 = null;
+
+// Cache backend preference: 'indexeddb' (default, most reliable for large files),
+// 'opfs' (faster on supported browsers), or 'cache' (Cache API, may hit ERR_FAILED 200).
+function getPreferredCacheBackend() {
+  try {
+    const stored = localStorage.getItem('geebr_cache_backend');
+    if (stored === 'opfs' || stored === 'indexeddb' || stored === 'cache') return stored;
+  } catch {}
+  return 'indexeddb';
+}
 
 function forceF32Mode() {
   try {
@@ -61,6 +72,50 @@ export function getCurrentModel() {
   return currentModel;
 }
 
+export function getCacheBackend() {
+  return getPreferredCacheBackend();
+}
+
+export function setCacheBackend(backend) {
+  if (backend === 'indexeddb' || backend === 'opfs' || backend === 'cache') {
+    try { localStorage.setItem('geebr_cache_backend', backend); } catch {}
+    return true;
+  }
+  return false;
+}
+
+export async function clearModelCache(modelKey) {
+  const key = modelKey || 'qwen3.5-0.8b';
+  const model = MODEL_VARIANTS[key];
+  if (!model) return;
+  const backend = getPreferredCacheBackend();
+  const appConfig = webllm.prebuiltAppConfig;
+  appConfig.cacheBackend = backend;
+  // Clear both f16 and f32 variants
+  for (const v of [model.f16, model.f32]) {
+    try {
+      await webllm.deleteModelAllInfoInCache(v.modelId, appConfig);
+    } catch (e) {
+      console.warn('cache clear failed for', v.modelId, e);
+    }
+  }
+}
+
+export async function hasModelCached(modelKey) {
+  const key = modelKey || 'qwen3.5-0.8b';
+  const model = MODEL_VARIANTS[key];
+  if (!model) return false;
+  const backend = getPreferredCacheBackend();
+  const appConfig = webllm.prebuiltAppConfig;
+  appConfig.cacheBackend = backend;
+  const variant = getBestVariant(key);
+  try {
+    return await webllm.hasModelInCache(variant.modelId, appConfig);
+  } catch {
+    return false;
+  }
+}
+
 export async function loadModel(modelKey, onProgress) {
   const model = MODEL_VARIANTS[modelKey];
   if (!model) throw new Error(`Unknown model: ${modelKey}`);
@@ -75,33 +130,51 @@ export async function loadModel(modelKey, onProgress) {
   loading = true;
   await detectShaderF16();
   const variant = getBestVariant(modelKey);
+  const backend = getPreferredCacheBackend();
   onProgress?.(`Selected ${variant.variant.toUpperCase()} variant (${variant.vram})${forceF32Mode() ? ' via f32 safe mode' : ''}`);
+  onProgress?.(`Cache backend: ${backend}`);
   try {
-    engine = await tryLoadVariant(variant, onProgress);
+    engine = await tryLoadVariant(variant, backend, onProgress);
     currentModel = modelKey;
     onProgress?.('Ready');
     return engine;
   } catch (e) {
-    const fallback = getFallbackVariant(modelKey);
-    if (fallback && fallback.modelId !== variant.modelId) {
-      onProgress?.(`${variant.variant.toUpperCase()} failed: ${e.message}. Trying ${fallback.variant.toUpperCase()}...`);
-      engine = await tryLoadVariant(fallback, onProgress);
+    // If cache backend fails, try falling back to another backend
+    const fallbackBackend = backend === 'indexeddb' ? 'cache' : 'indexeddb';
+    onProgress?.(`${backend} failed: ${e.message}. Trying ${fallbackBackend}...`);
+    try {
+      setCacheBackend(fallbackBackend);
+      engine = await tryLoadVariant(variant, fallbackBackend, onProgress);
       currentModel = modelKey;
-      onProgress?.('Ready (fallback)');
+      onProgress?.(`Ready (fallback: ${fallbackBackend})`);
       return engine;
+    } catch (e2) {
+      // Last resort: try the model variant fallback (f16<->f32)
+      const fallback = getFallbackVariant(modelKey);
+      if (fallback && fallback.modelId !== variant.modelId) {
+        onProgress?.(`${variant.variant.toUpperCase()} failed: ${e2.message}. Trying ${fallback.variant.toUpperCase()}...`);
+        engine = await tryLoadVariant(fallback, fallbackBackend, onProgress);
+        currentModel = modelKey;
+        onProgress?.('Ready (model fallback)');
+        return engine;
+      }
+      throw e2;
     }
-    throw e;
   } finally {
     loading = false;
   }
 }
 
-async function tryLoadVariant(variant, onProgress) {
-  // Important: use WebLLM's prebuilt app config directly, same as llm.html did.
-  // Do not rewrite the model URL here; the lab page is the known-good behavior.
-  onProgress?.(`Initializing WebLLM (${variant.variant})...`);
+async function tryLoadVariant(variant, cacheBackend, onProgress) {
+  onProgress?.(`Initializing WebLLM (${variant.variant}, ${cacheBackend})...`);
+  const appConfig = webllm.prebuiltAppConfig;
+  appConfig.cacheBackend = cacheBackend;
+  if (cacheBackend === 'opfs') {
+    appConfig.opfsAccessMode = 'auto';
+  }
   return await webllm.CreateMLCEngine(variant.modelId, {
     initProgressCallback: (progress) => { if (progress.text) onProgress?.(progress.text); },
+    appConfig: appConfig,
   });
 }
 

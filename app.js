@@ -782,40 +782,39 @@ function buildVisiblePerception(agentId=null, radius=5){
   const legend = [];
   if (legendParts.length) legend.push('Legend: ' + legendParts.join(', ') + '.');
   if (markParts.length) legend.push('Marks: ' + markParts.join(', ') + '.');
+  const showMap = document.getElementById('showAsciiMap')?.checked !== false;
   return [
     `Agent perception for ${g.id}`,
     `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
     `Holding: ${held ? (heldMeta?.type||held.name) : 'none'}  Target: ${target ? (targetMeta?.type||target.name)+' at ('+Math.round(target.position.x)+','+Math.round(target.position.z)+')' : 'none'}`,
     '',
-    `North-up ${(radius*2+1)}x${(radius*2+1)} map, rows are relative z:`,
-    ...rows,
-    '',
+    ...(showMap ? [`North-up ${(radius*2+1)}x${(radius*2+1)} map, rows are relative z:`, ...rows, ''] : []),
     details.length ? 'Nearby visible objects:' : 'Nearby visible objects: none',
     ...details.slice(0,24),
     '',
-    ...legend,
+    ...(showMap ? legend : []),
   ].join('\n');
 }
 function buildCommandExamples(){
   const ex=[];
-  if(state.allowed.has('walk')) ex.push('walk(north)','walk(south)','walk(east)','walk(west)');
-  if(state.allowed.has('say')) ex.push('say("...")');
+  if(state.allowed.has('walk')) ex.push('walk(direction) e.g. walk(north)');
+  if(state.allowed.has('say')) ex.push('say(text) e.g. say("hello there")');
   if(state.allowed.has('look')) ex.push('look()');
-  if(state.allowed.has('touch')) ex.push('touch()','touch(crate)');
+  if(state.allowed.has('touch')) ex.push('touch(target) e.g. touch(crate)');
   if(state.allowed.has('push')) ex.push('push()');
   if(state.allowed.has('pull')) ex.push('pull()');
   if(state.allowed.has('carry')) ex.push('carry()');
   if(state.allowed.has('drop')) ex.push('drop()');
   if(state.allowed.has('throw')) ex.push('throw()');
   if(state.allowed.has('dig')) ex.push('dig()');
-  if(state.allowed.has('build')) ex.push('build(wall)','build(crate)');
+  if(state.allowed.has('build')) ex.push('build(thing) e.g. build(wall)');
   if(state.allowed.has('repair')) ex.push('repair()');
   if(state.allowed.has('panic')) ex.push('panic()');
   if(state.allowed.has('spell.push')) ex.push('spell(push)');
   if(state.allowed.has('spell.spark')) ex.push('spell(spark)');
   if(state.allowed.has('spell.fireball')) ex.push('spell(fireball)');
-  if(state.allowed.has('goal')) ex.push('goal(get axe)');
-  if(state.allowed.has('give_quest')) ex.push('give_quest(find the magic sword)');
+  if(state.allowed.has('goal')) ex.push('goal(text) e.g. goal(get axe)');
+  if(state.allowed.has('give_quest')) ex.push('give_quest(text) e.g. give_quest(find the magic sword)');
   return ex.length?ex:['walk(north)'];
 }
 function buildAgentPrompt(g, cfg) {
@@ -841,12 +840,10 @@ function buildAgentPrompt(g, cfg) {
   const commandReminder = [
     'SYSTEM: ' + String(perception).slice(0, 2400),
     '',
-    'Command syntax:',
+    'Available commands (examples only, use appropriate arguments):',
     ...cmds,
-    '',
     ...(quest ? ['Quest: ' + quest] : []),
     ...(goal ? ['Current goal: ' + goal] : []),
-    'Pick one next action.',
   ].join('\n');
   return { systemMessage, commandReminder };
 }
@@ -1029,6 +1026,7 @@ function setupUI(){
   const turnMode=document.getElementById('turnMode'); if(turnMode) turnMode.onchange=()=>{ state.turn.mode=turnMode.checked; settleWorld(turnMode.checked?'turn mode on':'turn mode off'); };
   const settle=document.getElementById('settleNow'); if(settle) settle.onclick=()=>settleWorld('manual settle');
   const copy=document.getElementById('copyPerception'); if(copy) copy.onclick=()=>{ const text=buildVisiblePerception(null,document.getElementById('visionRadius')?.value||5); navigator.clipboard?.writeText(text); log('copied perception text'); };
+  const showMap=document.getElementById('showAsciiMap'); if(showMap) showMap.onchange=updatePerceptionUI;
   const clearMapBtn=document.getElementById('clearMap'); if(clearMapBtn) clearMapBtn.onclick=()=>{
     if(confirm('Clear all geebrs and objects from the map?')) clearWorld();
   };

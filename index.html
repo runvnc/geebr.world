@@ -39,6 +39,11 @@
         <label class="spawn-mode-toggle"><input id="chatTestMode" type="checkbox" /> chat test mode (bare conversation, no perception)</label>
         <div class="brainbar"><button id="loadBrains" type="button">load Qwen3.5-0.8B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
         <div id="brainStatus">local brain not loaded</div>
+        <div class="cache-controls">
+          <label class="cache-backend-label">Cache <select id="cacheBackend"><option value="indexeddb" selected>IndexedDB</option><option value="opfs">OPFS</option><option value="cache">Cache API</option></select></label>
+          <button id="clearCache" type="button" class="danger-btn">clear model cache</button>
+          <span id="cacheStatus"></span>
+        </div>
       </details>
 
       <details open class="panel-section">
@@ -61,6 +66,7 @@
         <summary>Agent info & prompt</summary>
         <div class="perception-controls">
           <label>Vision radius <select id="visionRadius"><option value="4">9×9</option><option value="5" selected>11×11</option><option value="6">13×13</option></select></label>
+          <label class="spawn-mode-toggle"><input id="showAsciiMap" type="checkbox" checked /> ASCII map</label>
           <button id="refreshPerception" type="button">refresh</button>
           <button id="copyPerception" type="button">copy</button>
         </div>

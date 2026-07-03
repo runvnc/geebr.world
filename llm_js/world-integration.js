@@ -1,4 +1,5 @@
 import { createAgentBrainManager } from './agent-brain.js';
+import { getCacheBackend, setCacheBackend, clearModelCache, hasModelCached } from './model-loader.js';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -19,6 +20,42 @@ function setStatus(text) {
 
 function appendLog(text) {
   window.geebrWorld?.log?.(text);
+}
+
+// Transform a globalHistory entry like 'T3 geebr1: geebr1 walk n' into 'geebr1 walks n'
+// Also handles say entries like 'T3 geebr1: geebr1 say "hello" -> hello' into 'geebr1 says hello'
+function formatActionSummary(historyEntry) {
+  if (!historyEntry) return 'turn resolved';
+  // Strip the T# prefix: 'T3 geebr1: geebr1 walk n' -> 'geebr1: geebr1 walk n'
+  let s = String(historyEntry).replace(/^T\d+\s+/, '');
+  // Split into agent and action parts: 'geebr1: geebr1 walk n' -> agent='geebr1', action='geebr1 walk n'
+  const colonIdx = s.indexOf(':');
+  let agentId, action;
+  if (colonIdx >= 0) {
+    agentId = s.slice(0, colonIdx).trim();
+    action = s.slice(colonIdx + 1).trim();
+  } else {
+    agentId = '';
+    action = s;
+  }
+  // Remove redundant agent name from action if present: 'geebr1 walk n' -> 'walk n'
+  if (agentId && action.startsWith(agentId + ' ')) action = action.slice(agentId.length + 1);
+  // Also strip the raw command form like 'geebr1 walk(n)' -> 'walk(n)'
+  if (agentId && action.startsWith(agentId)) action = action.slice(agentId.length).trim();
+  // Conjugate common verbs: walk->walks, say->says, look->looks, etc.
+  const verbMap = { walk: 'walks', say: 'says', look: 'looks', touch: 'touches', push: 'pushes', pull: 'pulls', carry: 'carries', drop: 'drops', throw: 'throws', dig: 'digs', build: 'builds', repair: 'repairs', panic: 'panics', spell: 'casts', goal: 'sets goal', give_quest: 'gives quest' };
+  const parts = action.split(/\s+/);
+  if (parts.length > 0 && verbMap[parts[0]]) parts[0] = verbMap[parts[0]];
+  action = parts.join(' ');
+  // Clean up say text: 'says "hello" -> hello' -> 'says hello'
+  action = action.replace(/"([^"]*)"\s*->\s*.*/, '$1');
+  action = action.replace(/"([^"]*)"/, '$1');
+  return agentId ? `${agentId} ${action}` : action;
+}
+
+function setCacheStatus(text) {
+  const node = el('cacheStatus');
+  if (node) node.textContent = text;
 }
 
 function showPrompt(agentId, prompt, systemMessage) {
@@ -62,6 +99,31 @@ async function main() {
   let running = false;
   let stepIndex = 0;
   // Auto-load the brain on startup
+  // Initialize cache backend selector
+  const backendSelect = el('cacheBackend');
+  if (backendSelect) {
+    backendSelect.value = getCacheBackend();
+    backendSelect.addEventListener('change', () => {
+      setCacheBackend(backendSelect.value);
+      setCacheStatus('backend: ' + backendSelect.value);
+    });
+  }
+  el('clearCache')?.addEventListener('click', async () => {
+    setCacheStatus('clearing...');
+    try {
+      await clearModelCache();
+      setCacheStatus('cache cleared');
+      appendLog('model cache cleared');
+    } catch (e) {
+      setCacheStatus('clear failed: ' + e.message);
+      appendLog('cache clear error: ' + e.message);
+    }
+  });
+  // Check if model is already cached
+  try {
+    const cached = await hasModelCached();
+    setCacheStatus(cached ? 'model cached' : 'not cached');
+  } catch {}
   try {
     setStatus('auto-loading Qwen3.5-0.8B...');
     await manager.load();
@@ -146,10 +208,16 @@ async function main() {
         }
         // Merge command reminder with last user message if it's also user role
         const lastMsg = messages[messages.length - 1];
+        let chatSuffix = '';
+        if (cfg.pendingChat && cfg.pendingChat.length > 0) {
+          chatSuffix = '\n\n' + cfg.pendingChat.join('\n');
+          cfg.pendingChat = [];
+          world.setBrainConfig(g.id, cfg);
+        }
         if (lastMsg && lastMsg.role === 'user') {
-          lastMsg.content += '\n\n' + commandReminder;
+          lastMsg.content += '\n\n' + commandReminder + chatSuffix;
         } else {
-          messages.push({ role: 'user', content: commandReminder });
+          messages.push({ role: 'user', content: commandReminder + chatSuffix });
         }
       }
       // Show in prompt panel
@@ -178,13 +246,14 @@ async function main() {
       await world.stepAgentTurn(g.id, cmd, 'llm');
       // After turn resolves, add system result as user message
       const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';
-      cfg.messages = cfg.messages.concat([{ role: 'user', content: 'SYSTEM RESULT: ' + resultDesc }]);
+      const summary = formatActionSummary(resultDesc);
+      cfg.messages = cfg.messages.concat([{ role: 'user', content: summary }]);
       // Keep only last 20 messages
       if (cfg.messages.length > 20) cfg.messages = cfg.messages.slice(-20);
       world.setBrainConfig(g.id, cfg);
       // Add this agent's action and result to ALL OTHER agents' message histories
-      const actionMsg = `GEEBR ${g.id} ACTION: ${line || 'look()'}`;
-      const resultMsg = `SYSTEM RESULT: ${resultDesc}`;
+      const actionMsg = `${g.id} ${formatActionSummary(g.id + ' ' + (line || 'look()'))}`;
+      const resultMsg = summary;
       for (const other of world.getAgents()) {
         if (other.id === g.id) continue;
         const ocfg = world.getBrainConfig(other.id);
@@ -260,8 +329,9 @@ async function main() {
     const g = world.getSelectedAgent?.();
     if (!g) { appendLog('no agent selected'); return; }
     const cfg = world.getBrainConfig(g.id);
-    cfg.messages = (cfg.messages || []).concat([{ role: 'user', content: name + ': ' + text }]);
-    if (cfg.messages.length > 20) cfg.messages = cfg.messages.slice(-20);
+    // Store chat separately so it can be appended at the end of the next prompt (after perception)
+    cfg.pendingChat = (cfg.pendingChat || []).concat([`${name} says '${text}'`]);
+    if (cfg.pendingChat.length > 5) cfg.pendingChat = cfg.pendingChat.slice(-5);
     world.setBrainConfig(g.id, cfg);
     appendLog(name + ' -> ' + g.id + ': ' + text);
     input.value = '';

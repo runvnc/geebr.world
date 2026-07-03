@@ -44,6 +44,8 @@ export function createAgentBrainManager(config = {}) {
       responseFormat = dyn.responseFormat;
       constraintInstruction = dyn.instruction;
     }
+    console.log('---------------------------------- messages fed to LLM ------------------------------')
+    console.log(agent.messages)
     const text = await generate(engine, '', {
       maxTokens: agent.maxTokens || 48,
       temperature: agent.temperature ?? 0,
