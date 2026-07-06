@@ -504,6 +504,34 @@ function startTurnMove(g,d){
 }
 
 function selectGeebr(g){ state.geebrs.forEach(x=>x.selected=false); g.selected=true; state.selected=g; state.nextAgentId=g.id; state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); const sel=document.getElementById('agentSelect'); if(sel) sel.value=g.id; log('selected '+g.id); playRig(g,'idle',true); updatePerceptionUI(); try{ window.geebrWorld?.onAgentSelected?.(g); }catch{} }
+// Show/update a streaming bubble for an agent during LLM generation.
+function showStreamingBubble(g, text) {
+  let b = state.bubbles.find(x => x.streaming && x.node === g.root);
+  if (!b) {
+    const div = document.createElement('div');
+    div.className = 'bubble streaming';
+    div.style.opacity = '0.7';
+    div.style.fontStyle = 'italic';
+    document.body.appendChild(div);
+    b = { div, node: g.root, ttl: 999, streaming: true };
+    state.bubbles.push(b);
+    g.anim = 'talk';
+    playRig(g, 'talk', true);
+  }
+  b.div.textContent = (text || '...').slice(0, 120);
+  b.ttl = 999;
+}
+
+// Remove the streaming bubble for an agent
+function clearStreamingBubble(g) {
+  const idx = state.bubbles.findIndex(x => x.streaming && x.node === g.root);
+  if (idx >= 0) {
+    state.bubbles[idx].div.remove();
+    state.bubbles.splice(idx, 1);
+  }
+  if (g.anim === 'talk') { g.anim = 'idle'; playRig(g, 'idle', true); }
+}
+
 function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; } }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
@@ -798,7 +826,7 @@ function buildVisiblePerception(agentId=null, radius=5){
 }
 function buildCommandExamples(){
   const ex=[];
-  if(state.allowed.has('walk')) ex.push('walk(direction) e.g. walk(north)');
+  if(state.allowed.has('walk')) ex.push('walk(direction: north|south|east|west) e.g. walk(north)');
   if(state.allowed.has('say')) ex.push('say(text) e.g. say("hello there")');
   if(state.allowed.has('look')) ex.push('look()');
   if(state.allowed.has('touch')) ex.push('touch(target) e.g. touch(crate)');
@@ -832,6 +860,9 @@ function buildAgentPrompt(g, cfg) {
     `Character: ${g.id}`,
     `Style: ${style}`,
     `Personality: ${personality}`,
+    '',
+    'Available commands (examples only, use appropriate arguments):',
+    ...cmds,
     '',
     ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
     ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),

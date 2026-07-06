@@ -99,6 +99,36 @@ async function main() {
   let running = false;
   let stepIndex = 0;
   // Auto-load the brain on startup
+  // Populate model selector
+  const modelSelect = el('modelSelect');
+  if (modelSelect) {
+    for (const m of manager.getSupportedModels()) {
+      const opt = document.createElement('option');
+      opt.value = m.key;
+      opt.textContent = m.label;
+      modelSelect.appendChild(opt);
+    }
+    modelSelect.value = manager.getModelKey();
+    modelSelect.addEventListener('change', async () => {
+      const newKey = modelSelect.value;
+      appendLog('switching model to ' + newKey);
+      // Stop agents if running
+      if (running) {
+        running = false;
+        el('stopBrains').disabled = true;
+      }
+      manager.setModel(newKey);
+      // Update load button text
+      const loadBtn = el('loadBrains');
+      if (loadBtn) loadBtn.textContent = 'load ' + (manager.getSupportedModels().find(m => m.key === newKey)?.label || newKey);
+      // Disable controls until loaded
+      el('startBrains').disabled = true;
+      el('stepBrains').disabled = true;
+      el('stopBrains').disabled = true;
+      el('loadBrains').disabled = false;
+      setStatus('model switched to ' + newKey + ' - click load');
+    });
+  }
   // Initialize cache backend selector
   const backendSelect = el('cacheBackend');
   if (backendSelect) {
@@ -125,14 +155,21 @@ async function main() {
     setCacheStatus(cached ? 'model cached' : 'not cached');
   } catch {}
   try {
-    setStatus('auto-loading Qwen3.5-0.8B...');
+    const modelLabel = manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey();
+    setStatus('auto-loading ' + modelLabel + '...');
+    // Update load button text to match default model
+    const loadBtn = el('loadBrains');
+    if (loadBtn) loadBtn.textContent = 'load ' + modelLabel;
+    console.log('[geebr] starting auto-load...');
     await manager.load();
+    console.log('[geebr] auto-load completed, enabling buttons...');
     el('startBrains').disabled = false;
     el('stepBrains').disabled = false;
     el('loadBrains').disabled = true;
     world.state.nextAgentId = world.getAgents()[0]?.id || null;
-    appendLog('local Qwen brain auto-loaded');
+    appendLog('local brain auto-loaded: ' + modelLabel);
   } catch (err) {
+    console.error('[geebr] auto-load FAILED:', err);
     setStatus('auto-load failed: ' + err.message + ' (click load manually)');
     el('loadBrains').disabled = false;
     appendLog('auto-load failed: ' + err.message);
@@ -150,11 +187,14 @@ async function main() {
   el('loadBrains')?.addEventListener('click', async () => {
     try {
       el('loadBrains').disabled = true;
+      console.log('[geebr] manual load starting...');
       await manager.load();
+      console.log('[geebr] manual load completed, enabling buttons...');
       el('startBrains').disabled = false;
       el('stepBrains').disabled = false;
      world.state.nextAgentId = world.getAgents()[0]?.id || null;
-      appendLog('local Qwen brain loaded');
+      const lbl = manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey();
+      appendLog('local brain loaded: ' + lbl);
     } catch (err) {
       el('loadBrains').disabled = false;
       setStatus('brain load error: ' + err.message);
@@ -228,6 +268,9 @@ async function main() {
 
 `;
       showPrompt(g.id, displayText, messages[0]?.content || '');
+      // Save base text for streaming overlay
+      const promptOut = document.getElementById('promptOut');
+      if (promptOut) promptOut.dataset.baseText = displayText;
       appendLog(g.id + ' sending ' + messages.length + ' messages to LLM (' + (cfg.messages||[]).length + ' history)' + (chatTestMode ? ' [CHAT TEST]' : ''));
       console.log('[' + g.id + '] Full prompt messages:', JSON.stringify(messages, null, 2));
       const line = await manager.decide({
@@ -236,7 +279,15 @@ async function main() {
         useGrammar: !chatTestMode,
         allowedCommands: world.getAllowedCommands(),
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
+       onToken: (text) => {
+         if (window.showStreamingBubble && g) {
+           window.showStreamingBubble(g, text);
+         }
+       },
       });
+      if (window.clearStreamingBubble && g) {
+        window.clearStreamingBubble(g);
+      }
       const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
       // Persist chat messages to history so they're remembered in future turns
       if (chatSuffix) {
@@ -311,7 +362,7 @@ async function main() {
     const nextG = agents[stepIndex % agents.length];
     world.state.nextAgentId = nextG ? nextG.id : g.id;
     el('stepBrains').disabled = false;
-    setStatus(manager.isLoaded() ? 'Qwen3.5-0.8B ready' : 'local brain not loaded');
+    setStatus(manager.isLoaded() ? (manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || 'model') + ' ready' : 'local brain not loaded');
   });
 
   el('stopBrains')?.addEventListener('click', () => {
@@ -319,7 +370,7 @@ async function main() {
     el('startBrains').disabled = !manager.isLoaded();
     el('stepBrains').disabled = !manager.isLoaded();
     el('stopBrains').disabled = true;
-    setStatus(manager.isLoaded() ? 'Qwen3.5-0.8B ready; agents stopped' : 'local brain not loaded');
+    setStatus(manager.isLoaded() ? (manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || 'model') + ' ready; agents stopped' : 'local brain not loaded');
     appendLog('agent brains stopped');
   });
 
