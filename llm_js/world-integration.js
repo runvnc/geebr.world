@@ -224,7 +224,7 @@ async function main() {
       let displayText = `[AGENT: ${g.id}]
 
 `;
-      for (const m of messages) displayText += `[${m.role.toUpperCase()}] ${m.content.slice(0,200)}${m.content.length > 200 ? '...' : ''}
+      for (const m of messages) displayText += `[${m.role.toUpperCase()}] ${m.content}
 
 `;
       showPrompt(g.id, displayText, messages[0]?.content || '');

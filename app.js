@@ -454,6 +454,7 @@ function settleWorld(reason='settled'){
   state.turn.phase='ready'; state.turn.command=null; state.turn.lastEndedAt=performance.now();
   updateTurnUI(); updatePerceptionUI();
   if(reason) log('turn '+state.turn.index+' resolved: '+reason);
+  saveWorldState();
 }
 function isTurnMode(){ return document.getElementById('turnMode')?.checked !== false; }
 function updateTurnUI(){
@@ -912,7 +913,7 @@ function spawnCharacter(){
   const g=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
   setGeebrLogicalPosition(g,pos);
   setBrainConfig(id,{style:'helpful idiot',personality:'newly spawned, confused, eager to participate',fireballTemptation:45,chaos:60});
-  refreshAgentSelect(); selectGeebr(g); log('spawned character '+id); updatePerceptionUI(); return g;
+  refreshAgentSelect(); selectGeebr(g); log('spawned character '+id); updatePerceptionUI(); saveWorldState(); return g;
 }
 function spawnProp(kind='crate'){
   const g=(state.nextAgentId && state.geebrs.find(x=>x.id===state.nextAgentId)) || state.selected || state.geebrs[0];
@@ -922,7 +923,7 @@ function spawnProp(kind='crate'){
   if(kind==='barrel') obj=makeBarrel(state.scene,x,z);
   else if(kind==='wall') obj=makeBlock(state.scene,x,z,false);
   else obj=makeCrate(state.scene,x,z);
-  state.target=obj; log('spawned '+kind+' at '+x+','+z); updatePerceptionUI(); return obj;
+  state.target=obj; log('spawned '+kind+' at '+x+','+z); updatePerceptionUI(); saveWorldState(); return obj;
 }
 function spawnAt(type, x, z) {
   x = clamp(Math.round(x), -15, 15);
@@ -960,6 +961,7 @@ function spawnAt(type, x, z) {
     log('spawned crate at ' + x + ',' + z);
   }
   updatePerceptionUI();
+  saveWorldState();
   return obj;
 }
 function clearWorld() {
@@ -981,6 +983,93 @@ function clearWorld() {
   updatePerceptionUI();
   updateTurnUI();
 }
+
+function saveWorldState() {
+  try {
+    const data = {
+      geebrs: state.geebrs.map(g => ({
+        id: g.id,
+        x: g.root.position.x, y: g.root.position.y, z: g.root.position.z,
+        dx: g.dir.x, dy: g.dir.y, dz: g.dir.z,
+        style: g.style, anim: g.anim, traits: g.traits,
+      })),
+      props: state.props.filter(m => m && !m.isDisposed?.()).map(m => {
+        const mm = meta(m);
+        return { type: mm?.type || 'crate', x: m.position.x, z: m.position.z, state: mm?.state || 'intact', health: mm?.health ?? 2 };
+      }),
+      blocks: state.blocks.filter(m => m && !m.isDisposed?.()).map(m => {
+        const mm = meta(m);
+        return { type: mm?.type || 'wall', x: m.position.x, z: m.position.z, state: mm?.state || 'intact', health: mm?.health ?? 3 };
+      }),
+      brainConfigs: Array.from(state.brainConfigs.entries()),
+      nextSpawnId: state.nextSpawnId,
+      globalHistory: state.globalHistory.slice(-50),
+      turnIndex: state.turn.index,
+      allowed: Array.from(state.allowed),
+      ts: Date.now(),
+    };
+    localStorage.setItem('geebrWorldState', JSON.stringify(data));
+  } catch (e) { console.warn('saveWorldState failed:', e); }
+}
+
+function loadWorldState() {
+  try {
+    const raw = localStorage.getItem('geebrWorldState');
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !data.geebrs) return false;
+    clearWorld();
+    if (data.allowed) state.allowed = new Set(data.allowed);
+    for (const p of (data.props || [])) {
+      let obj;
+      if (p.type === 'barrel') obj = makeBarrel(state.scene, p.x, p.z);
+      else if (p.type === 'mushroom') obj = makeMushroom(state.scene, p.x, p.z);
+      else if (p.type === 'lamp') obj = makeLamp(state.scene, p.x, p.z);
+      else obj = makeCrate(state.scene, p.x, p.z);
+      if (obj) {
+        const mm = meta(obj);
+        if (mm) { mm.state = p.state || 'intact'; mm.health = p.health ?? mm.health; }
+      }
+    }
+    for (const b of (data.blocks || [])) {
+      const cracked = b.state === 'cracked';
+      const obj = makeBlock(state.scene, b.x, b.z, cracked);
+      if (obj) {
+        const mm = meta(obj);
+        if (mm) { mm.state = b.state || 'intact'; mm.health = b.health ?? mm.health; }
+      }
+    }
+    const palettes = [
+      {hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},
+      {hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},
+      {hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},
+    ];
+    const styles = ['goblin', 'mushroom', 'bot'];
+    for (const g of data.geebrs) {
+      const palIdx = styles.indexOf(g.style);
+      const palette = palIdx >= 0 ? palettes[palIdx] : palettes[0];
+      const geebr = createGeebr(state.scene, g.id, new BABYLON.Vector3(g.x, g.y, g.z), palette, g.style || 'goblin');
+      geebr.dir = new BABYLON.Vector3(g.dx || 0, g.dy || 0, g.dz || -1);
+      geebr.anim = g.anim || 'idle';
+      if (g.traits) geebr.traits = g.traits;
+      setGeebrLogicalPosition(geebr, new BABYLON.Vector3(g.x, 0, g.z));
+    }
+    if (data.brainConfigs) state.brainConfigs = new Map(data.brainConfigs);
+    state.nextSpawnId = data.nextSpawnId || (state.geebrs.length + 1);
+    state.globalHistory = data.globalHistory || [];
+    state.turn.index = data.turnIndex || 0;
+    if (state.geebrs.length > 0) selectGeebr(state.geebrs[0]);
+    refreshAgentSelect();
+    updatePerceptionUI();
+    updateTurnUI();
+    log('world state restored from save');
+    return true;
+  } catch (e) {
+    console.warn('loadWorldState failed:', e);
+    return false;
+  }
+}
+
 function installWorldAPI(){
   const prior=window.geebrWorld||{};
   window.geebrWorld={...prior,ready:true,state,log,parseCommand,parseLLMCommandLine,
@@ -1027,7 +1116,10 @@ function setupUI(){
   const copy=document.getElementById('copyPerception'); if(copy) copy.onclick=()=>{ const text=buildVisiblePerception(null,document.getElementById('visionRadius')?.value||5); navigator.clipboard?.writeText(text); log('copied perception text'); };
   const showMap=document.getElementById('showAsciiMap'); if(showMap) showMap.onchange=updatePerceptionUI;
   const clearMapBtn=document.getElementById('clearMap'); if(clearMapBtn) clearMapBtn.onclick=()=>{
-    if(confirm('Clear all geebrs and objects from the map?')) clearWorld();
+    if(confirm('Clear all geebrs and objects from the map?')) { clearWorld(); saveWorldState(); }
+  };
+  const resetStateBtn=document.getElementById('resetState'); if(resetStateBtn) resetStateBtn.onclick=()=>{
+    if(confirm('Reset ALL state to a blank map? This cannot be undone.')) { localStorage.removeItem('geebrWorldState'); clearWorld(); log('state reset to blank'); }
   };
   const spawnModeEnabled=document.getElementById('spawnModeEnabled'); if(spawnModeEnabled) spawnModeEnabled.onchange=()=>{
     state.spawnMode.enabled = spawnModeEnabled.checked;
@@ -1170,5 +1262,5 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   };
   buildWorld(scene); addTerrainPolish(scene); await addRealPropPass(scene); await scatterRealProps(scene); const realChars=await createAgentCast(scene); if(!realChars){ createGeebr(scene,'gib',new BABYLON.Vector3(-1,.06,-.7),{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); createGeebr(scene,'momo',new BABYLON.Vector3(.45,.06,-.55),{hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},'mushroom'); createGeebr(scene,'zap',new BABYLON.Vector3(1.2,.06,.15),{hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},'bot'); } selectGeebr(state.geebrs[0]);
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=new BABYLON.Vector3(pi.pickInfo.pickedPoint.x,0.6,pi.pickInfo.pickedPoint.z); if(mm?.interactive){ state.target=target; const tp=target.getAbsolutePosition?.()||pi.pickInfo.pickedPoint; state.zoomFocus=new BABYLON.Vector3(tp.x,0.6,tp.z); log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
-  setupUI(); installWorldAPI(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
+  setupUI(); installWorldAPI(); loadWorldState(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
 main().catch(err=>{ console.error(err); document.body.innerHTML='<pre style="color:white;padding:20px;white-space:pre-wrap">'+err.stack+'</pre>'; });
