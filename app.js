@@ -593,18 +593,32 @@ function look(g){ const t=nearestTarget(g,6); if(!t) return say(g,pickRandom(['I
 function touch(g,targetId=''){ 
   let t=null;
   if(targetId){
-    // Try to find target by type or ID in nearby range
-    const p=g.root.position;
-    let best=null,bd=6;
-    for(const m of state.props.concat(state.blocks)){
-      if(!m||m.isDisposed?.()) continue;
-      const mm=meta(m); if(!mm) continue;
-      const d=BABYLON.Vector3.Distance(p,m.position);
-      if(d>bd) continue;
-      const typeMatch=mm.type===targetId.toLowerCase() || mm.type.includes(targetId.toLowerCase());
-      if(typeMatch && d<bd){ bd=d; best=m; }
+    // Check perception labels first (e.g. O1, L1, etc.)
+    const labelKey = targetId.toLowerCase().trim();
+    if(state.perceptionLabels && state.perceptionLabels.has(labelKey)){
+      const labeled = state.perceptionLabels.get(labelKey);
+      if(labeled && !labeled.isDisposed?.()) t = labeled;
     }
-    t=best;
+    if(!t){
+      // Fuzzy match: check type, name, and partial words
+      const p=g.root.position;
+      let best=null,bd=6;
+      const target = labelKey;
+      const targetWords = target.split(/[\s_]+/).filter(Boolean);
+      for(const m of state.props.concat(state.blocks)){
+        if(!m||m.isDisposed?.()) continue;
+        const mm=meta(m); if(!mm) continue;
+        const d=BABYLON.Vector3.Distance(p,m.position);
+        if(d>bd) continue;
+        const type = (mm.type||'').toLowerCase();
+        const name = (m.name||'').toLowerCase();
+        const typeMatch = type === target || type.includes(target) || target.includes(type);
+        const nameMatch = name.includes(target) || target.includes(name);
+        const wordMatch = targetWords.some(w => (w.length > 1 && (type.includes(w) || name.includes(w) || w.includes(type))));
+        if((typeMatch || nameMatch || wordMatch) && d<bd){ bd=d; best=m; }
+      }
+      t=best;
+    }
     if(!t) return say(g,'cannot find a '+targetId+' to touch');
   } else {
     t=nearestTarget(g);
@@ -764,7 +778,7 @@ function buildVisiblePerception(agentId=null, radius=5){
     const mm=meta(m); if(!mm || mm.type==='tile') continue;
     const glyph=typeGlyph(mm.type), marks=stateMarksFor(mm,m);
     put(x,z,glyph,marks,55);
-    if(mm.interactive!==false){ const id=(glyph.replace(/[^A-Za-z$/*]/g,'O')||'O')+objectNumber++; details.push(describeThing(id,mm.type,p,marks, mm.state&&mm.state!=='intact'?`, state=${mm.state}`:'')); }
+    if(mm.interactive!==false){ const id=(glyph.replace(/[^A-Za-z$/*]/g,'O')||'O')+objectNumber++; if(!state.perceptionLabels) state.perceptionLabels=new Map(); state.perceptionLabels.set(id.toLowerCase(),m); state.perceptionLabels.set(id,m); details.push(describeThing(id,mm.type,p,marks, mm.state&&mm.state!=='intact'?`, state=${mm.state}`:'')); }
   }
   for(const other of state.geebrs){
     const p=other.root.position; const x=Math.round(p.x), z=Math.round(p.z);
