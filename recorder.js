@@ -60,6 +60,34 @@
     const raw = new ImageData(new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength), s.source.width, s.source.height);
     s.rawSurface.getContext('2d').putImageData(raw, 0, 0);
     ctx.drawImage(s.rawSurface, 0, 0, s.surface.width, s.surface.height);
+    // Speech bubbles are DOM overlays, not part of Babylon's GPU canvas. Paint
+    // the currently visible bubbles onto the captured frame at their live
+    // screen positions so the APNG tells the same story as the browser.
+    const canvasRect=s.source.getBoundingClientRect();
+    const sx=s.surface.width/Math.max(1,canvasRect.width), sy=s.surface.height/Math.max(1,canvasRect.height);
+    for(const bubble of document.querySelectorAll('.bubble')){
+      if(bubble.offsetParent===null) continue;
+      const rect=bubble.getBoundingClientRect();
+      const x=(rect.left-canvasRect.left)*sx, y=(rect.top-canvasRect.top)*sy;
+      const w=rect.width*sx, h=rect.height*sy;
+      if(x+w<0 || y+h<0 || x>s.surface.width || y>s.surface.height) continue;
+      const radius=Math.max(4,10*Math.min(sx,sy));
+      ctx.save();
+      ctx.fillStyle='rgba(18,24,20,.92)';
+      ctx.strokeStyle='rgba(235,255,240,.82)';
+      ctx.lineWidth=Math.max(1,1.2*Math.min(sx,sy));
+      ctx.beginPath(); ctx.roundRect(x,y,w,h,radius); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+w*.46,y+h); ctx.lineTo(x+w*.52,y+h+8*sy); ctx.lineTo(x+w*.58,y+h); ctx.fill();
+      const style=getComputedStyle(bubble);
+      ctx.fillStyle='#ffffff';
+      ctx.font=`${Math.max(9,parseFloat(style.fontSize||'12')*sy)}px ${style.fontFamily||'sans-serif'}`;
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      const words=(bubble.textContent||'').trim().split(/\s+/); const lines=[]; let line='';
+      for(const word of words){ const next=line?line+' '+word:word; if(line&&ctx.measureText(next).width>w-12*sx){ lines.push(line); line=word; } else line=next; } if(line) lines.push(line);
+      const lineH=Math.max(11,14*sy), firstY=y+h/2-(lines.length-1)*lineH/2;
+      lines.slice(0,4).forEach((text,i)=>ctx.fillText(text,x+w/2,firstY+i*lineH,w-10*sx));
+      ctx.restore();
+    }
     s.frames.push(ctx.getImageData(0, 0, s.surface.width, s.surface.height).data.buffer.slice(0));
     status(`recording ${s.frames.length} frames · ${((performance.now()-s.started)/1000).toFixed(1)}s`);
     if ((performance.now() - s.started) >= MAX_SECONDS * 1000) stopRecording();

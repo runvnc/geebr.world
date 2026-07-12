@@ -1,222 +1,287 @@
-# Geebr.world Night-of Handoff — July 12, 2026
+# Geebr.world Morning Release Handoff — July 12, 2026
 
-## Objective
+## Current objective
 
-Publish one short, understandable visual incident tonight. Do not finish or broadly launch the platform.
+The demo is recorded. Stop modifying the platform unless a defect prevents publication.
 
-The artifact is a 10–25 second APNG showing one Gemma E2B-powered Geebr attempting a simple task in the 3D world, accompanied by its exact goal, perception, and command sequence.
+The remaining job is:
 
-Success means several strangers engage substantively, suggest another task, request another incident, or ask to try it.
+> Verify the APNG, preserve its evidence, publish Incident 01 this morning, and ask people what task the Geebr should attempt next.
 
-## Current product state
+## Current status
 
-### Character
+### Demo artifact
 
-- A new original teal/ochre Geebr was generated using fal:
-  1. FLUX.2 Pro concept image.
-  2. Meshy v6 image-to-3D.
-  3. Meshy auto-rigging.
-  4. Walking/running exports.
-- Generated assets are under `assets/models/characters/generated/`.
-- The live model is `geebr_rigged.glb`; `geebr_walking.glb` supplies walking animation.
-- Generated Geebrs have working facing, walking, collisions, shadows, local portrait lights, and a reduced 0.72-unit step.
-- Walk settlement was corrected from 200 ms to 520 ms, eliminating mid-step teleporting.
+- A working APNG demo has been recorded.
+- The recorder captures the Babylon/WebGPU world canvas at 6 FPS, up to 960px wide, for up to 45 seconds.
+- Visible Geebr speech bubbles are now composited into the APNG frames.
+- Bubble text is explicitly rendered white for readability.
+- The APNG embeds its initial setup in a PNG `tEXt` chunk named `geebr.world.initial-state`.
+- The embedded data includes:
+  - Geebrs, positions, and facing;
+  - brain configuration;
+  - props and blocks;
+  - enabled commands;
+  - history and turn state;
+  - camera orientation and zoom;
+  - coordinate/terrain convention;
+  - exact initial perception/ASCII map;
+  - recording dimensions, frame count, FPS, and duration.
 
-### Clean demo startup
+### APNG state restoration
 
-- Fresh/reset state is a clean terrain canvas with exactly one generated Geebr.
-- The generic KayKit RPG cast, buildings, border walls, and random props are no longer spawned at startup.
-- Existing saved worlds still restore; click Reset state to obtain the clean default.
-- Reset state creates one Geebr at the center.
-- Spawn dropdown defaults to Geebr.
-- Click-to-spawn works via an invisible pick plane because visible terrain is intentionally non-pickable.
+- **World setup** now has a **Load incident state** drop area.
+- A visitor can drag in or select a Geebr `.png`/`.apng`.
+- The loader extracts `geebr.world.initial-state` and restores:
+  - Geebrs and facing;
+  - object placement and state;
+  - brain settings;
+  - available commands;
+  - history and turn index;
+  - camera framing and zoom.
+- It restores the initial setup, not animation playback.
+- Invalid files and PNGs without Geebr metadata show an inline error.
+- The APNG state-loader workflow has been successfully tested.
 
-### Model/UI
+### Compass, movement, map, and terrain
 
-- Only the default Gemma 4 E2B LiteRT-LM option remains.
-- The model selector was removed.
-- Human chat echoing was fixed: `Tom says: ...` is explicitly treated as speech addressed to the agent, and prompts instruct the model to answer meaning rather than copy the utterance into `say()`.
+The validated display convention is:
 
-### Perception
+- North = `-Z`
+- South = `+Z`
+- East = `-X`
+- West = `+X`
 
-- Default radius is 7 tiles, producing a 15×15 map; UI alternatives are 11×11 and 17×17.
-- Peripheral vision was widened roughly 35%.
-- Small props no longer cast unrealistic blind wedges.
-- Only large structures (wall, bakery, shrine plinth) occlude line of sight.
-- Lamps, barrels, crates, rocks, and rubble remain visible but do not block water or other scenery behind them.
-- World convention is explicit:
-  - North = -Z
-  - South = +Z
-  - East = +X
-  - West = -X
-- The compass-labeled ASCII map uses the same convention.
+Current behavior:
 
-### Camera/presentation
+- The circular compass uses the conventional layout:
+  - N top
+  - E right
+  - S bottom
+  - W left
+- The HUD reports camera and selected-Geebr facing, for example:
+  - `camera N · geebr E · N=-Z E=-X`
+- The ASCII map uses W on the left and E on the right.
+- The positions of lamps and terrain in the ASCII map have been visually checked against the 3D presentation.
+- `walk(east)` now moves toward displayed/map east.
+- `walk(west)` now moves toward displayed/map west.
+- Geebr-facing labels use the same convention.
+- The ASCII map now shows the procedural terrain:
+  - `:` dirt/path
+  - `~` water
+  - `^` stone/quarry
+  - `,` grass
+- The available-command checkboxes resynchronize after APNG/local-state restoration and match the commands shown in the prompt.
 
-- Close zoom is supported down to orthographic half-width 0.82.
-- Lighting includes stronger directional modeling, restrained local warm key/cool rim lights, studio environment reflections, and modest contrast/exposure.
-- A live upper-right compass HUD has just been implemented locally:
-  - rotating N/E/S/W rose aligned to world axes;
-  - north highlighted red;
-  - nearest camera-facing cardinal direction;
-  - explicit `N=-Z E=+X` label.
-- The compass change passes source checks but is NOT committed at the time of this handoff and needs a browser visual test.
+### Demo world
 
-### Recorder
-
-- The APNG incident recorder captures only the Babylon canvas at 6 FPS, up to 960px wide, max 45 seconds.
-- It embeds initial state JSON in PNG metadata (`geebr.world.initial-state`).
-- Recording is synchronized to Babylon rendering/WebGPU readback.
+- Fresh/reset state is a clean terrain canvas with one generated Geebr.
+- The old generic RPG cast, buildings, border walls, and random props are not spawned by default.
+- Generated Geebr assets live under `assets/models/characters/generated/`.
+- The live model is `geebr_rigged.glb`.
+- Walking animation comes from `geebr_walking.glb`.
+- Walking, facing, settlement, shadows, and collisions are working.
+- The model UI supports only the intended Gemma 4 E2B LiteRT-LM configuration.
+- Human chat echoing was corrected.
+- Perception has a widened field of view and only large structures occlude line of sight.
 
 ## Version control
 
 Latest pushed commit:
 
-- `339fc01 add generated Geebr and simplify demo world`
+- `427e3a9 finish incident demo compass and APNG state workflow`
 - Branch: `main`
 - Remote: `origin` (`runvnc/geebr.world`)
 
 Uncommitted work after that commit:
 
-- `app.js`: compass convention comments, full-name direction aliases, rotating compass HUD.
-- `style.css`: compass HUD styling.
+- `recorder.js`: composite visible speech bubbles into recorded APNG frames and force white bubble text.
 
-Before continuing, run:
+Before committing, run:
 
 ```bash
 cd /files/geebr.world
 git status --short
 git diff --check
-git diff
+git diff -- recorder.js
 ```
 
-Do not commit `.env`; it is ignored. The fal API key appeared in chat/tool history and should eventually be rotated.
+If the recorded APNG confirms readable white speech text, commit and push this focused recorder change.
+
+Suggested commit:
+
+```bash
+git add recorder.js
+git commit -m "include speech bubbles in APNG recordings"
+git push origin main
+```
 
 ## Immediate next steps
 
-### 1. Verify compass — maximum 10 minutes
+### 1. Verify the final APNG — maximum 5 minutes
 
-Hard-refresh and orbit the camera.
+Open the recorded artifact and confirm:
 
-Confirm:
+- it animates;
+- the intended incident is understandable without narration;
+- speech bubbles appear when expected;
+- speech text is white and readable;
+- no important action is hidden by the crop;
+- the clip is not unnecessarily long;
+- the file uploads successfully to the intended destination.
 
-- the HUD is visible and does not overlap important controls;
-- N/E/S/W rotate correctly as the camera orbits;
-- `walk(north)` moves toward world -Z and toward the map's N side;
-- `walk(east)` moves toward +X and the map's E side;
-- the character faces its direction of travel.
+Then test its embedded setup once:
 
-In the new session, add the selected Geebr's facing to the HUD, for example:
+1. Change or reset the current world.
+2. Drop the APNG into **Load incident state**.
+3. Confirm the original Geebr, lamps/objects, commands, and camera framing return.
 
-> camera E · geebr N · N=-Z E=+X
+Do not rerecord merely for cosmetic perfection. Rerecord only if the incident is confusing, unreadable, or technically broken.
 
-Optionally add a small ground arrow at its feet. Then issue one controlled
-`walk(east)` and verify:
+### 2. Preserve the evidence
 
-- the HUD says `Geebr E`;
-- it moves toward +X;
-- from a camera facing E, you see its back.
+Save a short text or Markdown file beside the APNG containing:
 
-If correct, commit and push only the compass change. If the rose rotates backward, fix its angle sign; do not redesign it.
+- **Title:** Incident 01: Follow the Lamps to the Water
+- **Goal:** the exact goal used in the run
+- **Model:** Gemma 4 E2B LiteRT-LM
+- Thinking mode: on or off
+- Enabled commands
+- Vision radius
+- Whether the ASCII map was enabled
+- Exact initial perception/map
+- Exact command sequence from History
+- Result or failure type
+- A one-sentence interpretation
 
-### 2. Smoke-test clean demo state — maximum 10 minutes
+The APNG metadata preserves provenance and enables restoration, but the public post still needs visible text because most viewers will not inspect PNG metadata.
 
-Click Reset state and verify:
+### 3. Prepare the public incident
 
-- one Geebr;
-- no RPG cast/random objects;
-- click-to-spawn works;
-- walking works without snapping;
-- human questions are answered rather than echoed;
-- perception sees through lamps/barrels;
-- recorder downloads a working APNG.
-
-Fix only launch blockers.
-
-### 3. Capture Incident 01
-
-Preferred experiment:
-
-> Goal: Follow the lamps to the water.
-
-Suggested setup:
-
-- one Geebr;
-- spawn a short sequence of lamps leading toward the water;
-- enable only `walk` initially (optionally `say` if verbal commentary improves the artifact);
-- give a concrete goal;
-- frame Geebr, lamps, and eventual water in a legible camera view;
-- start recording before the first model turn;
-- step manually to keep the sequence understandable;
-- stop once success, circling, reversal, fixation, or another clear pattern appears;
-- target 10–25 seconds.
-
-The recent perception changes were specifically made so lamps serve as landmarks without blocking the water behind them.
-
-### 4. Preserve evidence
-
-Save alongside the APNG:
-
-- exact goal;
-- exact initial perception/map;
-- exact command sequence;
-- model: Gemma 4 E2B LiteRT-LM;
-- thinking setting;
-- enabled commands;
-- compass/radius settings;
-- one-sentence failure or success interpretation.
-
-### 5. Publish one incident
-
-Possible title:
+Recommended title:
 
 > Incident 01: Follow the Lamps to the Water
 
-Use this structure:
+Use this compact structure:
 
-- Goal
-- Available actions
-- What it saw
-- What it decided
-- What happened
-- Failure type or result
-- One or two sentence explanation
-- APNG
+1. **Goal**
+2. **Available actions**
+3. **What it saw**
+4. **What it decided**
+5. **What happened**
+6. **Result/failure type**
+7. **One- or two-sentence interpretation**
+8. **APNG**
 
-Close with:
+Suggested post copy:
 
+> I built a small 3D world where a Gemma-powered character sees a compass-labeled ASCII map and can issue only constrained actions. Rather than wait until the whole platform is finished, I’m publishing individual incidents.
+>
+> For Incident 01, its goal was to follow a trail of lamps to the water. It could only use the enabled commands shown below.
+>
+> [APNG]
+>
+> It chose: `[exact command sequence]`
+>
+> `[One-sentence result or interpretation.]`
+>
 > What simple task should I give the agent next—especially one you expect it to fail?
 
-One incident is enough. Do not wait for three.
+Keep the explanation short. Do not lead with architecture, project history, or a broad platform pitch.
+
+### 4. Publish this morning
+
+Recommended distribution sequence:
+
+1. Publish a stable Incident 01 page or project post first.
+2. Upload the APNG natively to one social account where possible.
+3. Share it in two or three genuinely relevant communities:
+   - creative coding;
+   - generative games;
+   - AI agents;
+   - browser/local ML;
+   - Babylon.js/WebGPU;
+   - indie game experiments.
+4. Send it directly to 5–10 carefully chosen people who have recently discussed agents, simulations, generative games, embodied AI, or small models.
+5. Ask the same concrete question everywhere:
+   - **What simple task should I give the agent next—especially one you expect it to fail?**
+
+A new Mastodon account alone will probably have little discovery. If Mastodon is used:
+
+- upload the APNG directly;
+- add accurate alt text;
+- use only a few relevant hashtags;
+- share the post URL through targeted communities and direct outreach.
+
+Do not depend exclusively on Reddit or Hacker News. Targeted Discords/forums and direct messages are more likely to produce useful early responses.
+
+### 5. Measure useful response
+
+Strong signals:
+
+- someone suggests another task;
+- someone asks to try the system;
+- someone downloads/reloads the incident;
+- someone requests another run;
+- someone discusses why the Geebr behaved that way;
+- someone shares the artifact.
+
+Weak signal:
+
+- “cool” without a request, question, or proposed experiment.
+
+Reply to every substantive response. If someone suggests an easy task, use it for Incident 02 instead of adding another general feature.
 
 ## Scope guard
 
-Do not add tonight:
+Do not add before publication:
 
 - more models;
-- accounts or persistence systems;
-- generalized scenario editing;
-- another character redesign;
-- more generated assets;
+- more generated characters or assets;
 - pathfinding;
 - navigation memory;
-- recorder editing/replay tooling;
+- accounts;
+- generalized scenario editing;
+- recorder timelines or video editing;
+- animation replay from APNG;
+- platform architecture;
 - major UI redesign;
-- platform architecture.
+- benchmarking;
+- unrelated polish.
 
-Allowed changes are limited to truthful capture blockers, camera framing, captions, reset/setup simplification, and a tiny compass correction if required.
+Allowed before publication:
+
+- committing the already-tested speech-bubble recorder change;
+- correcting the public caption;
+- trimming or replacing a genuinely broken recording;
+- adding alt text;
+- making the artifact upload successfully.
 
 ## Key files
 
-- `/files/geebr.world/app.js` — world, character import, movement, perception, compass.
-- `/files/geebr.world/index.html` — UI and perception radius choices.
-- `/files/geebr.world/style.css` — UI and compass styling.
-- `/files/geebr.world/recorder.js` — APNG recorder.
-- `/files/geebr.world/llm_js/agent-brain.js` — single supported model.
-- `/files/geebr.world/llm_js/world-integration.js` — agent turns and human chat envelope.
-- `/files/geebr.world/llm_js/grammar.js` — constrained command grammar and anti-echo instruction.
-- `/files/geebr.world/assets/models/characters/generated/` — generated Geebr source/model/rig/animations.
+- `/files/geebr.world/ONE_NIGHT_RELEASE_PLAN.md`
+  - This handoff and release checklist.
+- `/files/geebr.world/app.js`
+  - World state, generated Geebr, movement, facing, perception, ASCII map, terrain mapping, compass HUD, state restoration, command controls.
+- `/files/geebr.world/recorder.js`
+  - APNG frame capture, metadata embedding/extraction, incident-state import, speech-bubble compositing.
+- `/files/geebr.world/index.html`
+  - Main UI, recording controls, World setup, APNG drop area.
+- `/files/geebr.world/style.css`
+  - Main UI, compass, recorder, and APNG drop-area styling.
+- `/files/geebr.world/llm_js/agent-brain.js`
+  - Gemma brain and prompt integration.
+- `/files/geebr.world/llm_js/world-integration.js`
+  - Agent loop, stepping, and human-chat envelope.
+- `/files/geebr.world/llm_js/grammar.js`
+  - Constrained command grammar.
+- `/files/geebr.world/assets/models/characters/generated/`
+  - Generated Geebr model, rig, and animation assets.
 
 ## Final rule
 
-The platform is now good enough to produce evidence. Verify the compass, commit it, capture the lamp-to-water run, and publish the first incident before making anything else.
+The technical demo is ready and an APNG has been recorded.
+
+Do not turn this morning into another development session.
+
+> Verify the artifact, commit the final recorder patch, publish Incident 01, ask for the next task, and let real responses choose what happens next.
