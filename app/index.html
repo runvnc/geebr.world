@@ -10,6 +10,15 @@
   <canvas id="renderCanvas"></canvas>
   <div id="hud">
     <div class="brand">geebr.world <span>v14 turn-based perception</span></div>
+    <div id="modelLoadNotice" class="model-load-notice" role="status" aria-live="polite">
+      <div class="model-load-head">
+        <span class="model-load-icon" aria-hidden="true"></span>
+        <div><strong id="modelLoadTitle">Preparing local brain</strong><small>Gemma 4 E2B runs on this device</small></div>
+        <button id="dismissModelLoad" type="button" aria-label="Dismiss model status">×</button>
+      </div>
+      <div class="model-progress-track"><span id="modelProgressBar"></span></div>
+      <p id="modelLoadText">Starting…</p>
+    </div>
     <div class="panel">
       <div class="recordbar">
         <button id="startRecording" type="button">● record</button>

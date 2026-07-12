@@ -13,9 +13,48 @@ async function waitForWorld() {
 
 function el(id) { return document.getElementById(id); }
 
-function setStatus(text) {
+let modelNoticeDismissTimer = null;
+
+function progressPercent(text) {
+  const source = String(text || '');
+  const match = source.match(/(?:caching model|download(?:ing)?[^:]*|model)[^%]*?([0-9]{1,3}(?:\.[0-9]+)?)\s*%/i)
+    || source.match(/([0-9]{1,3}(?:\.[0-9]+)?)\s*%/);
+  return match ? Math.max(0, Math.min(100, Number(match[1]))) : null;
+}
+
+function updateModelNotice(text, state = 'loading') {
+  const notice = el('modelLoadNotice');
+  if (!notice) return;
+  clearTimeout(modelNoticeDismissTimer);
+  notice.classList.remove('hidden', 'ready', 'error');
+  if (state !== 'loading') notice.classList.add(state);
+
+  const title = el('modelLoadTitle');
+  const detail = el('modelLoadText');
+  const bar = el('modelProgressBar');
+  if (title) title.textContent = state === 'ready' ? 'Local brain ready'
+    : state === 'error' ? 'Local brain could not load'
+    : /download|caching/i.test(text) ? 'Downloading local brain'
+    : 'Preparing local brain';
+  if (detail) detail.textContent = text;
+
+  const percent = progressPercent(text);
+  if (bar) {
+    bar.style.width = percent === null ? '18%' : `${percent}%`;
+    bar.style.animation = percent === null && state === 'loading' ? '' : 'none';
+  }
+  if (state === 'ready') {
+    modelNoticeDismissTimer = setTimeout(() => notice.classList.add('hidden'), 3500);
+  }
+}
+
+function setStatus(text, noticeState = null) {
   const node = el('brainStatus');
   if (node) node.textContent = text;
+  if (noticeState) updateModelNotice(text, noticeState);
+  else if (/ready/i.test(text)) updateModelNotice(text, 'ready');
+  else if (/fail|error|unavailable/i.test(text)) updateModelNotice(text, 'error');
+  else if (/load|download|cache|initializ|prepar|checking/i.test(text)) updateModelNotice(text, 'loading');
 }
 
 function appendLog(text) {
@@ -92,6 +131,9 @@ function saveSelectedBrainUI(world) {
 
 async function main() {
   const world = await waitForWorld();
+  el('dismissModelLoad')?.addEventListener('click', () => {
+    el('modelLoadNotice')?.classList.add('hidden');
+  });
   const manager = createAgentBrainManager({
     onStatus: setStatus,
     onDebug: () => {},
@@ -168,9 +210,10 @@ async function main() {
     el('loadBrains').disabled = true;
     world.state.nextAgentId = world.getAgents()[0]?.id || null;
     appendLog('local brain auto-loaded: ' + modelLabel);
+    setStatus(modelLabel + ' ready', 'ready');
   } catch (err) {
     console.error('[geebr] auto-load FAILED:', err);
-    setStatus('auto-load failed: ' + err.message + ' (click load manually)');
+    setStatus('Auto-load failed: ' + err.message + ' Open Agent brains to retry.', 'error');
     el('loadBrains').disabled = false;
     appendLog('auto-load failed: ' + err.message);
   }
