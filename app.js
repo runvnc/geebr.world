@@ -4,6 +4,7 @@ const ASSET = './assets/textures/';
 const PROP_ASSET = './assets/models/props/';
 const CHAR_ASSET = './assets/models/characters/kaykit/';
 const ANIM_ASSET = './assets/models/animations/kaykit/';
+const GEEBR_ASSET = './assets/models/characters/generated/';
 const WORLD = { size: 32, half: 16 };
 const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
@@ -53,7 +54,7 @@ function setupMouseWheelZoom(camera){
       f.y=0.6;
       camera.setTarget(BABYLON.Vector3.Lerp(camera.target,f,ev.deltaY>0?.18:.42));
     }
-    setOrthoZoom(camera,clamp(current*factor,4.2,24.5));
+    setOrthoZoom(camera,clamp(current*factor,.82,24.5));
   },{passive:false});
   window.addEventListener('resize',()=>setOrthoZoom(camera,camera.metadata.orthoHalfWidth||12.5));
 }
@@ -226,6 +227,55 @@ async function createKayKitGeebr(scene,id,pos,file,label){
   state.geebrs.push(geebr);
   return geebr;
 }
+async function createGeneratedGeebr(scene,id,pos){
+  // Meshy's neutral rig already contains a subtle idle clip; walking is loaded as a
+  // second container and retargeted by matching the generated skeleton node names.
+  const idleRes=await BABYLON.SceneLoader.ImportMeshAsync('',GEEBR_ASSET,'geebr_rigged.glb',scene);
+  const root=new BABYLON.TransformNode(id,scene);
+  root.position.copyFrom(pos); root.scaling.setAll(.58);
+  const importedRoot=idleRes.meshes.find(m=>m.name==='__root__') || idleRes.meshes[0];
+  importedRoot.parent=root; importedRoot.position.set(0,0,0);
+  // Meshy exports this character facing local +Z; root yaw zero therefore faces north visually.
+  importedRoot.rotationQuaternion=null; importedRoot.rotation.set(0,0,0);
+  for(const mesh of idleRes.meshes){
+    mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh);
+    if(mesh.material){
+      // Keep the clay matte, but avoid forcing it so rough that every highlight disappears.
+      if('roughness' in mesh.material) mesh.material.roughness=.62;
+      if('metallic' in mesh.material) mesh.material.metallic=0;
+      if('environmentIntensity' in mesh.material) mesh.material.environmentIntensity=.72;
+      if('directIntensity' in mesh.material) mesh.material.directIntensity=1.18;
+      mesh.material.backFaceCulling=false;
+    }
+  }
+  const rigAnims={};
+  const idle=idleRes.animationGroups?.[0];
+  if(idle){ idle.name='Idle_A'; idle.stop(); rigAnims.Idle_A=idle; }
+  try{
+    const walkRes=await BABYLON.SceneLoader.ImportMeshAsync('',GEEBR_ASSET,'geebr_walking.glb',scene);
+    const targetMap=descendantsByName(root);
+    const sourceWalk=walkRes.animationGroups?.[0];
+    if(sourceWalk){
+      const walk=sourceWalk.clone(id+'_Walking_A',oldTarget=>targetMap.get(oldTarget.name)||null);
+      if(walk){ walk.name='Walking_A'; walk.stop(); rigAnims.Walking_A=walk; }
+    }
+    for(const g of walkRes.animationGroups||[]) g.stop();
+    // Keep the source hierarchy alive (but invisible): Babylon cloned animation
+    // targets can share transform/skeleton internals with this imported source.
+    for(const m of walkRes.meshes||[]){ m.setEnabled(false); m.isVisible=false; m.isPickable=false; }
+  }catch(e){ console.warn('generated Geebr walk animation failed to load',e); }
+  const collider=BABYLON.MeshBuilder.CreateBox(id+'_collider',{width:.72,height:1.42,depth:.66},scene);
+  collider.position.copyFrom(root.position); collider.position.y+=.72; collider.isVisible=false; collider.metadata={ownerId:id};
+  const agg=addBody(collider,'dynamic','BOX',1.25,{friction:.92,restitution:.02});
+  agg?.body?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
+  // Small character-local lights preserve facial/belly modeling at any camera angle.
+  const portraitKey=new BABYLON.PointLight(id+'_portrait_key',new BABYLON.Vector3(-1.45,2.65,-2.35),scene);
+  portraitKey.parent=root; portraitKey.diffuse=new BABYLON.Color3(1,.88,.72); portraitKey.intensity=.82; portraitKey.range=4.7;
+  const portraitRim=new BABYLON.PointLight(id+'_portrait_rim',new BABYLON.Vector3(1.6,2.35,1.45),scene);
+  portraitRim.parent=root; portraitRim.diffuse=new BABYLON.Color3(.48,.70,1); portraitRim.intensity=.46; portraitRim.range=4.0;
+  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
+  playRig(geebr,'idle',true); state.geebrs.push(geebr); return geebr;
+}
 async function createAgentCast(scene){
   try{
     await initKayKitAnimationSources(scene);
@@ -281,18 +331,28 @@ function addToScene(mesh,material,body={}){ if(material) mesh.material=material;
 function createGeebr(scene,id,pos,palette,style='goblin'){
   const root=new BABYLON.TransformNode(id,scene); root.position.copyFrom(pos);
   const clay=palette.clay||state.materials.geebr;
-  const body=lowPolyBlob(id+'_body',scene,.34,.47,.29,5,9); body.parent=root; body.position.y=.55; body.material=clay; addShadow(body);
-  const head=lowPolyBlob(id+'_head',scene,style==='bot'?.30:.35,.31,style==='bot'?.30:.31,4,8); head.parent=root; head.position.y=1.08; head.material=style==='bot'?state.materials.bot:clay; addShadow(head);
-  const belly=lowPolyBlob(id+'_belly',scene,.22,.23,.08,3,8); belly.parent=root; belly.position.set(0,.53,-.25); belly.material=palette.belly; addShadow(belly);
-  const footL=lowPolyBlob(id+'_footL',scene,.16,.08,.22,2,7); footL.parent=root; footL.position.set(-.18,.12,-.03); footL.material=palette.dark; addShadow(footL); const footR=footL.clone(id+'_footR'); footR.parent=root; footR.position.x=.18; addShadow(footR);
-  const armL=lowPolyBlob(id+'_armL',scene,.08,.27,.08,3,6); armL.parent=root; armL.position.set(-.39,.64,0); armL.rotation.z=.28; armL.material=clay; addShadow(armL); const armR=armL.clone(id+'_armR'); armR.parent=root; armR.position.x=.39; armR.rotation.z=-.28; addShadow(armR);
-  const eyeMat=colorMat(scene,id+'_eye',new BABYLON.Color3(.98,.96,.86)); const pupilMat=colorMat(scene,id+'_pupil',new BABYLON.Color3(.04,.04,.035));
-  for(const x of [-.12,.12]){ const e=BABYLON.MeshBuilder.CreateSphere(id+'_eye',{diameter:.11,segments:8},scene); e.parent=root; e.position.set(x,1.14,-.29); e.scaling.y=1.25; e.material=eyeMat; const p=BABYLON.MeshBuilder.CreateSphere(id+'_pupil',{diameter:.044,segments:6},scene); p.parent=root; p.position.set(x,1.135,-.345); p.material=pupilMat; }
-  const hat=BABYLON.MeshBuilder.CreateCylinder(id+'_hat',{diameterTop:style==='mushroom'?.62:.28,diameterBottom:style==='mushroom'?.92:.50,height:style==='mushroom'?.18:.23,tessellation:9},scene); hat.parent=root; hat.position.y=1.42; hat.material=style==='mushroom'?state.materials.mushroom:palette.hat; addShadow(hat);
-  const pack=BABYLON.MeshBuilder.CreateBox(id+'_backpack',{width:.34,height:.42,depth:.14},scene); pack.parent=root; pack.position.set(0,.72,.29); pack.material=state.materials.canvas; addShadow(pack);
-  const wand=BABYLON.MeshBuilder.CreateCylinder(id+'_wand',{height:.58,diameter:.035,tessellation:5},scene); wand.parent=root; wand.position.set(.50,.64,-.08); wand.rotation.x=.65; wand.material=state.materials.darkwood; const gem=createCrystal(id+'_wandgem',scene,.16,.055); gem.parent=root; gem.position.set(.50,.95,-.26); gem.material=state.materials.magic;
+  // A compact, deliberate silhouette: pear body, clear face, grounded feet.
+  const body=lowPolyBlob(id+'_body',scene,.37,.43,.31,5,9); body.parent=root; body.position.y=.49; body.material=clay; addShadow(body);
+  const head=lowPolyBlob(id+'_head',scene,style==='bot'?.32:.37,.30,style==='bot'?.31:.32,5,9); head.parent=root; head.position.y=1.02; head.material=style==='bot'?state.materials.bot:clay; addShadow(head);
+  const muzzle=lowPolyBlob(id+'_muzzle',scene,.25,.14,.075,3,8); muzzle.parent=root; muzzle.position.set(0,.94,-.302); muzzle.material=palette.belly; addShadow(muzzle);
+  const belly=lowPolyBlob(id+'_belly',scene,.235,.245,.055,4,9); belly.parent=root; belly.position.set(0,.48,-.294); belly.material=palette.belly; addShadow(belly);
+  const footL=lowPolyBlob(id+'_footL',scene,.17,.085,.22,3,7); footL.parent=root; footL.position.set(-.17,.10,-.055); footL.material=palette.dark; addShadow(footL); const footR=footL.clone(id+'_footR'); footR.parent=root; footR.position.x=.17; addShadow(footR);
+  const armL=lowPolyBlob(id+'_armL',scene,.085,.245,.09,4,7); armL.parent=root; armL.position.set(-.37,.56,0); armL.rotation.z=.24; armL.material=clay; addShadow(armL); const armR=armL.clone(id+'_armR'); armR.parent=root; armR.position.x=.37; armR.rotation.z=-.24; addShadow(armR);
+  // Eyes are inset into the face instead of floating beyond its sides.
+  const eyeMat=colorMat(scene,id+'_eye',new BABYLON.Color3(.96,.93,.78)); const pupilMat=colorMat(scene,id+'_pupil',new BABYLON.Color3(.025,.032,.028));
+  for(const x of [-.105,.105]){
+    const e=BABYLON.MeshBuilder.CreateSphere(id+'_eye',{diameter:.145,segments:10},scene); e.parent=root; e.position.set(x,1.075,-.302); e.scaling.set(.90,1.08,.62); e.material=eyeMat; addShadow(e);
+    const p=BABYLON.MeshBuilder.CreateSphere(id+'_pupil',{diameter:.062,segments:8},scene); p.parent=root; p.position.set(x,1.067,-.348); p.scaling.z=.45; p.material=pupilMat;
+  }
+  const browMat=palette.dark;
+  for(const x of [-.105,.105]){ const brow=BABYLON.MeshBuilder.CreateBox(id+'_brow',{width:.13,height:.025,depth:.025},scene); brow.parent=root; brow.position.set(x,1.17,-.326); brow.rotation.z=x<0?-.10:.10; brow.material=browMat; }
+  const hat=BABYLON.MeshBuilder.CreateCylinder(id+'_hat',{diameterTop:style==='mushroom'?.60:.31,diameterBottom:style==='mushroom'?.82:.54,height:style==='mushroom'?.17:.21,tessellation:10},scene); hat.parent=root; hat.position.y=1.315; hat.material=style==='mushroom'?state.materials.mushroom:palette.hat; addShadow(hat);
+  const pack=BABYLON.MeshBuilder.CreateBox(id+'_backpack',{width:.31,height:.36,depth:.12},scene); pack.parent=root; pack.position.set(0,.61,.29); pack.material=state.materials.canvas; addShadow(pack);
+  // A readable staff rather than a detached toothpick.
+  const wand=BABYLON.MeshBuilder.CreateCylinder(id+'_wand',{height:.92,diameter:.055,tessellation:7},scene); wand.parent=root; wand.position.set(.43,.55,-.12); wand.rotation.x=.10; wand.rotation.z=-.08; wand.material=state.materials.darkwood; addShadow(wand);
+  const gem=createCrystal(id+'_wandgem',scene,.23,.085); gem.parent=root; gem.position.set(.46,1.04,-.165); gem.rotation.z=-.08; gem.material=state.materials.magic; addShadow(gem);
   const collider=BABYLON.MeshBuilder.CreateBox(id+'_collider',{width:.72,height:1.18,depth:.68},scene); collider.position.copyFrom(root.position); collider.position.y+=.62; collider.isVisible=false; const agg=addBody(collider,'dynamic','BOX',1.2,{friction:.9,restitution:.02});
-  const geebr={id,root,body,head,arms:[armL,armR],feet:[footL,footR],collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style,traits:{fireball:82,obedience:45},cosmetic:{hat,pack,wand}};
+  const geebr={id,root,body,head,arms:[armL,armR],feet:[footL,footR],collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style,traits:{fireball:82,obedience:45},cosmetic:{hat,pack,wand,gem,muzzle}};
   state.geebrs.push(geebr); return geebr;
 }
 function forceBodyTransform(mesh,pos){
@@ -481,7 +541,8 @@ function beginTurnForAgent(agentId,cmd,source='agent'){
     log(`turn ${state.turn.index}: ${source} → ${actionDesc}`);
     state.globalHistory=(state.globalHistory||[]).concat([`T${state.turn.index} ${actor?actor.id:'?'}: ${actionDesc}`]).slice(-20);
     executeGameCommandImmediate(cmd,actor);
-    setTimeout(()=>{ settleWorld('physics frozen for next LLM choice'); resolve(true); }, state.turn.resolveMs);
+    const settleDelay=cmd.kind==='walk' ? Math.max(state.turn.resolveMs,520) : state.turn.resolveMs;
+    setTimeout(()=>{ settleWorld('physics frozen for next LLM choice'); resolve(true); },settleDelay);
   });
 }
 // Character artwork faces local -Z (eyes/front), so zero yaw must face north
@@ -497,9 +558,9 @@ function setGeebrFacing(g,d){
 function startTurnMove(g,d){
   setGeebrFacing(g,d);
   const lp=g.logicalPos || new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
-  const start=new BABYLON.Vector3(Math.round(lp.x),0,Math.round(lp.z));
-  const end=start.add(d.scale(1.0));
-  end.x=clamp(Math.round(end.x),-15.5,15.5); end.z=clamp(Math.round(end.z),-15.5,15.5); end.y=0;
+  const start=new BABYLON.Vector3(lp.x,0,lp.z);
+  const end=start.add(d.scale(g.stepDistance||1.0));
+  end.x=clamp(end.x,-15.5,15.5); end.z=clamp(end.z,-15.5,15.5); end.y=0;
   g.turnMove={start,end,t:0,dur:.48};
   g.collider?.physicsBody?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
   zeroMeshMotion(g.collider);
@@ -590,7 +651,7 @@ function isBlocked(x, z) {
   }
   return false;
 }
-function walk(g,dir){ const dirs={n:[0,0,-1],s:[0,0,1],e:[1,0,0],w:[-1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); setGeebrFacing(g,d); const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z); const tx=Math.round(lp.x+d.x), tz=Math.round(lp.z+d.z); if(isBlocked(tx,tz)){ say(g,'can\'t walk '+dir+', something is in the way'); log(g.id+' blocked going '+dir); return; } startTurnMove(g,d); g.anim='walk'; playRig(g,'walk',true); log(g.id+' steps '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
+function walk(g,dir){ const dirs={n:[0,0,-1],s:[0,0,1],e:[1,0,0],w:[-1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); setGeebrFacing(g,d); const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z); const dist=g.stepDistance||1.0, tx=lp.x+d.x*dist, tz=lp.z+d.z*dist; if(isBlocked(tx,tz)){ say(g,'can\'t walk '+dir+', something is in the way'); log(g.id+' blocked going '+dir); return; } startTurnMove(g,d); g.anim='walk'; playRig(g,'walk',true); log(g.id+' steps '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
 function look(g){ const t=nearestTarget(g,6); if(!t) return say(g,pickRandom(['I see many legal surfaces','nothing but vibes and grass','the horizon looks back at me','empty space, legally distinct'])); const m=meta(t); const desc=m?.state==='intact'?'looking normal-ish':m?.state==='cracked'?'definitely cracked':m?.state==='burned'?'crispy':m?.state==='broken'?'gone, actually':'suspicious'; say(g,pickRandom([`that ${m?.type||t.name} is ${desc}`,`the ${m?.type||t.name} seems ${desc}`,`checking: ${m?.type||t.name}, status ${desc}`])); }
 function touch(g,targetId=''){ 
   let t=null;
@@ -662,7 +723,9 @@ function baseGlyphForTile(x,z){
   return ',';
 }
 function isOpaqueType(type){
-  return ['wall','bakery','cracked_shrine_plinth','rock','rubble'].includes(type);
+  // Only genuinely large, solid structures occlude map vision. Small props,
+  // lamps, barrels, crates and rocks remain visible without casting huge blind wedges.
+  return ['wall','bakery','cracked_shrine_plinth'].includes(type);
 }
 function opaqueCells(){
   const out=new Set();
@@ -672,7 +735,7 @@ function opaqueCells(){
     if(!mm) continue;
     const p=m.getAbsolutePosition?.() || m.position;
     const glyph=typeGlyph(mm.type);
-    if(isOpaqueType(mm.type) || glyph==='^' || mm.material==='stone'){
+    if(isOpaqueType(mm.type)){
       out.add(gridKey(Math.round(p.x),Math.round(p.z)));
     }
   }
@@ -723,7 +786,7 @@ function isWithinFacingVision(g,cx,cz,x,z,radius){
   if(forward>radius) return false;
   // Cardinal-facing cone: lateral width widens with distance.
   const lateral=Math.abs(dx*fz - dz*fx);
-  const maxLateral=Math.max(1, Math.floor((forward+1)*1.0));
+  const maxLateral=Math.max(2,Math.floor((forward+1)*1.35));
   return lateral<=maxLateral;
 }
 function typeGlyph(type){
@@ -755,7 +818,7 @@ function describeThing(id, type, pos, marks, extra=''){
   const st=marks ? ' flags='+marks : '';
   return `${id} ${type} at (${Math.round(pos.x)},${Math.round(pos.z)})${st}${extra}`;
 }
-function buildVisiblePerception(agentId=null, radius=5){
+function buildVisiblePerception(agentId=null,radius=7){
   const g=agentId ? state.geebrs.find(x=>x.id===agentId) : (state.selected||state.geebrs[0]);
   if(!g) return 'No agent selected.';
   radius=clamp(Number(radius)||5,2,8);
@@ -889,6 +952,11 @@ function buildAgentPrompt(g, cfg) {
     '',
     ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
     ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
+    'Messages in the form "NAME says ..." report speech addressed to you.',
+    'Understand and answer the meaning of that speech; do not copy or quote it back.',
+    'For a question, use say() with a short direct answer. For a request, respond or take the requested action.',
+    'Never put the speaker attribution, such as "Tom says", inside say().',
+    'Example: Tom says "which is bigger, a dog or a whale?" -> say("A whale is much bigger.")',
     'Do not output anything except the command line.',
   ].join('\n');
   const commandReminder = [
@@ -927,7 +995,7 @@ function updatePerceptionUI(){
   for (const m of hist) { histText += `[${m.role.toUpperCase()}] ${m.content}\n`; }
   out.textContent=`[AGENT: ${g.id}]\n\n[SYSTEM]\n${systemMessage}\n\n${histText ? '--- MESSAGE HISTORY ---\n' + histText + '\n' : ''}[USER]\n${commandReminder}`;
 }
-window.getAgentPerception=(agentId=null,radius=5)=>buildVisiblePerception(agentId,radius);
+window.getAgentPerception=(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius);
 
 
 function getBrainConfig(agentId){
@@ -954,7 +1022,7 @@ function refreshAgentSelect(){
   if(prev && state.geebrs.some(g=>g.id===prev)) agent.value=prev;
   agent.onchange=()=>selectGeebr(state.geebrs.find(g=>g.id===agent.value));
 }
-function spawnCharacter(){
+async function spawnCharacter(){
   const base=state.selected?.root?.position || new BABYLON.Vector3(0,0,0);
   const pos=new BABYLON.Vector3(clamp(Math.round(base.x+1+Math.random()*2),-14,14),.06,clamp(Math.round(base.z+1+Math.random()*2),-14,14));
   const id='geebr'+state.nextSpawnId++;
@@ -964,7 +1032,12 @@ function spawnCharacter(){
     {hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot}
   ];
   const styles=['goblin','mushroom','bot'];
-  const g=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
+  let g;
+  try{ g=await createGeneratedGeebr(state.scene,id,pos); }
+  catch(e){
+    console.warn('generated rigged Geebr failed; using procedural fallback',e);
+    g=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
+  }
   setGeebrLogicalPosition(g,pos);
   setBrainConfig(id,{style:'helpful idiot',personality:'newly spawned, confused, eager to participate',fireballTemptation:45,chaos:60});
   refreshAgentSelect(); selectGeebr(g); log('spawned character '+id); updatePerceptionUI(); saveWorldState(); return g;
@@ -979,7 +1052,7 @@ function spawnProp(kind='crate'){
   else obj=makeCrate(state.scene,x,z);
   state.target=obj; log('spawned '+kind+' at '+x+','+z); updatePerceptionUI(); saveWorldState(); return obj;
 }
-function spawnAt(type, x, z) {
+async function spawnAt(type, x, z) {
   x = clamp(Math.round(x), -15, 15);
   z = clamp(Math.round(z), -15, 15);
   let obj;
@@ -992,7 +1065,11 @@ function spawnAt(type, x, z) {
       {hat:state.materials.hat3, belly:state.materials.belly3, dark:state.materials.foot, clay:state.materials.bot}
     ];
     const styles = ['goblin', 'mushroom', 'bot'];
-    obj = createGeebr(state.scene, id, pos, pickRandom(palettes), pickRandom(styles));
+    try{ obj=await createGeneratedGeebr(state.scene,id,pos); }
+    catch(e){
+      console.warn('generated rigged Geebr failed; using procedural fallback',e);
+      obj=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
+    }
     setGeebrLogicalPosition(obj, pos);
     setBrainConfig(id, {style:'helpful idiot', personality:'newly spawned, confused, eager to participate', fireballTemptation:45, chaos:60});
     refreshAgentSelect();
@@ -1066,7 +1143,7 @@ function saveWorldState() {
   } catch (e) { console.warn('saveWorldState failed:', e); }
 }
 
-function loadWorldState() {
+async function loadWorldState() {
   try {
     const raw = localStorage.getItem('geebrWorldState');
     if (!raw) return false;
@@ -1102,7 +1179,12 @@ function loadWorldState() {
     for (const g of data.geebrs) {
       const palIdx = styles.indexOf(g.style);
       const palette = palIdx >= 0 ? palettes[palIdx] : palettes[0];
-      const geebr = createGeebr(state.scene, g.id, new BABYLON.Vector3(g.x, g.y, g.z), palette, g.style || 'goblin');
+      let geebr;
+      try{ geebr=await createGeneratedGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z)); }
+      catch(e){
+        console.warn('generated rigged Geebr restore failed; using procedural fallback',e);
+        geebr=createGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z),palette,g.style||'goblin');
+      }
       geebr.dir = new BABYLON.Vector3(g.dx || 0, g.dy || 0, g.dz || -1);
       geebr.anim = g.anim || 'idle';
       if (g.traits) geebr.traits = g.traits;
@@ -1130,12 +1212,12 @@ function installWorldAPI(){
     getAgents:()=>state.geebrs.slice(), getSelectedAgent:()=>state.selected,
     getBrainConfig, setBrainConfig, refreshAgentSelect,
     getAllowedCommands:()=>Array.from(state.allowed), canRun,
-    getAgentPerception:(agentId=null,radius=5)=>buildVisiblePerception(agentId,radius),
+    getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius),
     executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
     runAgentCommand:(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'),
     stepAgentTurn:beginTurnForAgent,
     isTurnReady:()=>state.turn.phase==='ready',
-    spawnCharacter, spawnProp, spawnAt, clearWorld, buildAgentPrompt,
+    spawnCharacter, spawnProp, spawnAt, clearWorld, buildAgentPrompt, saveWorldState,
   };
 }
 
@@ -1173,7 +1255,13 @@ function setupUI(){
     if(confirm('Clear all geebrs and objects from the map?')) { clearWorld(); saveWorldState(); }
   };
   const resetStateBtn=document.getElementById('resetState'); if(resetStateBtn) resetStateBtn.onclick=()=>{
-    if(confirm('Reset ALL state to a blank map? This cannot be undone.')) { localStorage.removeItem('geebrWorldState'); clearWorld(); log('state reset to blank'); }
+    if(confirm('Reset to a blank demo world with one Geebr? This cannot be undone.')) {
+      localStorage.removeItem('geebrWorldState'); clearWorld();
+      createGeneratedGeebr(state.scene,'geebr1',new BABYLON.Vector3(0,.06,0)).then(g=>{
+        setGeebrLogicalPosition(g,new BABYLON.Vector3(0,0,0)); refreshAgentSelect(); selectGeebr(g); saveWorldState();
+        log('state reset: blank demo world with one Geebr');
+      }).catch(err=>console.error('reset Geebr failed',err));
+    }
   };
   const spawnModeEnabled=document.getElementById('spawnModeEnabled'); if(spawnModeEnabled) spawnModeEnabled.onchange=()=>{
     state.spawnMode.enabled = spawnModeEnabled.checked;
@@ -1297,7 +1385,7 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
         if(pick?.hit && pick.pickedPoint){
           const tx=Math.round(pick.pickedPoint.x), tz=Math.round(pick.pickedPoint.z);
           if(state.spawnMode.enabled){
-            spawnAt(state.spawnMode.type, tx, tz);
+            Promise.resolve(spawnAt(state.spawnMode.type,tx,tz)).catch(err=>console.error('spawn failed',err));
             return;
           }
           camera.target=new BABYLON.Vector3(tx,0.6,tz); state.zoomFocus=camera.target.clone();
@@ -1307,16 +1395,37 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   });
   canvas.addEventListener('contextmenu',e=>{ e.preventDefault(); const pick=scene.pick(scene.pointerX,scene.pointerY); if(pick?.hit && pick.pickedPoint){ const tx=Math.round(pick.pickedPoint.x), tz=Math.round(pick.pickedPoint.z); let info=`tile (${tx},${tz})`; const m=pick.pickedMesh; const mm=meta(m); if(mm?.type && mm.type!=='tile') info+=` - ${mm.type} (${mm.state||'intact'})`; const owner=m?.metadata?.ownerId; if(owner){ const g=state.geebrs.find(x=>x.id===owner); if(g) info+=` - ${g.id} (${g.anim||'idle'})`; } log(info); } });
   canvas.addEventListener('pointermove',e=>{ if(e.buttons&2){ e.preventDefault(); const dx=e.movementX*0.02, dy=e.movementY*0.02; const right=camera.getDirection(BABYLON.Vector3.Right()); const up=camera.getDirection(BABYLON.Vector3.Up()); const newTarget=camera.target.add(right.scale(dx)).subtract(up.scale(dy)); newTarget.y=0.6; camera.target.copyFrom(newTarget); state.zoomFocus=camera.target.clone(); } });
-  const hemi=new BABYLON.HemisphericLight('soft_overall',new BABYLON.Vector3(.2,1,.1),scene); hemi.intensity=.30; hemi.groundColor=new BABYLON.Color3(.13,.16,.15); const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.42,-.92,.55),scene); sun.position=new BABYLON.Vector3(8,14,-9); sun.intensity=.88; sun.diffuse=new BABYLON.Color3(1,.88,.70); const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-8,4,6),scene); fill.intensity=.20; fill.diffuse=new BABYLON.Color3(.50,.67,1); fill.range=18; state.shadow=new BABYLON.ShadowGenerator(2048,sun); state.shadow.useBlurExponentialShadowMap=true; state.shadow.blurKernel=24;
+  const hemi=new BABYLON.HemisphericLight('soft_overall',new BABYLON.Vector3(.2,1,.1),scene); hemi.intensity=.28; hemi.groundColor=new BABYLON.Color3(.11,.14,.13); const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.42,-.92,.55),scene); sun.position=new BABYLON.Vector3(8,14,-9); sun.intensity=1.22; sun.diffuse=new BABYLON.Color3(1,.88,.70); const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-8,4,6),scene); fill.intensity=.24; fill.diffuse=new BABYLON.Color3(.50,.67,1); fill.range=18; state.shadow=new BABYLON.ShadowGenerator(2048,sun); state.shadow.useBlurExponentialShadowMap=true; state.shadow.blurKernel=18;
+  // Neutral environment reflections give PBR clay broad shape cues without making it glossy.
+  const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
+  scene.environmentTexture=envTexture;
+  scene.environmentIntensity=.42;
+  scene.imageProcessingConfiguration.contrast=1.12;
+  scene.imageProcessingConfiguration.exposure=1.04;
   state.materials={
     grass:mat(scene,'grass','grass_meadow.png',{uScale:1,vScale:1}), dirt:mat(scene,'dirt','dirt_loam.png',{uScale:1,vScale:1}), stone:mat(scene,'stone','stone_soft.png',{uScale:1,vScale:1}),
     grassSurf:mat(scene,'grassSurf','grass_meadow.png',{uScale:7.5,vScale:7.5}), dirtSurf:mat(scene,'dirtSurf','dirt_loam.png',{uScale:5.8,vScale:1.3}), stoneSurf:mat(scene,'stoneSurf','stone_soft.png',{uScale:3.4,vScale:3.0}),
     grassBase:colorMat(scene,'grass_base',new BABYLON.Color3(.17,.25,.14)), dirtBase:colorMat(scene,'dirt_base',new BABYLON.Color3(.27,.19,.12)), stoneBase:colorMat(scene,'stone_base',new BABYLON.Color3(.28,.28,.26)), waterBase:colorMat(scene,'water_base',new BABYLON.Color3(.06,.13,.15)),
     cracked:mat(scene,'cracked','cracked_wall.png',{uScale:1.2,vScale:1.2}), wood:mat(scene,'wood','wood_planks.png',{uScale:1.2,vScale:1.2}), mushroom:mat(scene,'mushroom','mushroom_cap.png',{uScale:1.05,vScale:1.05}), canvas:mat(scene,'canvas','canvas_fabric.png',{uScale:1.4,vScale:1.4}), geebr:mat(scene,'geebr_clay','geebr_clay.png',{uScale:1,vScale:1}), magic:mat(scene,'magic','magic_crystal.png',{emissive:new BABYLON.Color3(.07,.34,.34)}), fire:colorMat(scene,'fire',new BABYLON.Color3(1,.31,.08),new BABYLON.Color3(.85,.18,.04)), burned:colorMat(scene,'burned',new BABYLON.Color3(.12,.09,.07)), water:makeWaterMaterial(scene), grassBlade:colorMat(scene,'grass_blade',new BABYLON.Color3(.25,.43,.18)), grassBlade2:colorMat(scene,'grass_blade2',new BABYLON.Color3(.36,.49,.20)), pebble:colorMat(scene,'pebble',new BABYLON.Color3(.39,.38,.32)), hole:colorMat(scene,'hole',new BABYLON.Color3(.06,.035,.022)), bot:colorMat(scene,'bot',new BABYLON.Color3(.47,.55,.58)), darkwood:colorMat(scene,'darkwood',new BABYLON.Color3(.26,.14,.07)), hat1:colorMat(scene,'hat_moss',new BABYLON.Color3(.18,.38,.21)), hat2:colorMat(scene,'hat_clay',new BABYLON.Color3(.58,.25,.16)), hat3:colorMat(scene,'hat_blue',new BABYLON.Color3(.18,.28,.48)), belly1:colorMat(scene,'belly_cream',new BABYLON.Color3(.78,.72,.48)), belly2:colorMat(scene,'belly_blue',new BABYLON.Color3(.36,.55,.68)), belly3:colorMat(scene,'belly_pink',new BABYLON.Color3(.70,.42,.53)), foot:colorMat(scene,'foot_dark',new BABYLON.Color3(.12,.17,.13))
   };
-  buildWorld(scene); addTerrainPolish(scene); await addRealPropPass(scene); await scatterRealProps(scene); const realChars=await createAgentCast(scene); if(!realChars){ createGeebr(scene,'gib',new BABYLON.Vector3(-1,.06,-.7),{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); createGeebr(scene,'momo',new BABYLON.Vector3(.45,.06,-.55),{hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},'mushroom'); createGeebr(scene,'zap',new BABYLON.Vector3(1.2,.06,.15),{hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},'bot'); } selectGeebr(state.geebrs[0]);
+  // Demo-first blank world: retain the terrain as a canvas, but do not populate
+  // the old RPG cast, buildings, border walls, or random props on first load.
+  addTerrainPolish(scene);
+  // The visible continuous terrain is intentionally non-pickable; preserve a
+  // simple invisible pick plane now that buildWorld() no longer creates tile meshes.
+  const spawnPickPlane=BABYLON.MeshBuilder.CreateGround('spawn_pick_plane',{width:32,height:32,subdivisions:1},scene);
+  spawnPickPlane.position.y=.025; spawnPickPlane.visibility=0; spawnPickPlane.isPickable=true;
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=new BABYLON.Vector3(pi.pickInfo.pickedPoint.x,0.6,pi.pickInfo.pickedPoint.z); if(mm?.interactive){ state.target=target; const tp=target.getAbsolutePosition?.()||pi.pickInfo.pickedPoint; state.zoomFocus=new BABYLON.Vector3(tp.x,0.6,tp.z); log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
-  setupUI(); installWorldAPI(); loadWorldState(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>{
+  setupUI(); installWorldAPI();
+  const restored=await loadWorldState();
+  if(!restored){
+    const g=await createGeneratedGeebr(scene,'geebr1',new BABYLON.Vector3(0,.06,0));
+    setGeebrLogicalPosition(g,new BABYLON.Vector3(0,0,0));
+    setBrainConfig(g.id,{style:'curious Geebr',personality:'goofy, curious, imperfect, eager to understand and help',fireballTemptation:20,chaos:45});
+    refreshAgentSelect(); selectGeebr(g); saveWorldState();
+    log('blank demo world ready with one Geebr');
+  }
+  scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>{
     scene.render();
     const recorder=window.geebrFrameRecorder;
     if(recorder?.wantsFrame?.()) recorder.captureAfterRender(engine).catch(err=>recorder.fail?.(err));

@@ -250,7 +250,7 @@ async function main() {
         // Merge command reminder with last user message if it's also user role
         const lastMsg = messages[messages.length - 1];
          if (cfg.pendingChat && cfg.pendingChat.length > 0) {
-          chatSuffix = '\n\n' + cfg.pendingChat.join('\n');
+          chatSuffix = '\n\nNEW SPEECH ADDRESSED TO YOU:\n' + cfg.pendingChat.join('\n') + '\nRespond to its meaning; do not repeat or quote the message.';
           cfg.pendingChat = [];
           world.setBrainConfig(g.id, cfg);
         }
@@ -292,11 +292,14 @@ async function main() {
       const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
       // Persist chat messages to history so they're remembered in future turns
       if (chatSuffix) {
-        const chatLines = chatSuffix.trim().split('\n').filter(l => l.trim());
+        const chatLines = chatSuffix.trim().split('\n').filter(l => l.trim() && !l.startsWith('NEW SPEECH') && !l.startsWith('Respond to its meaning'));
         for (const cl of chatLines) {
           cfg.messages = (cfg.messages || []).concat([{ role: 'user', content: cl }]);
         }
       }
+      // A new human utterance should not be drowned by old action chatter.
+      // Keep it as the latest conversational event after generation as well.
+      if(chatSuffix && cfg.messages?.length>12) cfg.messages=cfg.messages.slice(-12);
       // Add agent's action as assistant message
       cfg.messages = (cfg.messages || []).concat([{ role: 'assistant', content: line || 'look()' }]);
       cfg.recent = (cfg.recent || []).concat(`chose ${line || 'nothing'}`).slice(-6);
@@ -389,7 +392,7 @@ async function main() {
     if (!g) { appendLog('no agent selected'); return; }
     const cfg = world.getBrainConfig(g.id);
     // Store chat separately so it can be appended at the end of the next prompt (after perception)
-    cfg.pendingChat = (cfg.pendingChat || []).concat([`${name} says '${text}'`]);
+    cfg.pendingChat = (cfg.pendingChat || []).concat([`${name} says: ${text}`]);
     if (cfg.pendingChat.length > 5) cfg.pendingChat = cfg.pendingChat.slice(-5);
     world.setBrainConfig(g.id, cfg);
     appendLog(name + ' -> ' + g.id + ': ' + text);

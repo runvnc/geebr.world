@@ -216,7 +216,7 @@ export function buildDynamicGrammar(allowedCommands) {
   const spec = parts.join('\n');
   return {
     grammar: commandSpecToGrammar(spec),
-    instruction: 'Output exactly one plain command line matching the command syntax. Do not output JSON. Do not explain.',
+    instruction: 'Output exactly one plain command line matching the command syntax. Do not output JSON. Do not explain. If the latest user message reports that someone says something, answer its meaning or follow its request; never copy the message into say().',
     responseFormat: { type: 'grammar', grammar: commandSpecToGrammar(spec) },
   };
 }

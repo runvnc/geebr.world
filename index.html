@@ -43,7 +43,7 @@
         <div class="section-subtitle">Agent brains</div>
         <label class="spawn-mode-toggle"><input id="chatTestMode" type="checkbox" /> chat test mode (bare conversation, no perception)</label>
         <label class="spawn-mode-toggle"><input id="enableThinking" type="checkbox" /> thinking mode (slower, smarter)</label>
-        <div class="brainbar"><select id="modelSelect" style="font-size:0.85em;padding:2px 4px"></select><button id="loadBrains" type="button">load Gemma 4 E2B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
+        <div class="brainbar"><button id="loadBrains" type="button">load Gemma 4 E2B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
         <div id="brainStatus">local brain not loaded</div>
         <div class="cache-controls">
           <label class="cache-backend-label">Cache <select id="cacheBackend"><option value="indexeddb" selected>IndexedDB</option><option value="opfs">OPFS</option><option value="cache">Cache API</option></select></label>
@@ -71,7 +71,7 @@
       <details class="panel-section">
         <summary>Agent info & prompt</summary>
         <div class="perception-controls">
-          <label>Vision radius <select id="visionRadius"><option value="4">9×9</option><option value="5" selected>11×11</option><option value="6">13×13</option></select></label>
+          <label>Vision radius <select id="visionRadius"><option value="5">11×11</option><option value="7" selected>15×15</option><option value="8">17×17</option></select></label>
           <label class="spawn-mode-toggle"><input id="showAsciiMap" type="checkbox" checked /> ASCII map</label>
           <button id="refreshPerception" type="button">refresh</button>
           <button id="copyPerception" type="button">copy</button>

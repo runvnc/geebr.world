@@ -7,8 +7,6 @@ import { generate as generateLiteRT, createLiteRTEngine } from './gpt-runner-lit
 import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js';
 
 const SUPPORTED_MODELS = {
-  'qwen3.5-0.8b': { label: 'Qwen3.5-0.8B (WebLLM)', engine: 'webllm' },
-  'gemma4-e2b': { label: 'Gemma 4 E2B (Transformers.js)', engine: 'transformers.js' },
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm' },
 };
 
