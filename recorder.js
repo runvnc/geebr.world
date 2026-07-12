@@ -31,6 +31,8 @@
         facing:{ x:+g.dir.x.toFixed(3), y:+g.dir.y.toFixed(3), z:+g.dir.z.toFixed(3) },
         brainConfig:state.brainConfigs?.get(g.id) || null
       })),
+      terrain:{ convention:'north=-Z,south=+Z,east=-X,west=+X', source:'procedural-v12', worldHalf:16 },
+      initialPerception:world.buildVisiblePerception?.(state.selected?.id || state.geebrs?.[0]?.id, Number(document.getElementById('visionRadius')?.value || 7)) || null,
       props:(state.props || []).filter(m => !m?.isDisposed?.()).map(meshRecord),
       blocks:(state.blocks || []).filter(m => !m?.isDisposed?.()).map(meshRecord),
       globalHistory:[...(state.globalHistory || [])],
@@ -104,6 +106,63 @@
     throw new Error('invalid encoded PNG');
   }
 
+  function extractState(buffer) {
+    const png=new Uint8Array(buffer);
+    if(png.length<PNG_SIGNATURE_BYTES || png[0]!==137 || png[1]!==80 || png[2]!==78 || png[3]!==71) throw new Error('not a PNG/APNG file');
+    let offset=PNG_SIGNATURE_BYTES;
+    while(offset+12<=png.length){
+      const len=new DataView(png.buffer,png.byteOffset+offset,4).getUint32(0);
+      if(offset+12+len>png.length) throw new Error('damaged PNG chunk');
+      const type=String.fromCharCode(...png.subarray(offset+4,offset+8));
+      if(type==='tEXt'){
+        const data=png.subarray(offset+8,offset+8+len);
+        const zero=data.indexOf(0);
+        if(zero>0){
+          const keyword=new TextDecoder('latin1').decode(data.subarray(0,zero));
+          if(keyword==='geebr.world.initial-state'){
+            try{return JSON.parse(new TextDecoder().decode(data.subarray(zero+1)));}
+            catch{throw new Error('embedded state JSON is damaged');}
+          }
+        }
+      }
+      if(type==='IEND') break;
+      offset+=12+len;
+    }
+    throw new Error('no Geebr initial state found in this image');
+  }
+
+  async function loadIncidentFile(file){
+    const drop=$('apngStateDrop'), message=$('apngStateStatus');
+    if(!file) return;
+    drop?.classList.add('loading');
+    if(message) message.textContent='Reading embedded state…';
+    try{
+      const metadata=extractState(await file.arrayBuffer());
+      const world=window.geebrWorld;
+      if(!world?.restoreWorldState) throw new Error('world is not ready yet');
+      await world.restoreWorldState(metadata);
+      if(metadata.camera && world.state?.camera){
+        const c=world.state.camera;
+        if(Number.isFinite(metadata.camera.alpha)) c.alpha=metadata.camera.alpha;
+        if(Number.isFinite(metadata.camera.beta)) c.beta=metadata.camera.beta;
+        if(Number.isFinite(metadata.camera.radius)) c.radius=metadata.camera.radius;
+        if(metadata.camera.target) c.setTarget(new BABYLON.Vector3(metadata.camera.target.x||0,metadata.camera.target.y||.6,metadata.camera.target.z||0));
+        if(Number.isFinite(metadata.camera.orthoHalfWidth)){
+          c.metadata ||= {};
+          c.metadata.orthoHalfWidth=metadata.camera.orthoHalfWidth;
+          const aspect=world.state.engine.getRenderWidth()/Math.max(1,world.state.engine.getRenderHeight());
+          c.orthoLeft=-metadata.camera.orthoHalfWidth; c.orthoRight=metadata.camera.orthoHalfWidth;
+          c.orthoTop=metadata.camera.orthoHalfWidth/aspect; c.orthoBottom=-metadata.camera.orthoHalfWidth/aspect;
+        }
+      }
+      world.log?.(`loaded incident initial state from ${file.name}`);
+      if(message) message.textContent=`Loaded ${metadata.agents?.length||0} Geebr(s) from ${file.name}`;
+    }catch(e){
+      console.error('incident state import failed',e);
+      if(message) message.textContent=`Could not load: ${e.message}`;
+    }finally{ drop?.classList.remove('loading'); }
+  }
+
   function download(buffer) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const url = URL.createObjectURL(new Blob([buffer], {type:'image/apng'}));
@@ -172,6 +231,22 @@
       status(`capture failed: ${error.message}`);
     }
   };
+
+  const drop=$('apngStateDrop'), input=$('apngStateFile');
+  if(drop && input){
+    drop.addEventListener('click',()=>input.click());
+    drop.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); input.click(); } });
+    input.addEventListener('change',()=>{ loadIncidentFile(input.files?.[0]); input.value=''; });
+    for(const event of ['dragenter','dragover']) drop.addEventListener(event,e=>{
+      e.preventDefault(); e.dataTransfer.dropEffect='copy'; drop.classList.add('dragover');
+    });
+    for(const event of ['dragleave','dragend']) drop.addEventListener(event,e=>{
+      e.preventDefault(); drop.classList.remove('dragover');
+    });
+    drop.addEventListener('drop',e=>{
+      e.preventDefault(); drop.classList.remove('dragover'); loadIncidentFile(e.dataTransfer.files?.[0]);
+    });
+  }
 
   window.addEventListener('DOMContentLoaded', () => {
     $('startRecording')?.addEventListener('click', startRecording);

@@ -1,5 +1,6 @@
 /* geebr.world v14.2 — clear map + click-to-spawn mode */
 const canvas = document.getElementById('renderCanvas');
+const compassHud=document.createElement('div'); compassHud.id='compassHud'; compassHud.innerHTML='<span class="compass-n">N</span><span>E</span><span>S</span><span>W</span><small>camera facing N</small>'; document.body.appendChild(compassHud);
 const ASSET = './assets/textures/';
 const PROP_ASSET = './assets/models/props/';
 const CHAR_ASSET = './assets/models/characters/kaykit/';
@@ -547,6 +548,8 @@ function beginTurnForAgent(agentId,cmd,source='agent'){
 }
 // Character artwork faces local -Z (eyes/front), so zero yaw must face north
 // rather than Babylon's conventional +Z forward direction.
+// Display convention is north=-Z, south=+Z, east=-X, west=+X.
+// Both generated and procedural artwork are normalized to face north at yaw=0.
 function yawForDir(d){ return Math.atan2(-(d.x||0),-(d.z||0)); }
 function setGeebrFacing(g,d){
   if(!g || !d) return;
@@ -651,7 +654,7 @@ function isBlocked(x, z) {
   }
   return false;
 }
-function walk(g,dir){ const dirs={n:[0,0,-1],s:[0,0,1],e:[1,0,0],w:[-1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); setGeebrFacing(g,d); const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z); const dist=g.stepDistance||1.0, tx=lp.x+d.x*dist, tz=lp.z+d.z*dist; if(isBlocked(tx,tz)){ say(g,'can\'t walk '+dir+', something is in the way'); log(g.id+' blocked going '+dir); return; } startTurnMove(g,d); g.anim='walk'; playRig(g,'walk',true); log(g.id+' steps '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
+function walk(g,dir){ const dirs={n:[0,0,-1],north:[0,0,-1],s:[0,0,1],south:[0,0,1],e:[-1,0,0],east:[-1,0,0],w:[1,0,0],west:[1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); setGeebrFacing(g,d); const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z); const dist=g.stepDistance||1.0, tx=lp.x+d.x*dist, tz=lp.z+d.z*dist; if(isBlocked(tx,tz)){ say(g,'can\'t walk '+dir+', something is in the way'); log(g.id+' blocked going '+dir); return; } startTurnMove(g,d); g.anim='walk'; playRig(g,'walk',true); log(g.id+' steps '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
 function look(g){ const t=nearestTarget(g,6); if(!t) return say(g,pickRandom(['I see many legal surfaces','nothing but vibes and grass','the horizon looks back at me','empty space, legally distinct'])); const m=meta(t); const desc=m?.state==='intact'?'looking normal-ish':m?.state==='cracked'?'definitely cracked':m?.state==='burned'?'crispy':m?.state==='broken'?'gone, actually':'suspicious'; say(g,pickRandom([`that ${m?.type||t.name} is ${desc}`,`the ${m?.type||t.name} seems ${desc}`,`checking: ${m?.type||t.name}, status ${desc}`])); }
 function touch(g,targetId=''){ 
   let t=null;
@@ -713,9 +716,22 @@ function tileAtGrid(x,z){
   for(const t of state.tiles){ const d=Math.abs(t.position.x-x)+Math.abs(t.position.z-z); if(d<bd){ bd=d; best=t; } }
   return bd<=1.02 ? best : null;
 }
+function proceduralTerrainAt(x,z){
+  // Keep perception synchronized with the continuous terrain drawn by
+  // makePathRibbon(), makeStoneQuarrySurface(), and makeBetterWater().
+  // Later meshes visually cover earlier ones, so water/quarry take precedence.
+  const inWater=x>=6.19 && x<=15.91 && z>=3.09 && z<=15.01;
+  if(inWater) return 'water';
+  const inQuarry=x>=2.4 && x<=15.4 && z>=-15.4 && z<=-5.4;
+  if(inQuarry) return 'stone';
+  const pathCenter=Math.sin(x*.28)*.48 + Math.sin(x*.77+1.8)*.18;
+  const pathWidth=1.25 + smoothNoise(x*.35,9)*.42;
+  if(x>=-13.2 && x<=13.2 && Math.abs(z-pathCenter)<=pathWidth) return 'dirt';
+  return 'grass';
+}
 function baseGlyphForTile(x,z){
   const t=tileAtGrid(x,z); const m=meta(t);
-  const mat=m?.tileMaterial || (t?.name||'').replace('tile_','') || 'grass';
+  const mat=m?.tileMaterial || (t?.name||'').replace('tile_','') || proceduralTerrainAt(x,z);
   if(Math.abs(x)>WORLD.half || Math.abs(z)>WORLD.half) return '?';
   if(mat==='water') return '~';
   if(mat==='dirt') return ':';
@@ -765,7 +781,7 @@ function canSeeCell(cx,cz,x,z,opaque){
 function facingNameFromDir(dir){
   if(!dir) return 'north';
   const x=Math.round(dir.x||0), z=Math.round(dir.z||0);
-  if(Math.abs(x)>=Math.abs(z)) return x>=0 ? 'east' : 'west';
+  if(Math.abs(x)>=Math.abs(z)) return x<=0 ? 'east' : 'west';
   return z>=0 ? 'south' : 'north';
 }
 function rightVecFromDir(dir){
@@ -857,7 +873,10 @@ function buildVisiblePerception(agentId=null,radius=7){
   const mapWidth=(radius*2+1)*2;
   for(let z=cz-radius; z<=cz+radius; z++){
     let row='';
-    for(let x=cx-radius; x<=cx+radius; x++){
+    // Keep the cell ordering matched to the validated 3D presentation. The
+    // edge labels use the conventional compass layout requested for the UI:
+    // W on the left and E on the right.
+    for(let x=cx+radius; x>=cx-radius; x--){
       const c=cells.get(gridKey(x,z));
       row += compactCell(c.base,c.marks);
     }
@@ -876,7 +895,7 @@ function buildVisiblePerception(agentId=null,radius=7){
   for (const [key, c] of cells) { if (c.visible && c.base && c.base !== ' ') visibleGlyphs.add(c.base); }
   const glyphNames = {
     '@':'self', 'g':'other geebr', ',':'grass', ':':'dirt/path', '~':'water',
-    '#':'wall', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
+    '^':'stone/quarry', '#':'wall', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
     'L':'lamp', '*':'crystal/magic', 'H':'house', 'r':'rock', 'x':'rubble',
     'f':'fence', 'h':'chest', 'w':'workbench', 't':'table', 'n':'bench',
     's':'stool', 'o':'cauldron', 'a':'anvil', 'W':'weapon stand',
@@ -903,7 +922,7 @@ function buildVisiblePerception(agentId=null,radius=7){
     `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
     `Holding: ${held ? (heldMeta?.type||held.name) : 'none'}  Target: ${target ? (targetMeta?.type||target.name)+' at ('+Math.round(target.position.x)+','+Math.round(target.position.z)+')' : 'none'}`,
     '',
-    ...(showMap ? [`North-up ${(radius*2+1)}x${(radius*2+1)} map (N/S/E/W labeled), rows are relative z:`, ...compassRows, ''] : []),
+    ...(showMap ? [`Camera-facing-north ${(radius*2+1)}x${(radius*2+1)} map (screen-left=W, screen-right=E; N=-Z, E=-X), rows are relative z:`, ...compassRows, ''] : []),
     details.length ? 'Nearby visible objects:' : 'Nearby visible objects: none',
     ...details.slice(0,24),
     '',
@@ -970,6 +989,12 @@ function buildAgentPrompt(g, cfg) {
   return { systemMessage, commandReminder };
 }
 function updatePerceptionUI(){
+  // state.allowed may change outside the checkbox handlers (notably when an
+  // APNG/local save is restored), so always synchronize the controls from the
+  // authoritative command set before rendering the prompt.
+  document.querySelectorAll('#allowedCommands input[data-command]').forEach(chk=>{
+    chk.checked=state.allowed.has(chk.dataset.command);
+  });
   updateTurnUI();
   const out=document.getElementById('promptOut'); if(!out) return;
   const g=state.selected || (state.nextAgentId && state.geebrs.find(x=>x.id===state.nextAgentId)) || state.geebrs[0];
@@ -1143,61 +1168,72 @@ function saveWorldState() {
   } catch (e) { console.warn('saveWorldState failed:', e); }
 }
 
-async function loadWorldState() {
-  try {
-    const raw = localStorage.getItem('geebrWorldState');
-    if (!raw) return false;
-    const data = JSON.parse(raw);
-    if (!data || !data.geebrs) return false;
-    clearWorld();
-    if (data.allowed) state.allowed = new Set(data.allowed);
-    for (const p of (data.props || [])) {
+function normalizeWorldState(data){
+  if(data?.format==='geebr.world-recording-state'){
+    return {
+      geebrs:(data.agents||[]).map(g=>({
+        id:g.id, x:g.position?.x||0, y:g.position?.y||0, z:g.position?.z||0,
+        dx:g.facing?.x||0, dy:g.facing?.y||0, dz:g.facing?.z??-1,
+        style:g.style, anim:g.anim, traits:g.traits
+      })),
+      props:data.props||[], blocks:data.blocks||[],
+      brainConfigs:(data.agents||[]).filter(g=>g.brainConfig).map(g=>[g.id,g.brainConfig]),
+      nextSpawnId:(data.agents?.length||0)+1, globalHistory:data.globalHistory||[],
+      turnIndex:data.turn?.index||0, allowed:data.allowed||[]
+    };
+  }
+  return data;
+}
+async function restoreWorldState(input) {
+  const data=normalizeWorldState(input);
+  if(!data || !Array.isArray(data.geebrs)) throw new Error('embedded state has no agents');
+  clearWorld();
+  if(data.allowed) state.allowed=new Set(data.allowed);
+  for(const p of (data.props||[])){
       let obj;
       if (p.type === 'barrel') obj = makeBarrel(state.scene, p.x, p.z);
       else if (p.type === 'mushroom') obj = makeMushroom(state.scene, p.x, p.z);
       else if (p.type === 'lamp') obj = makeLamp(state.scene, p.x, p.z);
       else obj = makeCrate(state.scene, p.x, p.z);
-      if (obj) {
-        const mm = meta(obj);
-        if (mm) { mm.state = p.state || 'intact'; mm.health = p.health ?? mm.health; }
-      }
+    if(obj){ const mm=meta(obj); if(mm){ mm.state=p.state||'intact'; mm.health=p.health??mm.health; } }
+  }
+  for(const b of (data.blocks||[])){
+    const cracked=b.state==='cracked';
+    const obj=makeBlock(state.scene,b.x,b.z,cracked);
+    if(obj){ const mm=meta(obj); if(mm){ mm.state=b.state||'intact'; mm.health=b.health??mm.health; } }
+  }
+  const palettes=[
+    {hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},
+    {hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},
+    {hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},
+  ];
+  const styles=['goblin','mushroom','bot'];
+  for(const g of data.geebrs){
+    const palIdx=styles.indexOf(g.style), palette=palIdx>=0?palettes[palIdx]:palettes[0];
+    let geebr;
+    try{ geebr=await createGeneratedGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z)); }
+    catch(e){
+      console.warn('generated rigged Geebr restore failed; using procedural fallback',e);
+      geebr=createGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z),palette,g.style||'goblin');
     }
-    for (const b of (data.blocks || [])) {
-      const cracked = b.state === 'cracked';
-      const obj = makeBlock(state.scene, b.x, b.z, cracked);
-      if (obj) {
-        const mm = meta(obj);
-        if (mm) { mm.state = b.state || 'intact'; mm.health = b.health ?? mm.health; }
-      }
-    }
-    const palettes = [
-      {hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},
-      {hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},
-      {hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},
-    ];
-    const styles = ['goblin', 'mushroom', 'bot'];
-    for (const g of data.geebrs) {
-      const palIdx = styles.indexOf(g.style);
-      const palette = palIdx >= 0 ? palettes[palIdx] : palettes[0];
-      let geebr;
-      try{ geebr=await createGeneratedGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z)); }
-      catch(e){
-        console.warn('generated rigged Geebr restore failed; using procedural fallback',e);
-        geebr=createGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z),palette,g.style||'goblin');
-      }
-      geebr.dir = new BABYLON.Vector3(g.dx || 0, g.dy || 0, g.dz || -1);
-      geebr.anim = g.anim || 'idle';
-      if (g.traits) geebr.traits = g.traits;
-      setGeebrLogicalPosition(geebr, new BABYLON.Vector3(g.x, 0, g.z));
-    }
-    if (data.brainConfigs) state.brainConfigs = new Map(data.brainConfigs);
-    state.nextSpawnId = data.nextSpawnId || (state.geebrs.length + 1);
-    state.globalHistory = data.globalHistory || [];
-    state.turn.index = data.turnIndex || 0;
-    if (state.geebrs.length > 0) selectGeebr(state.geebrs[0]);
-    refreshAgentSelect();
-    updatePerceptionUI();
-    updateTurnUI();
+    setGeebrFacing(geebr,new BABYLON.Vector3(g.dx||0,g.dy||0,g.dz??-1));
+    geebr.anim=g.anim||'idle';
+    if(g.traits) geebr.traits=g.traits;
+    setGeebrLogicalPosition(geebr,new BABYLON.Vector3(g.x,0,g.z));
+  }
+  if(data.brainConfigs) state.brainConfigs=new Map(data.brainConfigs);
+  state.nextSpawnId=data.nextSpawnId||(state.geebrs.length+1);
+  state.globalHistory=data.globalHistory||[];
+  state.turn.index=data.turnIndex||0;
+  if(state.geebrs.length>0) selectGeebr(state.geebrs[0]);
+  refreshAgentSelect(); updatePerceptionUI(); updateTurnUI(); saveWorldState();
+  return true;
+}
+async function loadWorldState() {
+  try {
+    const raw=localStorage.getItem('geebrWorldState');
+    if(!raw) return false;
+    await restoreWorldState(JSON.parse(raw));
     log('world state restored from save');
     return true;
   } catch (e) {
@@ -1212,12 +1248,12 @@ function installWorldAPI(){
     getAgents:()=>state.geebrs.slice(), getSelectedAgent:()=>state.selected,
     getBrainConfig, setBrainConfig, refreshAgentSelect,
     getAllowedCommands:()=>Array.from(state.allowed), canRun,
-    getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius),
+    getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius), buildVisiblePerception,
     executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
     runAgentCommand:(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'),
     stepAgentTurn:beginTurnForAgent,
     isTurnReady:()=>state.turn.phase==='ready',
-    spawnCharacter, spawnProp, spawnAt, clearWorld, buildAgentPrompt, saveWorldState,
+    spawnCharacter, spawnProp, spawnAt, clearWorld, buildAgentPrompt, saveWorldState, restoreWorldState,
   };
 }
 
@@ -1231,7 +1267,7 @@ function setupUI(){
     allowed.textContent='';
     for(const c of COMMANDS){
       const lab=document.createElement('label'); lab.className='cmdcheck';
-      const chk=document.createElement('input'); chk.type='checkbox'; chk.checked=state.allowed.has(c);
+      const chk=document.createElement('input'); chk.type='checkbox'; chk.dataset.command=c; chk.checked=state.allowed.has(c);
       chk.onchange=()=>{
         chk.checked?state.allowed.add(c):state.allowed.delete(c);
         document.querySelectorAll('button[data-cmd]').forEach(btn=>{
@@ -1276,6 +1312,24 @@ function setupUI(){
 }
 
 function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
+function updateCompassHUD(){
+  if(!state.camera||!compassHud) return;
+  // Conventional compass rose: N top, E right, S bottom, W left. Keep it
+  // independent of camera projection; camera direction is reported in text.
+  const camera=state.camera;
+  const rose=compassHud.querySelectorAll('span');
+  const angles=[-90,0,90,180];
+  const r=27;
+  rose.forEach((el,i)=>{
+    const a=angles[i]*Math.PI/180;
+    el.style.transform=`translate(${Math.cos(a)*r}px,${Math.sin(a)*r}px) translate(-50%,-50%)`;
+  });
+  const forward=camera.target.subtract(camera.position); forward.y=0;
+  const name=Math.abs(forward.x)>Math.abs(forward.z)?(forward.x>0?'E':'W'):(forward.z>0?'S':'N');
+  const geebr=state.selected || state.geebrs[0];
+  const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
+  compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
+}
 function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
@@ -1283,7 +1337,7 @@ function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t
     else if(g.anim==='cast'){ g.arms[0].rotation.z=1.05+Math.sin(g.t*18)*.1; g.arms[1].rotation.z=-1.05-Math.sin(g.t*18)*.1; g.head.position.y=1.15; }
     else if(g.anim==='push'){ g.body.rotation.x=Math.sin(g.t*18)*.08; g.arms[0].rotation.z=.72; g.arms[1].rotation.z=-.72; }
     else { g.head.scaling.set(1,1,1); g.body.rotation.x=0; g.arms[0].rotation.z=.28+Math.sin(g.t*2)*.04; g.arms[1].rotation.z=-.28-Math.sin(g.t*2.1)*.04; }
-  } if(isTurnMode() && state.turn.phase==='ready'){ for(const g of state.geebrs) zeroMeshMotion(g.collider); } updateBubbles(dt); }
+  } if(isTurnMode() && state.turn.phase==='ready'){ for(const g of state.geebrs) zeroMeshMotion(g.collider); } updateBubbles(dt); updateCompassHUD(); }
 
 // v12 terrain patch: avoid WebGPU vertex-color/material weirdness and water z-fighting.
 // Uses simple StandardMaterial colored meshes at separated Y heights.

@@ -18,6 +18,12 @@
       </div>
       <details class="panel-section">
         <summary>World setup</summary>
+        <div id="apngStateDrop" class="apng-state-drop" tabindex="0" role="button" aria-label="Load initial world state from a Geebr APNG">
+          <strong>Load incident state</strong>
+          <span>Drop a Geebr APNG here or click to choose</span>
+          <small id="apngStateStatus">Restores its embedded initial setup, not the animation playback.</small>
+          <input id="apngStateFile" type="file" accept="image/png,image/apng,.png,.apng" hidden />
+        </div>
         <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
         <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
         <div class="chat-input-section">

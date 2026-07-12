@@ -1,472 +1,222 @@
-# One-Night Release Plan: The Agent Failure Museum
+# Geebr.world Night-of Handoff — July 12, 2026
 
-## Conclusion
+## Objective
 
-Do **not** attempt to finish, polish, or broadly launch geebr.world tonight.
+Publish one short, understandable visual incident tonight. Do not finish or broadly launch the platform.
 
-Instead, extract one small, understandable artifact from what already works:
+The artifact is a 10–25 second APNG showing one Gemma E2B-powered Geebr attempting a simple task in the 3D world, accompanied by its exact goal, perception, and command sequence.
 
-> **Publish a short visual record of AI agents misunderstanding simple rooms and tasks.**
+Success means several strangers engage substantively, suggest another task, request another incident, or ask to try it.
 
-The preferred version is a static **Agent Failure Museum** containing three incidents. If even that is too large, publish one strong incident as a standalone page or GIF.
+## Current product state
 
-Success tonight does not mean completing the platform. It means getting approximately **5–10 strangers to engage** with one concrete result: commenting, suggesting a task, sharing it, asking for another example, or requesting access.
+### Character
 
----
+- A new original teal/ochre Geebr was generated using fal:
+  1. FLUX.2 Pro concept image.
+  2. Meshy v6 image-to-3D.
+  3. Meshy auto-rigging.
+  4. Walking/running exports.
+- Generated assets are under `assets/models/characters/generated/`.
+- The live model is `geebr_rigged.glb`; `geebr_walking.glb` supplies walking animation.
+- Generated Geebrs have working facing, walking, collisions, shadows, local portrait lights, and a reduced 0.72-unit step.
+- Walk settlement was corrected from 200 ms to 520 ms, eliminating mid-step teleporting.
 
-## Why this approach
+### Clean demo startup
 
-The recurring problem has not been a lack of technical depth. The projects contain substantial systems and original work, but:
+- Fresh/reset state is a clean terrain canvas with exactly one generated Geebr.
+- The generic KayKit RPG cast, buildings, border walls, and random props are no longer spawned at startup.
+- Existing saved worlds still restore; click Reset state to obtain the clean default.
+- Reset state creates one Geebr at the center.
+- Spawn dropdown defaults to Geebr.
+- Click-to-spawn works via an invisible pick plane because visible terrain is intentionally non-pickable.
 
-- development continues for a long time before demand is tested;
-- the interesting machinery is hidden beneath a broad platform pitch;
-- incomplete platforms are difficult for strangers to understand quickly;
-- polishing and architecture consume time without proving that anyone wants the central experience;
-- Reddit and Hacker News silence conflates many factors: presentation, timing, audience, reputation, complexity, and actual interest.
+### Model/UI
 
-People cannot upvote architecture they never experience. A small, legible artifact gives them something immediate to understand and discuss.
+- Only the default Gemma 4 E2B LiteRT-LM option remains.
+- The model selector was removed.
+- Human chat echoing was fixed: `Tom says: ...` is explicitly treated as speech addressed to the agent, and prompts instruct the model to answer meaning rather than copy the utterance into `say()`.
 
-The release should therefore optimize for:
+### Perception
 
-- a premise understandable in one sentence;
-- a visible result within a few seconds;
-- no signup;
-- no explanation required before the interesting part;
-- a screenshot, GIF, or short video that can stand alone;
-- a simple invitation to participate.
+- Default radius is 7 tiles, producing a 15×15 map; UI alternatives are 11×11 and 17×17.
+- Peripheral vision was widened roughly 35%.
+- Small props no longer cast unrealistic blind wedges.
+- Only large structures (wall, bakery, shrine plinth) occlude line of sight.
+- Lamps, barrels, crates, rocks, and rubble remain visible but do not block water or other scenery behind them.
+- World convention is explicit:
+  - North = -Z
+  - South = +Z
+  - East = +X
+  - West = -X
+- The compass-labeled ASCII map uses the same convention.
 
----
+### Camera/presentation
 
-## Important scope correction
+- Close zoom is supported down to orthographic half-width 0.82.
+- Lighting includes stronger directional modeling, restrained local warm key/cool rim lights, studio environment reflections, and modest contrast/exposure.
+- A live upper-right compass HUD has just been implemented locally:
+  - rotating N/E/S/W rose aligned to world axes;
+  - north highlighted red;
+  - nearest camera-facing cardinal direction;
+  - explicit `N=-Z E=+X` label.
+- The compass change passes source checks but is NOT committed at the time of this handoff and needs a browser visual test.
 
-Several initially proposed concepts were still too large for one night:
+### Recorder
 
-1. an AI reality show with autonomous characters, secrets, alliances, and destruction;
-2. an interactive agent crash-test laboratory;
-3. a user-authored tiny-world scenario generator.
+- The APNG incident recorder captures only the Babylon canvas at 6 FPS, up to 960px wide, max 45 seconds.
+- It embeds initial state JSON in PNG metadata (`geebr.world.initial-state`).
+- Recording is synchronized to Babylon rendering/WebGPU readback.
 
-These may be useful future directions, but each implies missing product systems, reliability work, controls, and presentation. They violate the one-night constraint.
+## Version control
 
-The system also currently uses **E2B**, not the smaller browser-local 0.8B setup. Do not advertise it as browser-local. The public artifact does not need to emphasize infrastructure at all. If architecture is discussed, describe it truthfully.
+Latest pushed commit:
 
----
+- `339fc01 add generated Geebr and simplify demo world`
+- Branch: `main`
+- Remote: `origin` (`runvnc/geebr.world`)
 
-## Tonight's artifact
+Uncommitted work after that commit:
 
-### Preferred: Agent Failure Museum
+- `app.js`: compass convention comments, full-name direction aliases, rotating compass HUD.
+- `style.css`: compass HUD styling.
 
-Build one static page with three real incidents from geebr.world.
+Before continuing, run:
 
-Suggested headline:
+```bash
+cd /files/geebr.world
+git status --short
+git diff --check
+git diff
+```
 
-> **The Agent Failure Museum**
+Do not commit `.env`; it is ignored. The fal API key appeared in chat/tool history and should eventually be rotated.
 
-Suggested subtitle:
+## Immediate next steps
 
-> Small language-model agents attempt simple tasks in a 3D world and fail in unexpectedly specific ways.
+### 1. Verify compass — maximum 10 minutes
 
-Each incident should contain:
+Hard-refresh and orbit the camera.
 
-1. **Goal** — what the agent was asked to accomplish.
-2. **What it saw** — the textual perception supplied to the model.
-3. **What it decided** — the command, response, or concise raw output.
-4. **What happened** — screenshot, GIF, or short clip.
-5. **Failure type** — spatial reasoning, planning, repetition, memory, tool use, or social misunderstanding.
-6. **Brief explanation** — only enough technical detail to make the failure intelligible.
+Confirm:
 
-The page only needs:
+- the HUD is visible and does not overlap important controls;
+- N/E/S/W rotate correctly as the camera orbits;
+- `walk(north)` moves toward world -Z and toward the map's N side;
+- `walk(east)` moves toward +X and the map's E side;
+- the character faces its direction of travel.
 
-- a strong title and one-sentence premise;
-- one visual immediately visible near the top;
-- three incident cards;
-- a very short “How it works” section;
-- a prompt asking visitors for the next experiment.
+In the new session, add the selected Geebr's facing to the HUD, for example:
 
-Recommended closing question:
+> camera E · geebr N · N=-Z E=+X
 
-> **What simple task should I give the agent next—especially one you expect it to fail?**
+Optionally add a small ground arrow at its feet. Then issue one controlled
+`walk(east)` and verify:
 
-This is easier to answer than “What do you think?” and may supply future experiments.
+- the HUD says `Geebr E`;
+- it moves toward +X;
+- from a camera facing E, you see its back.
 
-### Minimum fallback: one incident
+If correct, commit and push only the compass change. If the rose rotates backward, fix its angle sign; do not redesign it.
 
-If producing three incidents becomes difficult, stop reducing scope and publish one.
+### 2. Smoke-test clean demo state — maximum 10 minutes
 
-Possible framing:
+Click Reset state and verify:
 
-> **I Gave an AI Agent a Lamp. It Could Not Move On.**
+- one Geebr;
+- no RPG cast/random objects;
+- click-to-spawn works;
+- walking works without snapping;
+- human questions are answered rather than echoed;
+- perception sees through lamps/barrels;
+- recorder downloads a working APNG.
 
-Include:
+Fix only launch blockers.
 
-- one GIF or screenshot sequence;
-- the goal;
-- exact perception;
-- repeated actions or responses;
-- concise explanation;
-- a question asking what task to test next.
+### 3. Capture Incident 01
 
-One memorable, well-presented incident is better than an unfinished museum or another unfinished platform.
+Preferred experiment:
 
----
+> Goal: Follow the lamps to the water.
 
-## Existing incident candidate
+Suggested setup:
 
-A real behavior already encountered in geebr.world is the repeated lamp inspection:
+- one Geebr;
+- spawn a short sequence of lamps leading toward the water;
+- enable only `walk` initially (optionally `say` if verbal commentary improves the artifact);
+- give a concrete goal;
+- frame Geebr, lamps, and eventual water in a legible camera view;
+- start recording before the first model turn;
+- step manually to keep the sequence understandable;
+- stop once success, circling, reversal, fixation, or another clear pattern appears;
+- target 10–25 seconds.
 
-### Incident: The Lamp Inspection Loop
+The recent perception changes were specifically made so lamps serve as landmarks without blocking the water behind them.
 
-**Goal:** Determine whether the lamp is damaged.
+### 4. Preserve evidence
 
-**Behavior:** The agent repeatedly inspected the same lamp.
+Save alongside the APNG:
 
-**Repeated conclusion:** “That lamp is intact.”
+- exact goal;
+- exact initial perception/map;
+- exact command sequence;
+- model: Gemma 4 E2B LiteRT-LM;
+- thinking setting;
+- enabled commands;
+- compass/radius settings;
+- one-sentence failure or success interpretation.
 
-**Next action:** Inspect the lamp again.
+### 5. Publish one incident
 
-**Failure mode:** Deterministic generation and an observation that did not materially change caused a repetitive action loop.
+Possible title:
 
-This is useful because it is genuine, easy to understand, visually representable, and technically explainable without requiring the whole platform to be finished.
+> Incident 01: Follow the Lamps to the Water
 
----
-
-## What not to build tonight
-
-Do not add:
-
-- accounts or authentication;
-- databases or persistence;
-- a generalized scenario editor;
-- character creation;
-- secrets, alliances, or relationship systems;
-- a model selector;
-- local-model support merely for the launch;
-- sharing infrastructure;
-- a broad world editor;
-- dashboards;
-- new backend architecture;
-- a complete agent-testing framework;
-- extensive documentation;
-- major refactoring;
-- features that do not improve the first screenshot, first ten seconds, or central incident.
-
-Do not describe the artifact as a general “AI platform,” “agent platform,” or “sandbox.” Those descriptions require visitors to imagine future value. Present one event or collection of events that already happened.
-
----
-
-## Demand testing
-
-A normal Reddit or Hacker News launch is not the best initial demand test. Silence or downvotes there do not isolate whether the premise is interesting.
-
-Before or during construction, ask a small number of relevant people a forced-choice question:
-
-> I have an unfinished 3D AI-agent system, but rather than spend another month turning it into a platform, I’m considering publishing a tiny “Agent Failure Museum” tonight: three visual examples of agents misunderstanding simple rooms and tasks, including their exact observations and actions. **Would you click that link, or should I publish one short incident as a GIF directly in the post instead?** Reply **museum**, **GIF**, or **neither**.
-
-Good places include:
-
-- direct messages to people who recently discussed AI agents, generative games, simulation, E2B, procedural generation, or creative coding;
-- relevant Discord showcase or project channels;
-- informal community threads where unfinished experiments are acceptable.
-
-Do not ask whether the idea is “cool.” Ask what they would actually click.
-
-### Signal strength
-
-Count responses in this order:
-
-1. “Can I try it?” or a request for the link.
-2. An unsolicited suggested task or scenario.
-3. A choice with a concrete reason.
-4. A simple “museum,” “GIF,” or “neither.”
-5. “Sounds cool.”
-6. Implementation advice without choosing.
-
-“Sounds cool” is weak evidence. A request to see or try it is strong evidence.
-
-If nobody responds, treat that as a distribution failure rather than definitive product rejection.
-
----
-
-## Suggested one-night schedule
-
-### 1. Capture material — 30 minutes
-
-Run the current system and collect three strange or revealing failures.
-
-If live capture is unreliable, use existing logs or known historical behavior. The release is a documented case study, not a claim that the entire platform is production-ready.
-
-### 2. Select and write — 30 minutes
-
-Choose the strongest incident first. Write short captions using the fixed structure:
+Use this structure:
 
 - Goal
-- Perception
-- Decision
-- Result
-- Failure type
-
-Avoid long background explanations.
-
-### 3. Assemble static page — 60–90 minutes
-
-Reuse existing styling where convenient, but do not refactor the application. The page may be standalone.
-
-The most interesting visual should appear before any lengthy text.
-
-### 4. Make visual proof — 30 minutes
-
-Create one of:
-
-- a 15–30 second GIF;
-- a short MP4;
-- a compact screenshot sequence.
-
-The visual should communicate the premise even when viewed outside the site.
-
-### 5. Publish — 20 minutes
-
-Publish by a fixed deadline even if the page is imperfect.
-
-Use the artifact itself in the post rather than leading with the history or architecture.
-
-### 6. Engage
-
-Reply to every substantive response. If someone suggests a simple task and it can be run quickly, test it and post the result. That turns the release into a participatory event.
-
----
-
-## Potential launch framing
-
-### General title
-
-> **The Agent Failure Museum: AI agents misunderstanding simple 3D worlds**
-
-### More specific title
-
-> **I gave an AI agent a lamp. It could not move on.**
-
-### Technical title
-
-> **I gave an E2B-backed agent a body and a room so its mistakes became visible**
-
-Possible short post:
-
-> I have spent a long time building a 3D environment where language-model agents perceive a room and issue constrained actions. Instead of pretending the whole platform is finished, I documented a few specific ways the agents fail.
->
-> Here is one: the agent determined that a lamp was intact, then repeatedly inspected it and reached the same conclusion.
->
-> [GIF]
->
-> What simple task should I try next—especially one you expect the agent to misunderstand?
-
-For a later functioning launch, Hacker News can receive a `Show HN` post. For tonight, direct outreach and communities receptive to experiments may provide clearer initial feedback.
-
----
-
-## Decision rule
-
-The project succeeds tonight if approximately 5–10 strangers do any of the following:
-
-- comment substantively;
-- suggest another task;
-- ask for the link;
-- ask to try the system;
-- share the artifact;
-- discuss why the agent failed;
-- request another incident.
-
-Upvotes are useful, but they are not the only engagement signal.
-
-If the museum receives interest, the next increment should be selected from actual requests. Do not immediately resume building the whole platform.
-
-If the single incident receives more response than the museum concept, continue publishing incidents as a series before creating generalized product features.
-
----
-
-## Core operating rules
-
-1. **Artifact, not platform.**
-2. **One incident is enough to publish.**
-3. **Evidence before expansion.**
-4. **No feature unless it improves the first screenshot, first ten seconds, or central story.**
-5. **No refactor unless it fixes a launch-blocking problem.**
-6. **Publish by a fixed time.**
-7. **Measure requests and participation, not compliments.**
-8. **Let demonstrated audience interest determine the next feature.**
-
-The immediate goal is not to prove that geebr.world can become a comprehensive platform. It is to discover whether one visible behavior produced by it is interesting enough that strangers want to see what happens next.
-
----
-
-## Night-of progress update — July 11, 2026
-
-The release-preparation work stayed mostly within the artifact-first boundary. The changes below improve capture quality and make the navigation failure understandable; they are not a general platform redesign.
-
-### Completed
-
-#### 1. Reduced UI overwhelm
-
-All major sidebar sections now start collapsed:
-
-- World setup
-- Agent customization
-- Agent info & prompt
-- History
-
-A small recording bar remains visible above them. This makes the initial screen less overwhelming without attempting a full UI redesign.
-
-#### 2. Added an incident recorder
-
-A launch-focused APNG recorder was added to the page:
-
-- Press **record** to snapshot the initial known world state and begin capturing.
-- Run **step** or **start agents** normally.
-- Press **stop & download** to create the recording.
-- Output uses the `.png` extension for broad compatibility while retaining APNG animation.
-- It captures only the Babylon world canvas, excluding the crowded sidebar.
-- Capture runs at 6 FPS, scales to at most 960 pixels wide, and stops automatically after 45 seconds.
-- Initial state is embedded as JSON in the PNG `tEXt` chunk named `geebr.world.initial-state`.
-- Embedded data includes agents, positions, facing directions, brain configuration, props, blocks, allowed commands, history, turn state, camera state, and recording dimensions/timing.
-
-The first implementation exposed three useful browser/WebGPU issues that were corrected:
-
-1. UPNG required the pako DEFLATE dependency.
-2. Drawing the WebGPU canvas into a 2D canvas produced black frames.
-3. Timer-driven GPU readback raced the WebGPU swap-chain texture and caused a destroyed-texture validation error.
-
-The final recorder reads pixels through Babylon after `scene.render()`, synchronized with the render loop, and produces working, correctly oriented animation.
-
-#### 3. Made orientation explicit in agent perception
-
-The ASCII map now has compass labels positioned around the grid:
-
-- N centered above
-- S centered below
-- W at the left of the middle row
-- E at the right of the middle row
-
-This creates a fairer navigation experiment. It distinguishes failure caused by a missing coordinate convention from failure to use a clearly stated convention.
-
-#### 4. Disambiguated map glyphs
-
-Walls and rocks now use separate symbols:
-
-- `#` = wall
-- `r` = rock
-
-The dynamic legend reports these independently. This removes an avoidable perception ambiguity.
-
-#### 5. Corrected visual movement facing
-
-The character artwork faces local `-Z`, but the old yaw calculation assumed `+Z` was its front. As a result, characters could appear to walk backward even when logical movement was correct.
-
-The facing calculation now maps the artwork's visible front to the movement vector for north, south, east, and west. This fix is currently awaiting a final visual check before its own commit.
-
-#### 6. Preserved related model controls
-
-The current worktree also included the already-started thinking-mode wiring for Gemma/LiteRT. It was included in the release-preparation commit rather than discarded. It should not become tonight's focus unless it is needed for one controlled comparison.
-
-### Version-control checkpoint
-
-The main release-preparation changes were committed and pushed:
-
-- Commit: `81df236`
-- Message: `add APNG incident recorder and clarify agent perception UI`
-- Branch: `main`
-
-The subsequent visual-facing correction is not yet committed at the time of this update.
-
----
-
-## What to do next tonight
-
-The next step is **not more general polishing**. The next step is to capture and publish the first incident.
-
-### Immediate sequence
-
-1. **Hard-refresh and visually verify facing**
-   - Place one geebr.
-   - Issue one step in each cardinal direction if practical.
-   - Confirm its face/eyes point in the direction of travel.
-   - If correct, commit and push the small facing fix.
-
-2. **Prepare one clean navigation trial**
-   - Use one agent.
-   - Enable only `walk`.
-   - Give one concrete goal such as `walk to the water` or `walk to the fence`.
-   - Put the agent and target in the same readable camera view.
-   - Collapse the sidebar after setup.
-
-3. **Capture the trial**
-   - Start recording before the first model step.
-   - Prefer stepping manually at first so the sequence remains understandable.
-   - Continue long enough to show a pattern, not merely one wrong move.
-   - Stop once circling, oscillation, repeated reversal, or successful navigation is evident.
-   - Aim for 10–25 seconds; do not use the full 45 seconds unless necessary.
-
-4. **Save exact evidence alongside the APNG**
-   - Copy the exact initial perception/prompt.
-   - Record the exact goal.
-   - Preserve the command sequence from history.
-   - Note model, thinking-mode setting, allowed commands, and whether the compass labels were present.
-   - The APNG metadata is useful for provenance but should not replace visible captions.
-
-5. **Run one controlled comparison only if cheap**
-   - Preferred comparison: compass labels present versus the known earlier unlabeled behavior.
-   - Optional comparison: thinking mode off versus on.
-   - Change only one variable per comparison.
-   - Do not begin broad model benchmarking tonight.
-
-6. **Select the strongest artifact**
-   - If the labeled-map agent still circles, publish that: it is the stronger spatial-reasoning failure.
-   - If labels fix navigation, publish the before/after as an interface-design finding.
-   - If the run is merely noisy rather than legible, reset once and capture one cleaner run; do not redesign navigation.
-
-7. **Build Incident 01**
-
-Suggested title:
-
-> **Incident 01: The Water Is Right There**
-
-Use this compact structure:
-
-- **Goal:** Walk to the water.
-- **Available action:** `walk(north|south|east|west)` only.
-- **What it saw:** Exact compass-labeled ASCII map.
-- **What it decided:** Short command sequence or representative loop.
-- **What happened:** APNG.
-- **Failure type:** Spatial orientation and symbolic-map navigation.
-- **Explanation:** One or two sentences; do not over-explain architecture.
-
-8. **Publish before adding another feature**
-   - A single strong incident is enough.
-   - Ask: **What simple task should I give the agent next—especially one you expect it to fail?**
-   - If there is time after publishing, capture Incident 02 from an audience suggestion or the lamp loop.
-
----
-
-## Scope guard for the remainder of the night
-
-### Allowed because they directly improve the incident
-
-- a tiny bug fix that makes the recording truthful;
-- adjusting the camera before capture;
-- resetting or simplifying the scene;
-- cropping or compressing the exported APNG;
-- adding captions to the incident page;
-- one controlled A/B comparison;
-- correcting a misleading perception symbol.
-
-### Still deferred
-
-- replacing the character model;
-- replacing the mushroom house;
-- broad asset improvements;
-- full UI redesign;
-- pathfinding or navigation memory;
-- adding world-space compass scenery;
-- generalized replay/import tooling for embedded APNG state;
-- recorder timelines, editing controls, or a recording library;
-- broader model selection and benchmarking;
-- new scenario-authoring systems.
-
-The recorder is complete enough. The perception is fair enough. The next deliverable is evidence, not another subsystem.
+- Available actions
+- What it saw
+- What it decided
+- What happened
+- Failure type or result
+- One or two sentence explanation
+- APNG
+
+Close with:
+
+> What simple task should I give the agent next—especially one you expect it to fail?
+
+One incident is enough. Do not wait for three.
+
+## Scope guard
+
+Do not add tonight:
+
+- more models;
+- accounts or persistence systems;
+- generalized scenario editing;
+- another character redesign;
+- more generated assets;
+- pathfinding;
+- navigation memory;
+- recorder editing/replay tooling;
+- major UI redesign;
+- platform architecture.
+
+Allowed changes are limited to truthful capture blockers, camera framing, captions, reset/setup simplification, and a tiny compass correction if required.
+
+## Key files
+
+- `/files/geebr.world/app.js` — world, character import, movement, perception, compass.
+- `/files/geebr.world/index.html` — UI and perception radius choices.
+- `/files/geebr.world/style.css` — UI and compass styling.
+- `/files/geebr.world/recorder.js` — APNG recorder.
+- `/files/geebr.world/llm_js/agent-brain.js` — single supported model.
+- `/files/geebr.world/llm_js/world-integration.js` — agent turns and human chat envelope.
+- `/files/geebr.world/llm_js/grammar.js` — constrained command grammar and anti-echo instruction.
+- `/files/geebr.world/assets/models/characters/generated/` — generated Geebr source/model/rig/animations.
+
+## Final rule
+
+The platform is now good enough to produce evidence. Verify the compass, commit it, capture the lamp-to-water run, and publish the first incident before making anything else.
