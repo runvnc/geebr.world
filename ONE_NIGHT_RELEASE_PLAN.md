@@ -294,3 +294,179 @@ If the single incident receives more response than the museum concept, continue 
 8. **Let demonstrated audience interest determine the next feature.**
 
 The immediate goal is not to prove that geebr.world can become a comprehensive platform. It is to discover whether one visible behavior produced by it is interesting enough that strangers want to see what happens next.
+
+---
+
+## Night-of progress update — July 11, 2026
+
+The release-preparation work stayed mostly within the artifact-first boundary. The changes below improve capture quality and make the navigation failure understandable; they are not a general platform redesign.
+
+### Completed
+
+#### 1. Reduced UI overwhelm
+
+All major sidebar sections now start collapsed:
+
+- World setup
+- Agent customization
+- Agent info & prompt
+- History
+
+A small recording bar remains visible above them. This makes the initial screen less overwhelming without attempting a full UI redesign.
+
+#### 2. Added an incident recorder
+
+A launch-focused APNG recorder was added to the page:
+
+- Press **record** to snapshot the initial known world state and begin capturing.
+- Run **step** or **start agents** normally.
+- Press **stop & download** to create the recording.
+- Output uses the `.png` extension for broad compatibility while retaining APNG animation.
+- It captures only the Babylon world canvas, excluding the crowded sidebar.
+- Capture runs at 6 FPS, scales to at most 960 pixels wide, and stops automatically after 45 seconds.
+- Initial state is embedded as JSON in the PNG `tEXt` chunk named `geebr.world.initial-state`.
+- Embedded data includes agents, positions, facing directions, brain configuration, props, blocks, allowed commands, history, turn state, camera state, and recording dimensions/timing.
+
+The first implementation exposed three useful browser/WebGPU issues that were corrected:
+
+1. UPNG required the pako DEFLATE dependency.
+2. Drawing the WebGPU canvas into a 2D canvas produced black frames.
+3. Timer-driven GPU readback raced the WebGPU swap-chain texture and caused a destroyed-texture validation error.
+
+The final recorder reads pixels through Babylon after `scene.render()`, synchronized with the render loop, and produces working, correctly oriented animation.
+
+#### 3. Made orientation explicit in agent perception
+
+The ASCII map now has compass labels positioned around the grid:
+
+- N centered above
+- S centered below
+- W at the left of the middle row
+- E at the right of the middle row
+
+This creates a fairer navigation experiment. It distinguishes failure caused by a missing coordinate convention from failure to use a clearly stated convention.
+
+#### 4. Disambiguated map glyphs
+
+Walls and rocks now use separate symbols:
+
+- `#` = wall
+- `r` = rock
+
+The dynamic legend reports these independently. This removes an avoidable perception ambiguity.
+
+#### 5. Corrected visual movement facing
+
+The character artwork faces local `-Z`, but the old yaw calculation assumed `+Z` was its front. As a result, characters could appear to walk backward even when logical movement was correct.
+
+The facing calculation now maps the artwork's visible front to the movement vector for north, south, east, and west. This fix is currently awaiting a final visual check before its own commit.
+
+#### 6. Preserved related model controls
+
+The current worktree also included the already-started thinking-mode wiring for Gemma/LiteRT. It was included in the release-preparation commit rather than discarded. It should not become tonight's focus unless it is needed for one controlled comparison.
+
+### Version-control checkpoint
+
+The main release-preparation changes were committed and pushed:
+
+- Commit: `81df236`
+- Message: `add APNG incident recorder and clarify agent perception UI`
+- Branch: `main`
+
+The subsequent visual-facing correction is not yet committed at the time of this update.
+
+---
+
+## What to do next tonight
+
+The next step is **not more general polishing**. The next step is to capture and publish the first incident.
+
+### Immediate sequence
+
+1. **Hard-refresh and visually verify facing**
+   - Place one geebr.
+   - Issue one step in each cardinal direction if practical.
+   - Confirm its face/eyes point in the direction of travel.
+   - If correct, commit and push the small facing fix.
+
+2. **Prepare one clean navigation trial**
+   - Use one agent.
+   - Enable only `walk`.
+   - Give one concrete goal such as `walk to the water` or `walk to the fence`.
+   - Put the agent and target in the same readable camera view.
+   - Collapse the sidebar after setup.
+
+3. **Capture the trial**
+   - Start recording before the first model step.
+   - Prefer stepping manually at first so the sequence remains understandable.
+   - Continue long enough to show a pattern, not merely one wrong move.
+   - Stop once circling, oscillation, repeated reversal, or successful navigation is evident.
+   - Aim for 10–25 seconds; do not use the full 45 seconds unless necessary.
+
+4. **Save exact evidence alongside the APNG**
+   - Copy the exact initial perception/prompt.
+   - Record the exact goal.
+   - Preserve the command sequence from history.
+   - Note model, thinking-mode setting, allowed commands, and whether the compass labels were present.
+   - The APNG metadata is useful for provenance but should not replace visible captions.
+
+5. **Run one controlled comparison only if cheap**
+   - Preferred comparison: compass labels present versus the known earlier unlabeled behavior.
+   - Optional comparison: thinking mode off versus on.
+   - Change only one variable per comparison.
+   - Do not begin broad model benchmarking tonight.
+
+6. **Select the strongest artifact**
+   - If the labeled-map agent still circles, publish that: it is the stronger spatial-reasoning failure.
+   - If labels fix navigation, publish the before/after as an interface-design finding.
+   - If the run is merely noisy rather than legible, reset once and capture one cleaner run; do not redesign navigation.
+
+7. **Build Incident 01**
+
+Suggested title:
+
+> **Incident 01: The Water Is Right There**
+
+Use this compact structure:
+
+- **Goal:** Walk to the water.
+- **Available action:** `walk(north|south|east|west)` only.
+- **What it saw:** Exact compass-labeled ASCII map.
+- **What it decided:** Short command sequence or representative loop.
+- **What happened:** APNG.
+- **Failure type:** Spatial orientation and symbolic-map navigation.
+- **Explanation:** One or two sentences; do not over-explain architecture.
+
+8. **Publish before adding another feature**
+   - A single strong incident is enough.
+   - Ask: **What simple task should I give the agent next—especially one you expect it to fail?**
+   - If there is time after publishing, capture Incident 02 from an audience suggestion or the lamp loop.
+
+---
+
+## Scope guard for the remainder of the night
+
+### Allowed because they directly improve the incident
+
+- a tiny bug fix that makes the recording truthful;
+- adjusting the camera before capture;
+- resetting or simplifying the scene;
+- cropping or compressing the exported APNG;
+- adding captions to the incident page;
+- one controlled A/B comparison;
+- correcting a misleading perception symbol.
+
+### Still deferred
+
+- replacing the character model;
+- replacing the mushroom house;
+- broad asset improvements;
+- full UI redesign;
+- pathfinding or navigation memory;
+- adding world-space compass scenery;
+- generalized replay/import tooling for embedded APNG state;
+- recorder timelines, editing controls, or a recording library;
+- broader model selection and benchmarking;
+- new scenario-authoring systems.
+
+The recorder is complete enough. The perception is fair enough. The next deliverable is evidence, not another subsystem.

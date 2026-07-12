@@ -484,7 +484,9 @@ function beginTurnForAgent(agentId,cmd,source='agent'){
     setTimeout(()=>{ settleWorld('physics frozen for next LLM choice'); resolve(true); }, state.turn.resolveMs);
   });
 }
-function yawForDir(d){ return Math.atan2(d.x||0,d.z||0); }
+// Character artwork faces local -Z (eyes/front), so zero yaw must face north
+// rather than Babylon's conventional +Z forward direction.
+function yawForDir(d){ return Math.atan2(-(d.x||0),-(d.z||0)); }
 function setGeebrFacing(g,d){
   if(!g || !d) return;
   if(Math.abs(d.x||0)+Math.abs(d.z||0)<.001) return;
