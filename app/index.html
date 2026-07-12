@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Geebr World — Local Agent Toybox</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="hud">
+    <div class="brand">geebr.world <span>v14 turn-based perception</span></div>
+    <div class="panel">
+      <div class="recordbar">
+        <button id="startRecording" type="button">● record</button>
+        <button id="stopRecording" type="button" disabled>■ stop & download</button>
+        <span id="recordingStatus">ready</span>
+      </div>
+      <details class="panel-section">
+        <summary>World setup</summary>
+        <div id="apngStateDrop" class="apng-state-drop" tabindex="0" role="button" aria-label="Load initial world state from a Geebr APNG">
+          <strong>Load incident state</strong>
+          <span>Drop a Geebr APNG here or click to choose</span>
+          <small id="apngStateStatus">Restores its embedded initial setup, not the animation playback.</small>
+          <input id="apngStateFile" type="file" accept="image/png,image/apng,.png,.apng" hidden />
+        </div>
+        <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
+        <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
+        <div class="chat-input-section">
+          <label class="chat-name-label">Chat name <input id="chatName" type="text" value="God" placeholder="Your name" /></label>
+          <div class="chat-send-row">
+            <input id="chatInput" type="text" placeholder="Send message to selected agent..." />
+            <button id="chatSend" type="button">send</button>
+          </div>
+        </div>
+        <div class="row setup-row"><button id="clearMap" type="button" class="danger-btn">clear map</button><button id="resetState" type="button" class="danger-btn">reset state</button></div>
+        <div class="section-subtitle">Click-to-spawn mode</div>
+        <div class="spawn-panel">
+          <label class="spawn-mode-toggle"><input id="spawnModeEnabled" type="checkbox" /> enable click-to-spawn</label>
+          <select id="spawnModeType">
+            <option value="geebr">geebr</option>
+            <option value="crate">crate</option>
+            <option value="barrel">barrel</option>
+            <option value="wall">wall</option>
+            <option value="mushroom">mushroom</option>
+            <option value="lamp">lamp</option>
+          </select>
+        </div>
+        <div class="section-subtitle">Agent brains</div>
+        <label class="spawn-mode-toggle"><input id="chatTestMode" type="checkbox" /> chat test mode (bare conversation, no perception)</label>
+        <label class="spawn-mode-toggle"><input id="enableThinking" type="checkbox" /> thinking mode (slower, smarter)</label>
+        <div class="brainbar"><button id="loadBrains" type="button">load Gemma 4 E2B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
+        <div id="brainStatus">local brain not loaded</div>
+        <div class="cache-controls">
+          <label class="cache-backend-label">Cache <select id="cacheBackend"><option value="indexeddb" selected>IndexedDB</option><option value="opfs">OPFS</option><option value="cache">Cache API</option></select></label>
+          <button id="clearCache" type="button" class="danger-btn">clear model cache</button>
+          <span id="cacheStatus"></span>
+        </div>
+      </details>
+
+      <details class="panel-section">
+        <summary>Agent customization</summary>
+        <div class="custom-grid">
+          <label>Agent <select id="agentSelect"></select></label>
+          <label>Brain style <select id="brainStyle"><option>helpful idiot</option><option>builder</option><option selected>fireball goblin</option><option>coward</option><option>reckless mage</option><option>nervous mushroom</option></select></label>
+          <label>Body <select id="bodyStyle"><option value="goblin">goblin</option><option value="mushroom">mushroom</option><option value="bot">tiny bot</option></select></label>
+          <label>Brain enabled <input id="brainEnabled" type="checkbox" checked /></label>
+          <label>Fireball temptation <input id="fireballTemptation" type="range" min="0" max="100" value="82" /></label>
+          <label>Chaos <input id="chaosLevel" type="range" min="0" max="100" value="55" /></label>
+        <label>Quest <input id="agentQuest" type="text" placeholder="medium-term goal set by world/human" /></label>
+        <label>Current goal <input id="agentGoal" type="text" placeholder="set by agent via goal()" readonly /></label>
+        </div>
+        <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">goofy, curious, imperfect, tries to be useful but often misunderstands</textarea></label>
+        <div id="allowedCommands"></div>
+      </details>
+
+      <details class="panel-section">
+        <summary>Agent info & prompt</summary>
+        <div class="perception-controls">
+          <label>Vision radius <select id="visionRadius"><option value="5">11×11</option><option value="7" selected>15×15</option><option value="8">17×17</option></select></label>
+          <label class="spawn-mode-toggle"><input id="showAsciiMap" type="checkbox" checked /> ASCII map</label>
+          <button id="refreshPerception" type="button">refresh</button>
+          <button id="copyPerception" type="button">copy</button>
+        </div>
+        <div class="section-subtitle">Full prompt (upcoming turn)</div>
+        <pre id="promptOut" spellcheck="false">Load brain and step to see prompt...</pre>
+      </details>
+
+      <details class="panel-section">
+        <summary>History</summary>
+        <div id="log"></div>
+      </details>
+    </div>
+  </div>
+  <div id="hint">Set up the world, customize characters, then let tiny local Qwen brains choose one constrained command per turn. Manual command buttons are gone on purpose; the agents drive the toybox now.</div>
+  <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako_deflate.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
+  <script src="recorder.js"></script>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+  <script src="app.js"></script>
+  <script type="module" src="llm_js/world-integration.js"></script>
+</body>
+</html>
