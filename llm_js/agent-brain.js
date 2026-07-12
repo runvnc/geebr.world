@@ -101,7 +101,7 @@ export function createAgentBrainManager(config = {}) {
       responseFormat,
       constraintInstruction,
       messages: agent.messages || [],
-      enableThinking: false,
+      enableThinking: agent.enableThinking ?? false,
       onToken: onToken,
       debugLog: (msg, data) => onDebug(msg, data),
     });

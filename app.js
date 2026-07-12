@@ -726,7 +726,7 @@ function isWithinFacingVision(g,cx,cz,x,z,radius){
 }
 function typeGlyph(type){
   const map={
-    wall:'^', bridge:'=', rock:'r', rubble:'x', crate:'C', apple_crate:'C', carrot_crate:'C', barrel:'B', mushroom:'M', lamp:'L', lantern:'L', crystal:'*', bakery:'H', fence:'f', chest:'h', workbench:'w', table:'t', bench:'n', stool:'s', cauldron:'o', anvil:'a', weapon_stand:'W', axe:'/', pickaxe:'p', bucket:'u', bag:'b', potion:'P', scroll:'S', coin_pile:'$'
+    wall:'#', bridge:'=', rock:'r', rubble:'x', crate:'C', apple_crate:'C', carrot_crate:'C', barrel:'B', mushroom:'M', lamp:'L', lantern:'L', crystal:'*', bakery:'H', fence:'f', chest:'h', workbench:'w', table:'t', bench:'n', stool:'s', cauldron:'o', anvil:'a', weapon_stand:'W', axe:'/', pickaxe:'p', bucket:'u', bag:'b', potion:'P', scroll:'S', coin_pile:'$'
   };
   return map[type] || (type ? type[0].toUpperCase() : '?');
 }
@@ -789,14 +789,21 @@ function buildVisiblePerception(agentId=null, radius=5){
     if(!isSelf) details.push(`${other.id} other_geebr at (${x},${z}), anim=${other.anim||'idle'}`);
   }
   const rows=[];
+  const mapWidth=(radius*2+1)*2;
   for(let z=cz-radius; z<=cz+radius; z++){
     let row='';
     for(let x=cx-radius; x<=cx+radius; x++){
       const c=cells.get(gridKey(x,z));
       row += compactCell(c.base,c.marks);
     }
-    rows.push(`${String(z-cz).padStart(3,' ')} ${row}`);
+    const middle=z===cz;
+    rows.push(`${String(z-cz).padStart(3,' ')} ${middle?'W ': '  '}${row}${middle?'E':''}`);
   }
+  const compassRows=[
+    `      ${' '.repeat(Math.max(0,mapWidth/2-1))}N`,
+    ...rows,
+    `      ${' '.repeat(Math.max(0,mapWidth/2-1))}S`,
+  ];
   const held=state.held.get(g.id); const heldMeta=held?meta(held):null;
   const target=state.target&&!state.target.isDisposed?.()?state.target:null; const targetMeta=target?meta(target):null;
   // Build dynamic legend: only include glyphs that appear in the current view
@@ -804,7 +811,7 @@ function buildVisiblePerception(agentId=null, radius=5){
   for (const [key, c] of cells) { if (c.visible && c.base && c.base !== ' ') visibleGlyphs.add(c.base); }
   const glyphNames = {
     '@':'self', 'g':'other geebr', ',':'grass', ':':'dirt/path', '~':'water',
-    '^':'wall/stone', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
+    '#':'wall', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
     'L':'lamp', '*':'crystal/magic', 'H':'house', 'r':'rock', 'x':'rubble',
     'f':'fence', 'h':'chest', 'w':'workbench', 't':'table', 'n':'bench',
     's':'stool', 'o':'cauldron', 'a':'anvil', 'W':'weapon stand',
@@ -831,7 +838,7 @@ function buildVisiblePerception(agentId=null, radius=5){
     `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
     `Holding: ${held ? (heldMeta?.type||held.name) : 'none'}  Target: ${target ? (targetMeta?.type||target.name)+' at ('+Math.round(target.position.x)+','+Math.round(target.position.z)+')' : 'none'}`,
     '',
-    ...(showMap ? [`North-up ${(radius*2+1)}x${(radius*2+1)} map, rows are relative z:`, ...rows, ''] : []),
+    ...(showMap ? [`North-up ${(radius*2+1)}x${(radius*2+1)} map (N/S/E/W labeled), rows are relative z:`, ...compassRows, ''] : []),
     details.length ? 'Nearby visible objects:' : 'Nearby visible objects: none',
     ...details.slice(0,24),
     '',
@@ -1307,5 +1314,10 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   };
   buildWorld(scene); addTerrainPolish(scene); await addRealPropPass(scene); await scatterRealProps(scene); const realChars=await createAgentCast(scene); if(!realChars){ createGeebr(scene,'gib',new BABYLON.Vector3(-1,.06,-.7),{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); createGeebr(scene,'momo',new BABYLON.Vector3(.45,.06,-.55),{hat:state.materials.hat2,belly:state.materials.belly2,dark:state.materials.foot},'mushroom'); createGeebr(scene,'zap',new BABYLON.Vector3(1.2,.06,.15),{hat:state.materials.hat3,belly:state.materials.belly3,dark:state.materials.foot,clay:state.materials.bot},'bot'); } selectGeebr(state.geebrs[0]);
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=new BABYLON.Vector3(pi.pickInfo.pickedPoint.x,0.6,pi.pickInfo.pickedPoint.z); if(mm?.interactive){ state.target=target; const tp=target.getAbsolutePosition?.()||pi.pickInfo.pickedPoint; state.zoomFocus=new BABYLON.Vector3(tp.x,0.6,tp.z); log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
-  setupUI(); installWorldAPI(); loadWorldState(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>scene.render()); window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
+  setupUI(); installWorldAPI(); loadWorldState(); scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>{
+    scene.render();
+    const recorder=window.geebrFrameRecorder;
+    if(recorder?.wantsFrame?.()) recorder.captureAfterRender(engine).catch(err=>recorder.fail?.(err));
+  });
+  window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
 main().catch(err=>{ console.error(err); document.body.innerHTML='<pre style="color:white;padding:20px;white-space:pre-wrap">'+err.stack+'</pre>'; });

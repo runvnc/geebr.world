@@ -53,7 +53,11 @@ export function createLiteRTEngine(litertEngine) {
 
     // Extract system message for preface
     const systemMessages = messages.filter(m => m.role === 'system');
-    const systemContent = systemMessages.map(m => m.content).join('\n\n');
+    let systemContent = systemMessages.map(m => m.content).join('\n\n');
+    // Add <|think|> token to enable thinking mode for Gemma 4 E2B/E4B
+    if (opts.extra_body?.enable_thinking) {
+      systemContent = '<|think|>' + (systemContent || '');
+    }
 
     // Extract non-system messages (user/assistant history + current user message)
     const chatMessages = messages.filter(m => m.role !== 'system');
@@ -75,9 +79,11 @@ export function createLiteRTEngine(litertEngine) {
         const text = chunk?.content?.[0]?.text || chunk?.content?.[0]?.content || '';
         if (text) {
           fullText += text;
+          console.log('[litert-stream] chunk:', JSON.stringify(text), 'fullText so far:', JSON.stringify(fullText.slice(0,200)));
           onToken(fullText, true);
         }
       }
+      console.log('[litert-stream] final fullText:', JSON.stringify(fullText));
     } else {
       // Non-streaming
       const response = await conversation.sendMessage(promptText);
@@ -127,6 +133,7 @@ export async function generate(engine, prompt, opts = {}) {
       temperature,
       top_p: 0.95,
       onToken: onToken,
+      extra_body: { enable_thinking: enableThinking },
     };
 
     debugLog?.('LiteRT request config', { model: getCurrentModel(), max_tokens: maxTokens, temperature, message_count: opts.messages.length, streaming: !!onToken });

@@ -11,7 +11,12 @@
   <div id="hud">
     <div class="brand">geebr.world <span>v14 turn-based perception</span></div>
     <div class="panel">
-      <details open class="panel-section">
+      <div class="recordbar">
+        <button id="startRecording" type="button">● record</button>
+        <button id="stopRecording" type="button" disabled>■ stop & download</button>
+        <span id="recordingStatus">ready</span>
+      </div>
+      <details class="panel-section">
         <summary>World setup</summary>
         <div class="turnbar"><label><input id="turnMode" type="checkbox" checked /> turn mode</label><span id="turnStatus">turn 0 · ready</span><button id="settleNow" type="button">settle</button></div>
         <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
@@ -37,6 +42,7 @@
         </div>
         <div class="section-subtitle">Agent brains</div>
         <label class="spawn-mode-toggle"><input id="chatTestMode" type="checkbox" /> chat test mode (bare conversation, no perception)</label>
+        <label class="spawn-mode-toggle"><input id="enableThinking" type="checkbox" /> thinking mode (slower, smarter)</label>
         <div class="brainbar"><select id="modelSelect" style="font-size:0.85em;padding:2px 4px"></select><button id="loadBrains" type="button">load Gemma 4 E2B</button><button id="startBrains" type="button" disabled>start agents</button><button id="stepBrains" type="button" disabled>step</button><button id="stopBrains" type="button" disabled>stop</button></div>
         <div id="brainStatus">local brain not loaded</div>
         <div class="cache-controls">
@@ -46,7 +52,7 @@
         </div>
       </details>
 
-      <details open class="panel-section">
+      <details class="panel-section">
         <summary>Agent customization</summary>
         <div class="custom-grid">
           <label>Agent <select id="agentSelect"></select></label>
@@ -62,7 +68,7 @@
         <div id="allowedCommands"></div>
       </details>
 
-      <details open class="panel-section">
+      <details class="panel-section">
         <summary>Agent info & prompt</summary>
         <div class="perception-controls">
           <label>Vision radius <select id="visionRadius"><option value="4">9×9</option><option value="5" selected>11×11</option><option value="6">13×13</option></select></label>
@@ -81,6 +87,9 @@
     </div>
   </div>
   <div id="hint">Set up the world, customize characters, then let tiny local Qwen brains choose one constrained command per turn. Manual command buttons are gone on purpose; the agents drive the toybox now.</div>
+  <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako_deflate.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
+  <script src="recorder.js"></script>
   <script src="https://cdn.babylonjs.com/babylon.js"></script>
   <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
   <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>

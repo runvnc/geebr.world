@@ -278,6 +278,7 @@ async function main() {
         messages,
         useGrammar: !chatTestMode,
         allowedCommands: world.getAllowedCommands(),
+        enableThinking: !!el('enableThinking')?.checked,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
        onToken: (text) => {
          if (window.showStreamingBubble && g) {
