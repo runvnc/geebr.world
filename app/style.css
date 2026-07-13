@@ -88,6 +88,8 @@ code { color:#ffe0a0; }
 #cacheStatus { font-size:10px; color:#aaa; }
 .danger-btn { background:rgba(220,60,60,.32) !important; border:1px solid rgba(255,80,80,.4) !important; }
 .danger-btn:hover { background:rgba(240,80,80,.5) !important; }
+.clear-history-btn { width:100%; margin:-1px 0 8px; padding:7px 9px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.13); color:#dce9d7; font-size:11px; }
+.clear-history-btn:hover { background:rgba(255,255,255,.16); }
 
 .spawn-panel { display:flex; flex-direction:column; gap:7px; margin-bottom:8px; background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:8px; }
 .spawn-mode-toggle { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:850; color:#eaf2df; cursor:pointer; }

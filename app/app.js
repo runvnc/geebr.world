@@ -1140,6 +1140,28 @@ function clearWorld() {
   updateTurnUI();
 }
 
+function clearConversationHistory() {
+  state.globalHistory = [];
+  for (const g of state.geebrs) {
+    const cfg = getBrainConfig(g.id);
+    cfg.messages = [];
+    cfg.recent = [];
+    cfg.pendingChat = [];
+  }
+  state.turn.index = 0;
+  state.turn.command = null;
+  state.turn.phase = 'ready';
+  state.nextAgentId = state.selected?.id || state.geebrs[0]?.id || null;
+  const visibleLog = document.getElementById('log');
+  if (visibleLog) visibleLog.textContent = '';
+  const prompt = document.getElementById('promptOut');
+  if (prompt) prompt.textContent = 'History cleared. Step an agent to see its next prompt.';
+  updateTurnUI();
+  updatePerceptionUI();
+  saveWorldState();
+  log('chat and action history cleared');
+}
+
 function saveWorldState() {
   try {
     const data = {
@@ -1253,7 +1275,7 @@ function installWorldAPI(){
     runAgentCommand:(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'),
     stepAgentTurn:beginTurnForAgent,
     isTurnReady:()=>state.turn.phase==='ready',
-    spawnCharacter, spawnProp, spawnAt, clearWorld, buildAgentPrompt, saveWorldState, restoreWorldState,
+    spawnCharacter, spawnProp, spawnAt, clearWorld, clearConversationHistory, buildAgentPrompt, saveWorldState, restoreWorldState,
   };
 }
 
@@ -1297,6 +1319,11 @@ function setupUI(){
         setGeebrLogicalPosition(g,new BABYLON.Vector3(0,0,0)); refreshAgentSelect(); selectGeebr(g); saveWorldState();
         log('state reset: blank demo world with one Geebr');
       }).catch(err=>console.error('reset Geebr failed',err));
+    }
+  };
+  const clearHistoryBtn=document.getElementById('clearHistory'); if(clearHistoryBtn) clearHistoryBtn.onclick=()=>{
+    if(confirm('Clear chat and action history for every Geebr? The world and all customization will stay as they are.')) {
+      clearConversationHistory();
     }
   };
   const spawnModeEnabled=document.getElementById('spawnModeEnabled'); if(spawnModeEnabled) spawnModeEnabled.onchange=()=>{
