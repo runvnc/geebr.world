@@ -18,6 +18,7 @@ html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#111
 .ready #dismissModelLoad, .error #dismissModelLoad { display:block; }
 .model-progress-track { height:5px; margin-top:10px; border-radius:99px; background:rgba(255,255,255,.10); overflow:hidden; }
 #modelProgressBar { display:block; width:18%; height:100%; border-radius:inherit; background:linear-gradient(90deg,#7cdcb1,#d7ff9a); transition:width .3s ease; animation:model-indeterminate 1.5s ease-in-out infinite; }
+.determinate #modelProgressBar { animation:none; }
 .ready #modelProgressBar { width:100% !important; animation:none; }
 .error #modelProgressBar { width:100% !important; background:#ff7766; animation:none; }
 #modelLoadText { margin:7px 0 0; color:#dce9d3; font:10px/1.35 ui-monospace,monospace; text-shadow:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

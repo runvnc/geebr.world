@@ -15,46 +15,62 @@ function el(id) { return document.getElementById(id); }
 
 let modelNoticeDismissTimer = null;
 
-function progressPercent(text) {
-  const source = String(text || '');
+function normalizeProgress(status) {
+  if (status && typeof status === 'object') {
+    const percent = Number.isFinite(Number(status.percent))
+      ? Math.max(0, Math.min(100, Number(status.percent)))
+      : null;
+    return { text: String(status.text || ''), percent, phase: status.phase || '' };
+  }
+  const text = String(status || '');
+  const source = text;
   const match = source.match(/(?:caching model|download(?:ing)?[^:]*|model)[^%]*?([0-9]{1,3}(?:\.[0-9]+)?)\s*%/i)
     || source.match(/([0-9]{1,3}(?:\.[0-9]+)?)\s*%/);
-  return match ? Math.max(0, Math.min(100, Number(match[1]))) : null;
+  return {
+    text,
+    percent: match ? Math.max(0, Math.min(100, Number(match[1]))) : null,
+    phase: /download|caching/i.test(text) ? 'download' : '',
+  };
 }
 
-function updateModelNotice(text, state = 'loading') {
+function updateModelNotice(status, state = 'loading') {
   const notice = el('modelLoadNotice');
   if (!notice) return;
+  const progress = normalizeProgress(status);
+  const text = progress.text;
   clearTimeout(modelNoticeDismissTimer);
-  notice.classList.remove('hidden', 'ready', 'error');
+  notice.classList.remove('hidden', 'ready', 'error', 'determinate');
   if (state !== 'loading') notice.classList.add(state);
+  if (progress.percent !== null && state === 'loading') notice.classList.add('determinate');
 
   const title = el('modelLoadTitle');
   const detail = el('modelLoadText');
   const bar = el('modelProgressBar');
   if (title) title.textContent = state === 'ready' ? 'Local brain ready'
     : state === 'error' ? 'Local brain could not load'
-    : /download|caching/i.test(text) ? 'Downloading local brain'
+    : progress.phase === 'download' || /download|caching/i.test(text) ? 'Downloading local brain'
     : 'Preparing local brain';
   if (detail) detail.textContent = text;
 
-  const percent = progressPercent(text);
   if (bar) {
-    bar.style.width = percent === null ? '18%' : `${percent}%`;
-    bar.style.animation = percent === null && state === 'loading' ? '' : 'none';
+    bar.style.width = progress.percent === null ? '18%' : `${progress.percent}%`;
+    bar.style.animation = progress.percent === null && state === 'loading' ? '' : 'none';
+    bar.parentElement?.setAttribute('aria-valuenow', progress.percent === null ? '' : String(Math.round(progress.percent)));
   }
   if (state === 'ready') {
     modelNoticeDismissTimer = setTimeout(() => notice.classList.add('hidden'), 3500);
   }
 }
 
-function setStatus(text, noticeState = null) {
+function setStatus(status, noticeState = null) {
+  const progress = normalizeProgress(status);
+  const text = progress.text;
   const node = el('brainStatus');
   if (node) node.textContent = text;
-  if (noticeState) updateModelNotice(text, noticeState);
-  else if (/ready/i.test(text)) updateModelNotice(text, 'ready');
-  else if (/fail|error|unavailable/i.test(text)) updateModelNotice(text, 'error');
-  else if (/load|download|cache|initializ|prepar|checking/i.test(text)) updateModelNotice(text, 'loading');
+  if (noticeState) updateModelNotice(status, noticeState);
+  else if (/ready/i.test(text)) updateModelNotice(status, 'ready');
+  else if (/fail|error|unavailable/i.test(text)) updateModelNotice(status, 'error');
+  else if (progress.phase || /load|download|cache|initializ|prepar|checking/i.test(text)) updateModelNotice(status, 'loading');
 }
 
 function appendLog(text) {

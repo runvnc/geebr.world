@@ -18,40 +18,89 @@ let currentModel = null;
 let loading = false;
 
 // OPFS cache helpers
-async function getCachedModelStream(modelKey) {
+async function getCachedModelFile(modelKey) {
   try {
     const root = await navigator.storage.getDirectory();
     const fileHandle = await root.getFileHandle(`litert-${modelKey}.litertlm`);
     const file = await fileHandle.getFile();
-    return file.stream();
+    if (!file.size) {
+      await root.removeEntry(`litert-${modelKey}.litertlm`);
+      return null;
+    }
+    return file;
   } catch {
     return null; // not cached
   }
 }
 
-async function cacheModelStream(modelKey, response, onProgress) {
+function formatBytes(bytes) {
+  const gib = bytes / (1024 ** 3);
+  if (gib >= 1) return `${gib.toFixed(2)} GB`;
+  return `${(bytes / (1024 ** 2)).toFixed(0)} MB`;
+}
+
+function reportDownloadProgress(onProgress, received, total, startedAt, force = false) {
+  const now = performance.now();
+  if (!force && now - reportDownloadProgress.lastReport < 150) return;
+  reportDownloadProgress.lastReport = now;
+  const elapsed = Math.max((now - startedAt) / 1000, 0.001);
+  const speed = received / elapsed;
+  if (total > 0) {
+    const percent = Math.min(100, (received / total) * 100);
+    const remaining = Math.max(0, total - received);
+    const eta = speed > 0 ? Math.ceil(remaining / speed) : null;
+    onProgress?.({
+      phase: 'download',
+      percent,
+      receivedBytes: received,
+      totalBytes: total,
+      text: `Downloading model: ${percent.toFixed(1)}% · ${formatBytes(received)} / ${formatBytes(total)}${eta !== null ? ` · about ${eta}s left` : ''}`,
+    });
+  } else {
+    onProgress?.({
+      phase: 'download',
+      receivedBytes: received,
+      totalBytes: null,
+      text: `Downloading model: ${formatBytes(received)} received`,
+    });
+  }
+}
+reportDownloadProgress.lastReport = 0;
+
+async function downloadModelToOPFS(modelKey, modelUrl, onProgress) {
+  let root = null;
+  let writable = null;
   try {
-    const root = await navigator.storage.getDirectory();
+    const response = await fetch(modelUrl);
+    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+    if (!response.body) throw new Error('Download response has no readable body');
+
+    root = await navigator.storage.getDirectory();
     const fileHandle = await root.getFileHandle(`litert-${modelKey}.litertlm`, { create: true });
-    const writable = await fileHandle.createWritable();
+    writable = await fileHandle.createWritable();
     const reader = response.body.getReader();
     const contentLength = Number(response.headers.get('Content-Length') || 0);
     let received = 0;
+    const startedAt = performance.now();
+    reportDownloadProgress.lastReport = 0;
+    reportDownloadProgress(onProgress, 0, contentLength, startedAt, true);
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       await writable.write(value);
-      received += value.length;
-      if (contentLength > 0) {
-        const pct = Math.round((received / contentLength) * 100);
-        onProgress?.(`Caching model: ${pct}%`);
-      }
+      received += value.byteLength;
+      reportDownloadProgress(onProgress, received, contentLength, startedAt);
     }
     await writable.close();
-    onProgress?.('Model cached to OPFS');
+    writable = null;
+    reportDownloadProgress(onProgress, received, contentLength || received, startedAt, true);
+    onProgress?.({ phase: 'download', percent: 100, text: `Download complete · ${formatBytes(received)} cached on this device` });
+    return await fileHandle.getFile();
   } catch (e) {
-    console.warn('OPFS cache failed:', e);
-    onProgress?.('Cache failed (will re-download next time)');
+    try { await writable?.abort(); } catch {}
+    try { await root?.removeEntry(`litert-${modelKey}.litertlm`); } catch {}
+    throw e;
   }
 }
 
@@ -106,27 +155,18 @@ export async function loadModel(modelKey, onProgress) {
   try {
     // Try OPFS cache first
     onProgress?.('Checking OPFS cache...');
-    const cachedStream = await getCachedModelStream(modelKey);
+    let modelFile = await getCachedModelFile(modelKey);
 
-    let modelSource;
-    if (cachedStream) {
-      onProgress?.('Loading from OPFS cache...');
-      modelSource = cachedStream;
+    if (modelFile) {
+      onProgress?.({ phase: 'initialize', text: `Loading ${formatBytes(modelFile.size)} from device cache...` });
     } else {
-      onProgress?.('Downloading model (2GB, will cache to OPFS)...');
-      const response = await fetch(cfg.modelUrl);
-      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-
-      // Clone the response so we can both cache and use it
-      const cacheResponse = response.clone();
-      // Start caching in background (don't await - start loading while caching)
-      cacheModelStream(modelKey, cacheResponse, onProgress);
-
-      modelSource = response.body;
+      onProgress?.({ phase: 'download', percent: 0, text: 'Starting first-time model download...' });
+      modelFile = await downloadModelToOPFS(modelKey, cfg.modelUrl, onProgress);
     }
 
+    onProgress?.({ phase: 'initialize', percent: 100, text: 'Download complete · initializing local brain...' });
     engine = await Engine.create({
-      model: modelSource,
+      model: modelFile.stream(),
       mainExecutorSettings: {
         maxNumTokens: 8192,
       },

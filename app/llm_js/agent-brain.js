@@ -52,7 +52,7 @@ export function createAgentBrainManager(config = {}) {
       : getEngineType() === 'litert-lm' ? loadModelLiteRT
       : loadModelWebLLM;
     console.log('[geebr-brain] calling loadFn...');
-    const result = await loadFn(currentModelKey, msg => onStatus(msg));
+    const result = await loadFn(currentModelKey, status => onStatus(status));
     console.log('[geebr-brain] loadFn returned:', typeof result);
 
     // Wrap the model into a chat-compatible engine
