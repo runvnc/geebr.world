@@ -39,13 +39,15 @@ function updateModelNotice(status, state = 'loading') {
   const progress = normalizeProgress(status);
   const text = progress.text;
   clearTimeout(modelNoticeDismissTimer);
-  notice.classList.remove('hidden', 'ready', 'error', 'determinate');
+  notice.classList.remove('hidden', 'ready', 'error', 'determinate', 'consent', 'declined');
   if (state !== 'loading') notice.classList.add(state);
   if (progress.percent !== null && state === 'loading') notice.classList.add('determinate');
 
   const title = el('modelLoadTitle');
   const detail = el('modelLoadText');
   const bar = el('modelProgressBar');
+  const consent = el('modelConsent');
+  if (consent) consent.hidden = true;
   if (title) title.textContent = state === 'ready' ? 'Local brain ready'
     : state === 'error' ? 'Local brain could not load'
     : progress.phase === 'download' || /download|caching/i.test(text) ? 'Downloading local brain'
@@ -71,6 +73,38 @@ function setStatus(status, noticeState = null) {
   else if (/ready/i.test(text)) updateModelNotice(status, 'ready');
   else if (/fail|error|unavailable/i.test(text)) updateModelNotice(status, 'error');
   else if (progress.phase || /load|download|cache|initializ|prepar|checking/i.test(text)) updateModelNotice(status, 'loading');
+}
+
+function showDownloadConsent(modelLabel) {
+  const notice = el('modelLoadNotice');
+  const consent = el('modelConsent');
+  if (!notice || !consent) return;
+  clearTimeout(modelNoticeDismissTimer);
+  notice.classList.remove('hidden', 'ready', 'error', 'determinate', 'declined');
+  notice.classList.add('consent');
+  consent.hidden = false;
+  if (el('modelLoadTitle')) el('modelLoadTitle').textContent = 'Optional local AI';
+  if (el('modelLoadText')) el('modelLoadText').textContent = `${modelLabel} is not downloaded yet.`;
+  if (el('brainStatus')) el('brainStatus').textContent = 'waiting for model download permission';
+}
+
+function showDownloadDeclined() {
+  const notice = el('modelLoadNotice');
+  if (!notice) return;
+  notice.classList.remove('consent', 'ready', 'error', 'determinate');
+  notice.classList.add('declined');
+  if (el('modelConsent')) el('modelConsent').hidden = true;
+  if (el('modelLoadTitle')) el('modelLoadTitle').textContent = 'Model download skipped';
+  if (el('modelLoadText')) el('modelLoadText').textContent = 'The world still works. Open Agent brains and click load whenever you want.';
+  if (el('brainStatus')) el('brainStatus').textContent = 'local brain not loaded';
+}
+
+function waitForDownloadConsent(modelLabel) {
+  showDownloadConsent(modelLabel);
+  return new Promise(resolve => {
+    el('approveModelDownload')?.addEventListener('click', () => resolve(true), { once: true });
+    el('declineModelDownload')?.addEventListener('click', () => resolve(false), { once: true });
+  });
 }
 
 function appendLog(text) {
@@ -208,17 +242,27 @@ async function main() {
     }
   });
   // Check if model is already cached
+  let cached = false;
   try {
-    const cached = await hasModelCached();
+    cached = await hasModelCached(manager.getModelKey());
     setCacheStatus(cached ? 'model cached' : 'not cached');
   } catch {}
-  try {
-    const modelLabel = manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey();
+
+  const modelLabel = manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey();
+  const loadBtn = el('loadBrains');
+  if (loadBtn) loadBtn.textContent = 'load ' + modelLabel;
+  let shouldLoad = cached;
+  if (!cached) {
+    shouldLoad = await waitForDownloadConsent(modelLabel);
+    if (!shouldLoad) {
+      showDownloadDeclined();
+      appendLog('local model download skipped');
+    }
+  }
+
+  if (shouldLoad) try {
     setStatus('auto-loading ' + modelLabel + '...');
-    // Update load button text to match default model
-    const loadBtn = el('loadBrains');
-    if (loadBtn) loadBtn.textContent = 'load ' + modelLabel;
-    console.log('[geebr] starting auto-load...');
+    console.log(cached ? '[geebr] loading cached model...' : '[geebr] starting approved download...');
     await manager.load();
     console.log('[geebr] auto-load completed, enabling buttons...');
     el('startBrains').disabled = false;
@@ -245,8 +289,14 @@ async function main() {
 
   el('loadBrains')?.addEventListener('click', async () => {
     try {
+      const cachedNow = await hasModelCached(manager.getModelKey()).catch(() => false);
+      if (!cachedNow) {
+        const approved = await waitForDownloadConsent(manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey());
+        if (!approved) { showDownloadDeclined(); return; }
+      }
       el('loadBrains').disabled = true;
       console.log('[geebr] manual load starting...');
+      setStatus(cachedNow ? 'loading cached local brain...' : 'starting approved model download...');
       await manager.load();
       console.log('[geebr] manual load completed, enabling buttons...');
       el('startBrains').disabled = false;
@@ -254,6 +304,7 @@ async function main() {
      world.state.nextAgentId = world.getAgents()[0]?.id || null;
       const lbl = manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey();
       appendLog('local brain loaded: ' + lbl);
+      setStatus(lbl + ' ready', 'ready');
     } catch (err) {
       el('loadBrains').disabled = false;
       setStatus('brain load error: ' + err.message);

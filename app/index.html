@@ -16,8 +16,18 @@
         <div><strong id="modelLoadTitle">Preparing local brain</strong><small>Gemma 4 E2B runs on this device</small></div>
         <button id="dismissModelLoad" type="button" aria-label="Dismiss model status">×</button>
       </div>
-      <div class="model-progress-track" role="progressbar" aria-label="Local model download progress" aria-valuemin="0" aria-valuemax="100"><span id="modelProgressBar"></span></div>
-      <p id="modelLoadText">Starting…</p>
+      <div id="modelProgressTrack" class="model-progress-track" role="progressbar" aria-label="Local model download progress" aria-valuemin="0" aria-valuemax="100"><span id="modelProgressBar"></span></div>
+      <p id="modelLoadText">Checking local model cache…</p>
+      <div id="modelConsent" class="model-consent" hidden>
+        <p><strong>Run the characters locally?</strong> This needs a one-time <b>~1.8 GB</b> model download.</p>
+        <div class="model-consent-facts">
+          <span>🔒 Runs on your device</span><span>📦 Cached for later visits</span>
+        </div>
+        <div class="model-consent-actions">
+          <button id="approveModelDownload" type="button">Download &amp; run</button>
+          <button id="declineModelDownload" type="button">Not now</button>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <div class="recordbar">
