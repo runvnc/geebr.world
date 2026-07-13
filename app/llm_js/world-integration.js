@@ -1,5 +1,5 @@
 import { createAgentBrainManager } from './agent-brain.js';
-import { getCacheBackend, setCacheBackend, clearModelCache, hasModelCached } from './model-loader.js';
+import { clearModelCache, hasModelCached } from './model-loader-litert.js';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -224,11 +224,8 @@ async function main() {
   // Initialize cache backend selector
   const backendSelect = el('cacheBackend');
   if (backendSelect) {
-    backendSelect.value = getCacheBackend();
-    backendSelect.addEventListener('change', () => {
-      setCacheBackend(backendSelect.value);
-      setCacheStatus('backend: ' + backendSelect.value);
-    });
+    backendSelect.value = 'opfs';
+    backendSelect.disabled = true;
   }
   el('clearCache')?.addEventListener('click', async () => {
     setCacheStatus('clearing...');
@@ -236,6 +233,7 @@ async function main() {
       await clearModelCache();
       setCacheStatus('cache cleared');
       appendLog('model cache cleared');
+      el('loadBrains').disabled = false;
     } catch (e) {
       setCacheStatus('clear failed: ' + e.message);
       appendLog('cache clear error: ' + e.message);

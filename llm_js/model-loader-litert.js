@@ -204,8 +204,10 @@ export async function hasModelCached(modelKey) {
   const key = modelKey || 'gemma4-e2b-litert';
   try {
     const root = await navigator.storage.getDirectory();
-    await root.getFileHandle(`litert-${key}.litertlm`);
-    return true;
+    const fileHandle = await root.getFileHandle(`litert-${key}.litertlm`);
+    const file = await fileHandle.getFile();
+    // A failed/interrupted download can leave a zero-byte OPFS entry.
+    return file.size > 0;
   } catch {
     return false;
   }
