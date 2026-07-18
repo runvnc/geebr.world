@@ -19,14 +19,14 @@ export const GRAMMARS = {
   commands: {
     label: 'Commands: say/walk',
     grammar: commandSpecToGrammar(`say(text)
-walk(direction: north|south|east|west)`),
+walk(destination)`),
     instruction: 'Output only plain command lines, one command per line. Choose only commands that are relevant to the user request.',
   },
   geebrCommands: {
     label: 'geebr.world one-turn agent command',
     grammar: commandSpecToGrammar(`@one
 say(text)
-walk(direction: north|south|east|west)
+walk(destination)
 look()
 touch()
 push()
@@ -195,7 +195,7 @@ export function parseCustomConstraint(text) {
 export function buildDynamicGrammar(allowedCommands) {
   const parts = ['@one'];
   if (allowedCommands.has('say')) parts.push('say(text)');
-  if (allowedCommands.has('walk')) parts.push('walk(direction: north|south|east|west)');
+  if (allowedCommands.has('walk')) parts.push('walk(destination)');
   if (allowedCommands.has('look')) parts.push('look()');
   if (allowedCommands.has('touch')) parts.push('touch(target)');
   if (allowedCommands.has('push')) parts.push('push()');

@@ -542,7 +542,10 @@ function beginTurnForAgent(agentId,cmd,source='agent'){
     log(`turn ${state.turn.index}: ${source} → ${actionDesc}`);
     state.globalHistory=(state.globalHistory||[]).concat([`T${state.turn.index} ${actor?actor.id:'?'}: ${actionDesc}`]).slice(-20);
     executeGameCommandImmediate(cmd,actor);
-    const settleDelay=cmd.kind==='walk' ? Math.max(state.turn.resolveMs,520) : state.turn.resolveMs;
+    // A destination walk may span several tiles. Keep the turn open until its
+    // animation finishes instead of freezing it after the old one-tile delay.
+    const walkMs=actor?.turnMove ? actor.turnMove.dur*1000+80 : 0;
+    const settleDelay=cmd.kind==='walk' ? Math.max(state.turn.resolveMs,walkMs,520) : state.turn.resolveMs;
     setTimeout(()=>{ settleWorld('physics frozen for next LLM choice'); resolve(true); },settleDelay);
   });
 }
@@ -558,13 +561,15 @@ function setGeebrFacing(g,d){
   const yaw=yawForDir(g.dir);
   if(g.root) g.root.rotation.y=yaw;
 }
-function startTurnMove(g,d){
+function startTurnMove(g,d,distance=null){
   setGeebrFacing(g,d);
   const lp=g.logicalPos || new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
   const start=new BABYLON.Vector3(lp.x,0,lp.z);
-  const end=start.add(d.scale(g.stepDistance||1.0));
+  const travel=distance==null ? (g.stepDistance||1.0) : Math.max(0,Number(distance)||0);
+  const end=start.add(d.scale(travel));
   end.x=clamp(end.x,-15.5,15.5); end.z=clamp(end.z,-15.5,15.5); end.y=0;
-  g.turnMove={start,end,t:0,dur:.48};
+  const actual=BABYLON.Vector3.Distance(start,end);
+  g.turnMove={start,end,t:0,dur:Math.max(.48,actual*.32)};
   g.collider?.physicsBody?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
   zeroMeshMotion(g.collider);
 }
@@ -598,11 +603,33 @@ function clearStreamingBubble(g) {
   if (g.anim === 'talk') { g.anim = 'idle'; playRig(g, 'idle', true); }
 }
 
-function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; } }
+function say(g,text){
+  // Dispatch speech before logging, DOM bubbles, animation, or history work.
+  try{ window.geebrTTS?.speak(g,text,getBrainConfig(g.id).ttsVoiceId); }catch(e){ console.warn('Pocket-TTS say failed',e); }
+  log(g.id+': '+text);
+  const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86);
+  document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8});
+  g.anim='talk'; playRig(g,'talk',true);
+  const speechRequested=localStorage.getItem('geebrTtsEnabled')==='1' && getBrainConfig(g.id).ttsEnabled!==false;
+  setTimeout(()=>{ if(g.anim==='talk' && (!speechRequested || window.geebrTTS?.current?.agent!==g)){ g.anim='idle'; playRig(g,'idle',true); } },speechRequested?2000:900);
+  if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; }
+}
+window.geebrTTS?.addEventListener('speechstart',e=>{ const g=e.detail.agent; if(g){g.anim='talk';playRig(g,'talk',true);} });
+window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g&&g.anim==='talk'){g.anim='idle';playRig(g,'idle',true);} });
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
-function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(['walk','look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,dir:b,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
+function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
+function parseWalkDestination(arg){
+  arg=String(arg||'').trim();
+  if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1).trim();
+  const xy=arg.match(/^\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?$/);
+  if(xy) return {kind:'walk',destination:{type:'coord',x:Number(xy[1]),z:Number(xy[2])},destinationText:`(${Number(xy[1])},${Number(xy[2])})`};
+  const legacy={north:'n',south:'s',east:'e',west:'w',n:'n',s:'s',e:'e',w:'w'};
+  if(legacy[arg.toLowerCase()]) return {kind:'walk',dir:legacy[arg.toLowerCase()],destinationText:arg};
+  if(/^[A-Za-z$/*][A-Za-z0-9_$/*-]*$/.test(arg)) return {kind:'walk',destination:{type:'label',label:arg},destinationText:arg};
+  return null;
+}
 function parseLLMCommandLine(line){
   line=String(line||'').trim();
   if(!line) return null;
@@ -611,9 +638,8 @@ function parseLLMCommandLine(line){
   const name=m[1].toLowerCase();
   let arg=m[2].trim();
   if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1);
-  const dirMap={north:'n',south:'s',east:'e',west:'w',n:'n',s:'s',e:'e',w:'w'};
   if(name==='say') return {kind:'say',text:arg||'...'};
-  if(name==='walk') return {kind:'walk',dir:dirMap[arg.toLowerCase()]||'n'};
+  if(name==='walk') return parseWalkDestination(arg);
   if(name==='spell') return {kind:'spell',spell:(arg.split(',')[0]||'spark').trim()||'spark'};
   if(name==='build') return {kind:'build',thing:(arg.split(',')[0]||'wall').trim()||'wall'};
   if(name==='goal') return {kind:'goal',text:arg||''};
@@ -623,7 +649,7 @@ function parseLLMCommandLine(line){
   return null;
 }
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
-  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
+  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
 window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
@@ -654,7 +680,51 @@ function isBlocked(x, z) {
   }
   return false;
 }
-function walk(g,dir){ const dirs={n:[0,0,-1],north:[0,0,-1],s:[0,0,1],south:[0,0,1],e:[-1,0,0],east:[-1,0,0],w:[1,0,0],west:[1,0,0]}; const d=new BABYLON.Vector3(...(dirs[dir]||dirs.n)); setGeebrFacing(g,d); const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z); const dist=g.stepDistance||1.0, tx=lp.x+d.x*dist, tz=lp.z+d.z*dist; if(isBlocked(tx,tz)){ say(g,'can\'t walk '+dir+', something is in the way'); log(g.id+' blocked going '+dir); return; } startTurnMove(g,d); g.anim='walk'; playRig(g,'walk',true); log(g.id+' steps '+dir); setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },560); }
+function walk(g,destination){
+  const dirs={n:[0,0,-1],north:[0,0,-1],s:[0,0,1],south:[0,0,1],e:[-1,0,0],east:[-1,0,0],w:[1,0,0],west:[1,0,0]};
+  const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
+  let d=null, travel=g.stepDistance||1.0, description=String(destination||''), targetObject=false;
+  if(typeof destination==='string') d=new BABYLON.Vector3(...(dirs[destination]||dirs.n));
+  else if(destination?.type==='label'){
+    const key=String(destination.label||'').toLowerCase();
+    const target=state.perceptionLabels?.get(key);
+    if(!target || target.isDisposed?.()) return say(g,`can't see map label ${destination.label}`);
+    const p=target.getAbsolutePosition?.()||target.position;
+    destination={type:'coord',x:Math.round(p.x),z:Math.round(p.z),label:destination.label,object:true};
+    description=destination.label;
+  }
+  if(destination?.type==='coord'){
+    const tx=clamp(Math.round(destination.x),-15,15), tz=clamp(Math.round(destination.z),-15,15);
+    const dx=tx-lp.x, dz=tz-lp.z;
+    const distance=Math.hypot(dx,dz);
+    targetObject=!!destination.object;
+    if(distance<.1 || (targetObject && distance<=1.05)) return say(g,`arrived at ${description}`);
+    d=new BABYLON.Vector3(dx/distance,0,dz/distance);
+    // Stop beside a labeled object; coordinates themselves are exact destinations.
+    travel=Math.max(0,distance-(targetObject?1:0));
+    description=destination.label||`(${tx},${tz})`;
+  }
+  if(!d) return say(g,'walk needs an absolute coordinate or visible map label');
+  // Sweep the straight segment in small increments. Stop before the first
+  // obstacle rather than passing through it during a long interpolation.
+  const requested=travel;
+  const sample=.25;
+  let safeTravel=0;
+  for(let along=sample; along<=requested+.0001; along+=sample){
+    const probe=Math.min(along,requested);
+    if(isBlocked(lp.x+d.x*probe,lp.z+d.z*probe)) break;
+    safeTravel=probe;
+  }
+  if(requested>0 && safeTravel<requested && requested-safeTravel<sample) safeTravel=requested;
+  if(safeTravel<.05){
+    say(g,`can't walk toward ${description}, something is in the way`);
+    log(g.id+' blocked walking toward '+description);
+    return;
+  }
+  startTurnMove(g,d,safeTravel); g.anim='walk'; playRig(g,'walk',true);
+  log(g.id+' walks '+safeTravel.toFixed(1)+' tiles toward '+description+(safeTravel+0.01<requested?' and stops before an obstacle':''));
+  setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },g.turnMove.dur*1000+80);
+}
 function look(g){ const t=nearestTarget(g,6); if(!t) return say(g,pickRandom(['I see many legal surfaces','nothing but vibes and grass','the horizon looks back at me','empty space, legally distinct'])); const m=meta(t); const desc=m?.state==='intact'?'looking normal-ish':m?.state==='cracked'?'definitely cracked':m?.state==='burned'?'crispy':m?.state==='broken'?'gone, actually':'suspicious'; say(g,pickRandom([`that ${m?.type||t.name} is ${desc}`,`the ${m?.type||t.name} seems ${desc}`,`checking: ${m?.type||t.name}, status ${desc}`])); }
 function touch(g,targetId=''){ 
   let t=null;
@@ -841,6 +911,7 @@ function buildVisiblePerception(agentId=null,radius=7){
   const cx=Math.round(g.root.position.x), cz=Math.round(g.root.position.z);
   const opaque=opaqueCells();
   const facingName=facingNameFromDir(g.dir);
+  state.perceptionLabels=new Map();
   const cells=new Map(); const details=[];
   for(let z=cz-radius; z<=cz+radius; z++) for(let x=cx-radius; x<=cx+radius; x++){
     const inCone=isWithinFacingVision(g,cx,cz,x,z,radius);
@@ -859,7 +930,12 @@ function buildVisiblePerception(agentId=null,radius=7){
     const mm=meta(m); if(!mm || mm.type==='tile') continue;
     const glyph=typeGlyph(mm.type), marks=stateMarksFor(mm,m);
     put(x,z,glyph,marks,55);
-    if(mm.interactive!==false){ const id=(glyph.replace(/[^A-Za-z$/*]/g,'O')||'O')+objectNumber++; if(!state.perceptionLabels) state.perceptionLabels=new Map(); state.perceptionLabels.set(id.toLowerCase(),m); state.perceptionLabels.set(id,m); details.push(describeThing(id,mm.type,p,marks, mm.state&&mm.state!=='intact'?`, state=${mm.state}`:'')); }
+    // Every non-terrain item rendered in the ASCII map gets an absolute
+    // coordinate entry. Interactive items also expose the same ID as a target.
+    const id=(glyph.replace(/[^A-Za-z$/*]/g,'O')||'O')+objectNumber++;
+    // Walking accepts every label shown on the map, not only touchable items.
+    state.perceptionLabels.set(id.toLowerCase(),m); state.perceptionLabels.set(id,m);
+    details.push(describeThing(id,mm.type,p,marks, mm.state&&mm.state!=='intact'?`, state=${mm.state}`:''));
   }
   for(const other of state.geebrs){
     const p=other.root.position; const x=Math.round(p.x), z=Math.round(p.z);
@@ -881,12 +957,15 @@ function buildVisiblePerception(agentId=null,radius=7){
       row += compactCell(c.base,c.marks);
     }
     const middle=z===cz;
-    rows.push(`${String(z-cz).padStart(3,' ')} ${middle?'W ': '  '}${row}${middle?'E':''}`);
+    rows.push(`z=${String(z).padStart(3,' ')} ${middle?'W ': '  '}${row}${middle?'E':''}`);
   }
+  const absoluteX=[];
+  for(let x=cx+radius; x>=cx-radius; x--) absoluteX.push(x);
   const compassRows=[
-    `      ${' '.repeat(Math.max(0,mapWidth/2-1))}N`,
+    `                 ${' '.repeat(Math.max(0,mapWidth/2-1))}N`,
     ...rows,
-    `      ${' '.repeat(Math.max(0,mapWidth/2-1))}S`,
+    `                 ${' '.repeat(Math.max(0,mapWidth/2-1))}S`,
+    `Absolute x columns W->E: ${absoluteX.join(', ')}`,
   ];
   const held=state.held.get(g.id); const heldMeta=held?meta(held):null;
   const target=state.target&&!state.target.isDisposed?.()?state.target:null; const targetMeta=target?meta(target):null;
@@ -922,7 +1001,7 @@ function buildVisiblePerception(agentId=null,radius=7){
     `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
     `Holding: ${held ? (heldMeta?.type||held.name) : 'none'}  Target: ${target ? (targetMeta?.type||target.name)+' at ('+Math.round(target.position.x)+','+Math.round(target.position.z)+')' : 'none'}`,
     '',
-    ...(showMap ? [`Camera-facing-north ${(radius*2+1)}x${(radius*2+1)} map (screen-left=W, screen-right=E; N=-Z, E=-X), rows are relative z:`, ...compassRows, ''] : []),
+    ...(showMap ? [`North-up ${(radius*2+1)}x${(radius*2+1)} map (left=W, right=E; N=-Z, E=-X). Each row shows absolute z:`, ...compassRows, ''] : []),
     details.length ? 'Nearby visible objects:' : 'Nearby visible objects: none',
     ...details.slice(0,24),
     '',
@@ -931,7 +1010,7 @@ function buildVisiblePerception(agentId=null,radius=7){
 }
 function buildCommandExamples(){
   const ex=[];
-  if(state.allowed.has('walk')) ex.push('walk(direction: north|south|east|west) e.g. walk(north)');
+  if(state.allowed.has('walk')) ex.push('walk(destination): use an absolute coordinate pair or visible map label, e.g. walk("3,5") or walk("C1"); repeat on later turns until arrived');
   if(state.allowed.has('say')) ex.push('say(text) e.g. say("hello there")');
   if(state.allowed.has('look')) ex.push('look()');
   if(state.allowed.has('touch')) ex.push('touch(target) e.g. touch(crate)');
@@ -949,7 +1028,7 @@ function buildCommandExamples(){
   if(state.allowed.has('spell.fireball')) ex.push('spell(fireball)');
   if(state.allowed.has('goal')) ex.push('goal(text) e.g. goal(get axe)');
   if(state.allowed.has('give_quest')) ex.push('give_quest(text) e.g. give_quest(find the magic sword)');
-  return ex.length?ex:['walk(north)'];
+  return ex.length?ex:['walk("0,0")'];
 }
 function buildAgentPrompt(g, cfg) {
   if (!g || !cfg) return { systemMessage: '', commandReminder: '' };
@@ -1026,7 +1105,7 @@ window.getAgentPerception=(agentId=null,radius=7)=>buildVisiblePerception(agentI
 function getBrainConfig(agentId){
   if(!state.brainConfigs.has(agentId)){
     const g=state.geebrs.find(x=>x.id===agentId);
-    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'reckless mage':'fireball goblin',personality:'goofy, curious, imperfect, tries to be useful but often misunderstands',goals:'explore, interact with nearby objects, react to other geebrs, and be funny',fireballTemptation:g?.traits?.fireball??60,chaos:55,recent:[],quest:'',goal:'',giveQuest:false});
+    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'reckless mage':'fireball goblin',personality:'goofy, curious, imperfect, tries to be useful but often misunderstands',goals:'explore, interact with nearby objects, react to other geebrs, and be funny',fireballTemptation:g?.traits?.fireball??60,chaos:55,recent:[],quest:'',goal:'',giveQuest:false,ttsEnabled:true,ttsVoiceId:'builtin:alba'});
   }
   return state.brainConfigs.get(agentId);
 }
@@ -1340,19 +1419,29 @@ function setupUI(){
 
 function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
 function updateCompassHUD(){
-  if(!state.camera||!compassHud) return;
-  // Conventional compass rose: N top, E right, S bottom, W left. Keep it
-  // independent of camera projection; camera direction is reported in text.
-  const camera=state.camera;
+  if(!state.camera||!state.scene||!state.engine||!compassHud) return;
+  // Put each world direction where it actually appears on screen. The camera is
+  // diagonal and rotatable, so a fixed N-top rose falsely labels world-north as
+  // screen-west/east as soon as the view is not aligned to the world axes.
+  const camera=state.camera, scene=state.scene, engine=state.engine;
   const rose=compassHud.querySelectorAll('span');
-  const angles=[-90,0,90,180];
+  const cardinals=[
+    new BABYLON.Vector3(0,0,-1), // north
+    new BABYLON.Vector3(-1,0,0), // east (project convention)
+    new BABYLON.Vector3(0,0,1),  // south
+    new BABYLON.Vector3(1,0,0),  // west
+  ];
+  const origin=camera.target.clone(); origin.y=0;
+  const viewport=camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight());
+  const center=BABYLON.Vector3.Project(origin,BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),viewport);
   const r=27;
   rose.forEach((el,i)=>{
-    const a=angles[i]*Math.PI/180;
+    const point=BABYLON.Vector3.Project(origin.add(cardinals[i]),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),viewport);
+    const a=Math.atan2(point.y-center.y,point.x-center.x);
     el.style.transform=`translate(${Math.cos(a)*r}px,${Math.sin(a)*r}px) translate(-50%,-50%)`;
   });
   const forward=camera.target.subtract(camera.position); forward.y=0;
-  const name=Math.abs(forward.x)>Math.abs(forward.z)?(forward.x>0?'E':'W'):(forward.z>0?'S':'N');
+  const name=facingNameFromDir(forward)[0].toUpperCase();
   const geebr=state.selected || state.geebrs[0];
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';

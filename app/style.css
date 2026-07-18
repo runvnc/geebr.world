@@ -124,3 +124,7 @@ code { color:#ffe0a0; }
 #compassHud span { position:absolute; left:50%; top:50%; width:16px; text-align:center; transform-origin:center; color:#dce8d4; }
 #compassHud .compass-n { color:#ff826f; }
 #compassHud small { position:absolute; right:0; top:82px; width:170px; padding:5px 7px; border-radius:5px; background:rgba(12,20,15,.78); font:600 10px/1.2 ui-monospace,monospace; text-align:right; color:#dce8d4; }
+
+#ttsStatus { font-size:11px; font-weight:850; color:#ffe1a8; background:rgba(0,0,0,.22); border:1px solid rgba(255,255,255,.11); border-radius:10px; padding:7px 9px; margin:7px 0; }
+#customVoiceName, #customVoiceFile { box-sizing:border-box; width:100%; margin-bottom:7px; border:1px solid rgba(255,255,255,.18); color:#fff; background:rgba(0,0,0,.28); border-radius:10px; padding:7px; font-size:11px; }
+.tts-note { display:block; color:#aebead; font:9px/1.35 ui-monospace,monospace; }

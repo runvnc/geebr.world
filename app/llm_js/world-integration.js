@@ -164,6 +164,8 @@ function syncSelectedBrainUI(world) {
   if (el('chaosLevel')) el('chaosLevel').value = cfg.chaos ?? 55;
   if (el('agentQuest')) el('agentQuest').value = cfg.quest || '';
   if (el('agentGoal')) el('agentGoal').value = cfg.goal || '';
+  if (el('agentTtsEnabled')) el('agentTtsEnabled').checked = cfg.ttsEnabled !== false;
+  if (el('agentTtsVoice')) el('agentTtsVoice').value = cfg.ttsVoiceId || 'builtin:alba';
 }
 
 function saveSelectedBrainUI(world) {
@@ -176,6 +178,8 @@ function saveSelectedBrainUI(world) {
     fireballTemptation: Number(el('fireballTemptation')?.value || 50),
     chaos: Number(el('chaosLevel')?.value || 50),
     quest: el('agentQuest')?.value || '',
+    ttsEnabled: el('agentTtsEnabled')?.checked !== false,
+    ttsVoiceId: el('agentTtsVoice')?.value || 'builtin:alba',
   });
 }
 
@@ -279,7 +283,7 @@ async function main() {
   world.onAgentSelected = () => syncSelectedBrainUI(world);
   syncSelectedBrainUI(world);
 
-  for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest']) {
+  for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest', 'agentTtsEnabled', 'agentTtsVoice']) {
     const node = el(id);
     if (node) node.addEventListener('change', () => saveSelectedBrainUI(world));
     if (node && (node.type === 'range' || node.type === 'text' || node.tagName === 'TEXTAREA')) node.addEventListener('input', () => saveSelectedBrainUI(world));
@@ -407,7 +411,7 @@ async function main() {
       }
       // A new human utterance should not be drowned by old action chatter.
       // Keep it as the latest conversational event after generation as well.
-      if(chatSuffix && cfg.messages?.length>12) cfg.messages=cfg.messages.slice(-12);
+      if(chatSuffix && cfg.messages?.length>30) cfg.messages=cfg.messages.slice(-30);
       // Add agent's action as assistant message
       cfg.messages = (cfg.messages || []).concat([{ role: 'assistant', content: line || 'look()' }]);
       cfg.recent = (cfg.recent || []).concat(`chose ${line || 'nothing'}`).slice(-6);
@@ -418,8 +422,8 @@ async function main() {
       const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';
       const summary = formatActionSummary(resultDesc);
       cfg.messages = cfg.messages.concat([{ role: 'user', content: summary }]);
-      // Keep only last 20 messages
-      if (cfg.messages.length > 20) cfg.messages = cfg.messages.slice(-20);
+      // Retain enough ordinary conversation for multi-turn instructions to remain salient.
+      if (cfg.messages.length > 40) cfg.messages = cfg.messages.slice(-40);
       world.setBrainConfig(g.id, cfg);
       // Add this agent's action and result to ALL OTHER agents' message histories
       const actionMsg = `${g.id} ${formatActionSummary(g.id + ' ' + (line || 'look()'))}`;
@@ -431,7 +435,7 @@ async function main() {
           { role: 'user', content: actionMsg },
           { role: 'user', content: resultMsg },
         ]);
-        if (ocfg.messages.length > 20) ocfg.messages = ocfg.messages.slice(-20);
+        if (ocfg.messages.length > 40) ocfg.messages = ocfg.messages.slice(-40);
         world.setBrainConfig(other.id, ocfg);
       }
       return true;
