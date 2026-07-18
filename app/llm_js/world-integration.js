@@ -384,7 +384,6 @@ async function main() {
       const promptOut = document.getElementById('promptOut');
       if (promptOut) promptOut.dataset.baseText = displayText;
       appendLog(g.id + ' sending ' + messages.length + ' messages to LLM (' + (cfg.messages||[]).length + ' history)' + (chatTestMode ? ' [CHAT TEST]' : ''));
-      console.log('[' + g.id + '] Full prompt messages:', JSON.stringify(messages, null, 2));
       const line = await manager.decide({
         agentId: g.id,
         messages,
@@ -392,15 +391,7 @@ async function main() {
         allowedCommands: world.getAllowedCommands(),
         enableThinking: !!el('enableThinking')?.checked,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
-       onToken: (text) => {
-         if (window.showStreamingBubble && g) {
-           window.showStreamingBubble(g, text);
-         }
-       },
       });
-      if (window.clearStreamingBubble && g) {
-        window.clearStreamingBubble(g);
-      }
       const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
       // Persist chat messages to history so they're remembered in future turns
       if (chatSuffix) {

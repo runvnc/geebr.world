@@ -85,8 +85,6 @@ export function createAgentBrainManager(config = {}) {
       responseFormat = dyn.responseFormat;
       constraintInstruction = dyn.instruction;
     }
-    console.log('---------------------------------- messages fed to LLM ------------------------------')
-    console.log(agent.messages)
 
     const generateFn = getEngineType() === 'transformers.js' ? generateTJS
       : getEngineType() === 'litert-lm' ? generateLiteRT

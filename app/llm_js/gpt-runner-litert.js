@@ -79,11 +79,9 @@ export function createLiteRTEngine(litertEngine) {
         const text = chunk?.content?.[0]?.text || chunk?.content?.[0]?.content || '';
         if (text) {
           fullText += text;
-          console.log('[litert-stream] chunk:', JSON.stringify(text), 'fullText so far:', JSON.stringify(fullText.slice(0,200)));
           onToken(fullText, true);
         }
       }
-      console.log('[litert-stream] final fullText:', JSON.stringify(fullText));
     } else {
       // Non-streaming
       const response = await conversation.sendMessage(promptText);

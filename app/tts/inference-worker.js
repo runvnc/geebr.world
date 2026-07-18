@@ -445,17 +445,6 @@ function prepareTextPrompt(text) {
     return { text: prompt, framesAfterEos };
 }
 
-// Emit independent synthesis chunks at natural clause boundaries. Keeping
-// commas/semicolons with the preceding clause lets playback begin before the
-// rest of a long say() string has been synthesized.
-const SPEECH_BOUNDARY_RE = /[^,;:!?…\.\n—]+(?:[,;:!?…\.]+|—|\n+|$)/g;
-
-function splitTextIntoSentences(text) {
-    const matches = text.match(SPEECH_BOUNDARY_RE);
-    if (!matches) return [];
-    return matches.map((clause) => clause.trim()).filter(Boolean);
-}
-
 function splitTokenIdsIntoChunks(tokenIds, maxTokens) {
     const chunks = [];
     for (let i = 0; i < tokenIds.length; i += maxTokens) {
@@ -473,30 +462,12 @@ function splitIntoBestSentences(text) {
         return { chunks: [], framesAfterEos: prepared.framesAfterEos };
     }
 
-    const sentences = splitTextIntoSentences(prepared.text);
-    if (!sentences.length) {
-        return { chunks: [prepared.text], framesAfterEos: prepared.framesAfterEos };
-    }
-
-    const chunks = [];
-
-    for (const clauseText of sentences) {
-        const clauseTokenIds = tokenizerProcessor.encodeIds(clauseText);
-
-        if (clauseTokenIds.length > currentMaxTokenPerChunk) {
-            const splitChunks = splitTokenIdsIntoChunks(clauseTokenIds, currentMaxTokenPerChunk);
-            for (const splitChunk of splitChunks) {
-                if (splitChunk) {
-                    chunks.push(splitChunk.trim());
-                }
-            }
-        } else {
-            // Deliberately do not recombine adjacent clauses: generation and
-            // streamed playback can advance at every punctuation boundary.
-            chunks.push(clauseText.trim());
-        }
-    }
-
+    // Keep ordinary speech as one synthesis context. Split only when the model's
+    // hard token limit requires it; punctuation never creates a generation seam.
+    const tokenIds = tokenizerProcessor.encodeIds(prepared.text);
+    const chunks = tokenIds.length > currentMaxTokenPerChunk
+        ? splitTokenIdsIntoChunks(tokenIds, currentMaxTokenPerChunk)
+        : [prepared.text];
     return { chunks, framesAfterEos: prepared.framesAfterEos };
 }
 
@@ -538,9 +509,11 @@ async function loadOrt() {
     ort = ortModule.default || ortModule;
     ort.env.wasm.wasmPaths = cdnBase;
     ort.env.wasm.simd = true;
-    ort.env.wasm.numThreads = self.crossOriginIsolated
+    const threads = self.crossOriginIsolated
         ? Math.min(navigator.hardwareConcurrency || 4, 8)
         : 1;
+    ort.env.wasm.numThreads = threads;
+    postMessage({ type: "runtime_info", data: { backend: "WASM CPU", isolated: self.crossOriginIsolated, threads, hardwareConcurrency: navigator.hardwareConcurrency || 0 } });
     precomputeFlowBuffers();
 }
 
@@ -751,7 +724,7 @@ self.onmessage = async (e) => {
 async function startGeneration(text, voiceName) {
     isGenerating = true;
     postMessage({ type: "status", status: "Generating...", state: "running" });
-    postMessage({ type: "generation_started", data: { time: performance.now() } });
+    postMessage({ type: "generation_started", data: { time: performance.now(), sourceSampleRate: currentSampleRate } });
 
     try {
         const { chunks, framesAfterEos } = splitIntoBestSentences(text);
@@ -791,10 +764,11 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
     }
     let flowLmState = cloneState(baseFlowState);
 
-    const firstChunkFrames = 3;
-    const normalChunkFrames = 6; // smaller streaming chunks: ~480 ms at 24 kHz instead of ~960 ms
+    const firstChunkFrames = 5; // 400 ms startup batch for additional underrun protection
+    const normalChunkFrames = 12;
     const allGeneratedLatents = [];
     let isFirstAudioChunk = true;
+    let firstAudioAt = null;
     let totalFlowLmTime = 0;
     let totalDecodeTime = 0;
     const generationStart = performance.now();
@@ -923,6 +897,7 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
                 chunkDecodedFrames += decodeSize;
                 const audioFloat32 = new Float32Array(decodeResult[mimiDecoderSession.outputNames[0]].data);
                 const isLastChunk = shouldStop && chunkIdx === chunks.length - 1;
+                if (firstAudioAt == null) firstAudioAt = performance.now();
 
                 postMessage({
                     type: "audio_chunk",
@@ -932,6 +907,7 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
                         decTime: 0,
                         chunkDuration: audioFloat32.length / currentSampleRate,
                         genTimeSec: chunkGenTimeMs / 1000,
+                        chunkRtfx: chunkGenTimeMs > 0 ? (audioFloat32.length / currentSampleRate) / (chunkGenTimeMs / 1000) : 0,
                         isFirst: isFirstAudioChunk,
                         isLast: isLastChunk,
                         chunkStart: isFirstAudioChunkOfTextChunk,
@@ -973,6 +949,7 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
     const audioSeconds = allGeneratedLatents.length * currentSamplesPerFrame / currentSampleRate;
     const genTime = (totalFlowLmTime + totalDecodeTime) / 1000;
     const rtfx = genTime > 0 ? audioSeconds / genTime : 0;
+    postMessage({ type: "generation_metrics", metrics: { rtfx, genTime, totalTime, audioDuration: audioSeconds, firstAudioMs: firstAudioAt == null ? null : firstAudioAt - generationStart } });
 
     debugLog(`Generation complete for ${voiceName} in ${totalTime.toFixed(2)}s (RTFx ${rtfx.toFixed(2)}x)`);
     postMessage({

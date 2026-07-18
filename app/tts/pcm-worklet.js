@@ -3,7 +3,8 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     super();
     const opts = options.processorOptions || {};
     this.bufferSize = opts.bufferSize || sampleRate * 60;
-    this.minBufferSamples = opts.minBufferSamples || Math.floor(sampleRate * 0.35);
+    this.minBufferSamples = opts.minBufferSamples || Math.floor(sampleRate * 0.40);
+    this.targetBufferSamples = opts.targetBufferSamples || this.minBufferSamples * 2;
     this.ring = new Float32Array(this.bufferSize);
     this.readPos = 0;
     this.writePos = 0;
@@ -22,6 +23,7 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
       else if (m.type === 'stream-ended') this.streamEnded = true;
       else if (m.type === 'set-min-buffer') this.minBufferSamples = m.samples | 0;
     };
+    this.sendCapacity();
   }
 
   reset() {
@@ -33,6 +35,7 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     this.underruns = 0;
     this.samplesPlayed = 0;
     this.drainedReported = false;
+    this.sendCapacity();
   }
 
   push(data) {
@@ -47,6 +50,17 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
       this.writePos = (this.writePos + 1) % this.bufferSize;
       this.buffered++;
     }
+    if (!this.started && this.buffered >= this.minBufferSamples) this.port.postMessage({ type: 'playback-started', buffered: this.buffered });
+    this.sendCapacity();
+  }
+
+  sendCapacity() {
+    const capacity = Math.max(0, this.bufferSize - this.buffered - 128);
+    this.port.postMessage({
+      type: 'capacity', capacity, buffered: this.buffered,
+      requestSamples: this.buffered < this.targetBufferSamples
+        ? Math.min(capacity, this.targetBufferSamples - this.buffered) : 0,
+    });
   }
 
   process(inputs, outputs) {
@@ -95,6 +109,7 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
         underruns: this.underruns,
         samplesPlayed: this.samplesPlayed,
       });
+      if (this.buffered < this.targetBufferSamples) this.sendCapacity();
     }
   }
 }

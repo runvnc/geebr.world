@@ -5,6 +5,11 @@
   function refreshVoices(){const sel=$('agentTtsVoice');if(!sel)return;const chosen=window.geebrWorld?.getBrainConfig?.(window.geebrWorld?.getSelectedAgent?.()?.id)?.ttsVoiceId||sel.value||'builtin:alba';sel.textContent='';for(const v of tts.voices()){const o=document.createElement('option');o.value=v.id;o.textContent=v.name;sel.appendChild(o);}sel.value=[...sel.options].some(o=>o.value===chosen)?chosen:'builtin:alba';}
   function sync(){const enabled=localStorage.getItem('geebrTtsEnabled')==='1';$('ttsEnabled').checked=enabled;$('ttsLanguage').value=localStorage.getItem('geebrTtsLanguage')||'english_2026-04';$('ttsVolume').value=localStorage.getItem('geebrTtsVolume')||'.85';refreshVoices();}
   tts.addEventListener('status',e=>{if($('ttsStatus'))$('ttsStatus').textContent=e.detail.text;});
+  tts.addEventListener('telemetry',e=>{
+    const m=e.detail||{}, node=$('ttsTelemetry'); if(!node)return;
+    const fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'—';
+    node.textContent=`backend: ${m.backend||'WASM CPU'} · isolated: ${m.isolated?'yes':'NO'} · threads: ${m.threads||1}/${m.hardwareConcurrency||'?'} · aggregate RTFx: ${fmt(m.rtfx)} · latest chunk RTFx: ${fmt(m.lastChunkRtfx)} · worker first audio: ${m.firstAudioMs==null?'—':Math.round(m.firstAudioMs)+' ms'} · say→arrival: ${m.audioArrivalMs==null?'—':Math.round(m.audioArrivalMs)+' ms'} · say→playback: ${m.playbackStartMs==null?'—':Math.round(m.playbackStartMs)+' ms'} · buffer: ${Math.round(m.bufferedMs||0)} ms · minimum: ${m.minBufferedMs==null?'—':Math.round(m.minBufferedMs)+' ms'} · underruns: ${m.underruns||0} · chunks: ${m.chunks||0}`;
+  });
   tts.addEventListener('voiceschanged',refreshVoices);
   window.addEventListener('DOMContentLoaded',()=>{
     sync();

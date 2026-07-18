@@ -604,18 +604,12 @@ function clearStreamingBubble(g) {
 }
 
 function say(g,text){
-  // Dispatch speech before logging, DOM bubbles, animation, or history work.
+  // Audio-only performance test: dispatch speech without bubble or animation
+  // updates, so main-thread presentation cannot perturb streaming playback.
   try{ window.geebrTTS?.speak(g,text,getBrainConfig(g.id).ttsVoiceId); }catch(e){ console.warn('Pocket-TTS say failed',e); }
   log(g.id+': '+text);
-  const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86);
-  document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8});
-  g.anim='talk'; playRig(g,'talk',true);
-  const speechRequested=localStorage.getItem('geebrTtsEnabled')==='1' && getBrainConfig(g.id).ttsEnabled!==false;
-  setTimeout(()=>{ if(g.anim==='talk' && (!speechRequested || window.geebrTTS?.current?.agent!==g)){ g.anim='idle'; playRig(g,'idle',true); } },speechRequested?2000:900);
   if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; }
 }
-window.geebrTTS?.addEventListener('speechstart',e=>{ const g=e.detail.agent; if(g){g.anim='talk';playRig(g,'talk',true);} });
-window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g&&g.anim==='talk'){g.anim='idle';playRig(g,'idle',true);} });
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
