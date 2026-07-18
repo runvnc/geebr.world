@@ -1411,12 +1411,23 @@ function setupUI(){
   updatePerceptionUI(); updateTurnUI();
 }
 
-function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
+let _hudFrame=0;
+function updateBubbles(dt){
+  const camera=state.camera, scene=state.scene, engine=state.engine;
+  // Cache the transform matrix once per frame instead of recomputing it for
+  // every bubble and badge. Vector3.Project calls getTransformMatrix() each
+  // time, which is expensive matrix math.
+  const tm=scene.getTransformMatrix();
+  const vp=camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight());
+  function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,tm,vp); }
+  for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } }
+  for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } }
+}
 function updateCompassHUD(){
   if(!state.camera||!state.scene||!state.engine||!compassHud) return;
-  // Put each world direction where it actually appears on screen. The camera is
-  // diagonal and rotatable, so a fixed N-top rose falsely labels world-north as
-  // screen-west/east as soon as the view is not aligned to the world axes.
+  // Throttle to every 3rd frame: the compass rose only needs coarse position
+  // updates and each call does 5x Vector3.Project (expensive matrix math).
+  if((++_hudFrame%3)!==0) return;
   const camera=state.camera, scene=state.scene, engine=state.engine;
   const rose=compassHud.querySelectorAll('span');
   const cardinals=[
@@ -1426,11 +1437,12 @@ function updateCompassHUD(){
     new BABYLON.Vector3(1,0,0),  // west
   ];
   const origin=camera.target.clone(); origin.y=0;
+  const tm=scene.getTransformMatrix();
   const viewport=camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight());
-  const center=BABYLON.Vector3.Project(origin,BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),viewport);
+  const center=BABYLON.Vector3.Project(origin,BABYLON.Matrix.IdentityReadOnly,tm,viewport);
   const r=27;
   rose.forEach((el,i)=>{
-    const point=BABYLON.Vector3.Project(origin.add(cardinals[i]),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),viewport);
+    const point=BABYLON.Vector3.Project(origin.add(cardinals[i]),BABYLON.Matrix.IdentityReadOnly,tm,viewport);
     const a=Math.atan2(point.y-center.y,point.x-center.x);
     el.style.transform=`translate(${Math.cos(a)*r}px,${Math.sin(a)*r}px) translate(-50%,-50%)`;
   });

@@ -42,6 +42,7 @@ let currentMaxTokenPerChunk = 50;
 let predefinedVoiceRecords = {};
 let customVoiceEmbedding = null;
 let customVoiceEmbeddings = new Map();
+let audioPort = null;  // direct MessagePort to AudioWorklet (bypasses main thread)
 let currentVoiceName = null;
 let voiceConditioningCache = new Map();
 
@@ -649,6 +650,13 @@ self.onmessage = async (e) => {
             return;
         }
 
+        if (type === "set_audio_port") {
+            if (e.ports && e.ports.length) {
+                audioPort = e.ports[0];
+            }
+            return;
+        }
+
         if (type === "set_language") {
             if (isGenerating) {
                 postMessage({ type: "error", error: "Cannot switch language while generation is running." });
@@ -724,6 +732,7 @@ self.onmessage = async (e) => {
 async function startGeneration(text, voiceName) {
     isGenerating = true;
     postMessage({ type: "status", status: "Generating...", state: "running" });
+    if (audioPort) audioPort.postMessage({ type: "reset" });
     postMessage({ type: "generation_started", data: { time: performance.now(), sourceSampleRate: currentSampleRate } });
 
     try {
@@ -747,6 +756,7 @@ async function startGeneration(text, voiceName) {
         postMessage({ type: "error", error: err.toString() });
     } finally {
         if (isGenerating) {
+            if (audioPort) audioPort.postMessage({ type: "stream-ended" });
             postMessage({ type: "stream_ended" });
             postMessage({ type: "status", status: "Finished", state: "idle" });
         }
@@ -765,7 +775,7 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
     let flowLmState = cloneState(baseFlowState);
 
     const firstChunkFrames = 5; // 400 ms startup batch for additional underrun protection
-    const normalChunkFrames = 12;
+    const normalChunkFrames = 6;  // smaller batches arrive sooner, preventing underrun when CPU is shared
     const allGeneratedLatents = [];
     let isFirstAudioChunk = true;
     let firstAudioAt = null;
@@ -899,10 +909,18 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
                 const isLastChunk = shouldStop && chunkIdx === chunks.length - 1;
                 if (firstAudioAt == null) firstAudioAt = performance.now();
 
-                postMessage({
-                    type: "audio_chunk",
-                    data: audioFloat32,
-                    metrics: {
+                // Post audio directly to the AudioWorklet via the MessagePort,
+                // bypassing the main thread entirely. Fall back to main-thread
+                // postMessage if the direct port is not set up yet.
+                if (audioPort) {
+                    audioPort.postMessage({
+                        type: "audio",
+                        data: audioFloat32,
+                    }, [audioFloat32.buffer]);
+                    // Lightweight metadata only (no audio data) for telemetry.
+                    postMessage({
+                        type: "audio_chunk_meta",
+                        metrics: {
                         bbTime: 0,
                         decTime: 0,
                         chunkDuration: audioFloat32.length / currentSampleRate,
@@ -911,8 +929,25 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
                         isFirst: isFirstAudioChunk,
                         isLast: isLastChunk,
                         chunkStart: isFirstAudioChunkOfTextChunk,
-                    },
-                }, [audioFloat32.buffer]);
+                        },
+                    });
+                } else {
+                    // Fallback: send audio through main thread (legacy path).
+                    postMessage({
+                        type: "audio_chunk",
+                        data: audioFloat32,
+                        metrics: {
+                            bbTime: 0,
+                            decTime: 0,
+                            chunkDuration: audioFloat32.length / currentSampleRate,
+                            genTimeSec: chunkGenTimeMs / 1000,
+                            chunkRtfx: chunkGenTimeMs > 0 ? (audioFloat32.length / currentSampleRate) / (chunkGenTimeMs / 1000) : 0,
+                            isFirst: isFirstAudioChunk,
+                            isLast: isLastChunk,
+                            chunkStart: isFirstAudioChunkOfTextChunk,
+                        },
+                    }, [audioFloat32.buffer]);
+                }
 
                 isFirstAudioChunk = false;
                 isFirstAudioChunkOfTextChunk = false;

@@ -3,7 +3,7 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     super();
     const opts = options.processorOptions || {};
     this.bufferSize = opts.bufferSize || sampleRate * 60;
-    this.minBufferSamples = opts.minBufferSamples || Math.floor(sampleRate * 0.40);
+    this.minBufferSamples = opts.minBufferSamples || Math.floor(sampleRate * 0.35);
     this.targetBufferSamples = opts.targetBufferSamples || this.minBufferSamples * 2;
     this.ring = new Float32Array(this.bufferSize);
     this.readPos = 0;
@@ -15,15 +15,26 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     this.samplesPlayed = 0;
     this.reportCounter = 0;
     this.drainedReported = false;
+    this.audioPort = null;  // direct port from worker (bypasses main thread)
+    this.throttleCounter = 0;
 
     this.port.onmessage = (e) => {
       const m = e.data || {};
+      if (m.type === 'set_audio_port' && e.ports && e.ports.length) {
+        this.audioPort = e.ports[0];
+        this.audioPort.onmessage = (ev) => {
+          const d = ev.data || {};
+          if (d.type === 'audio') this.push(d.data);
+          else if (d.type === 'reset') this.reset();
+          else if (d.type === 'stream-ended') this.streamEnded = true;
+          else if (d.type === 'set-min-buffer') this.minBufferSamples = d.samples | 0;
+        };
+      }
       if (m.type === 'audio') this.push(m.data);
       else if (m.type === 'reset') this.reset();
       else if (m.type === 'stream-ended') this.streamEnded = true;
       else if (m.type === 'set-min-buffer') this.minBufferSamples = m.samples | 0;
     };
-    this.sendCapacity();
   }
 
   reset() {
@@ -35,14 +46,12 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     this.underruns = 0;
     this.samplesPlayed = 0;
     this.drainedReported = false;
-    this.sendCapacity();
   }
 
   push(data) {
     const src = data instanceof Float32Array ? data : new Float32Array(data);
     for (let i = 0; i < src.length; i++) {
       if (this.buffered >= this.bufferSize) {
-        // Drop oldest sample rather than blocking the audio thread.
         this.readPos = (this.readPos + 1) % this.bufferSize;
         this.buffered--;
       }
@@ -50,17 +59,6 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
       this.writePos = (this.writePos + 1) % this.bufferSize;
       this.buffered++;
     }
-    if (!this.started && this.buffered >= this.minBufferSamples) this.port.postMessage({ type: 'playback-started', buffered: this.buffered });
-    this.sendCapacity();
-  }
-
-  sendCapacity() {
-    const capacity = Math.max(0, this.bufferSize - this.buffered - 128);
-    this.port.postMessage({
-      type: 'capacity', capacity, buffered: this.buffered,
-      requestSamples: this.buffered < this.targetBufferSamples
-        ? Math.min(capacity, this.targetBufferSamples - this.buffered) : 0,
-    });
   }
 
   process(inputs, outputs) {
@@ -74,6 +72,7 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
 
     if (!this.started) {
       if (this.buffered >= this.minBufferSamples || (this.streamEnded && this.buffered > 0)) {
+        this.port.postMessage({ type: 'playback-started', buffered: this.buffered });
         this.started = true;
       } else {
         out.fill(0);
@@ -96,12 +95,18 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     }
 
     this.report();
+
+    // Send capacity back through the direct port if available, so the worker
+    // can throttle if needed without involving the main thread.
+    if (this.audioPort && this.buffered < this.targetBufferSamples) {
+      this.audioPort.postMessage({ type: 'capacity', buffered: this.buffered });
+    }
     return true;
   }
 
   report() {
     this.reportCounter++;
-    if (this.reportCounter % 32 === 0) {
+    if (this.reportCounter % 64 === 0) {
       this.port.postMessage({
         type: 'stats',
         buffered: this.buffered,
@@ -109,7 +114,6 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
         underruns: this.underruns,
         samplesPlayed: this.samplesPlayed,
       });
-      if (this.buffered < this.targetBufferSamples) this.sendCapacity();
     }
   }
 }

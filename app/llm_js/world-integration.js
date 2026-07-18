@@ -469,7 +469,8 @@ async function main() {
     const nextG = agents[stepIndex % agents.length];
     world.state.nextAgentId = nextG ? nextG.id : g.id;
     el('stepBrains').disabled = false;
-    setStatus(manager.isLoaded() ? (manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || 'model') + ' ready' : 'local brain not loaded');
+    const brainNode = el('brainStatus');
+    if (brainNode) brainNode.textContent = manager.isLoaded() ? (manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || 'model') + ' ready' : 'local brain not loaded';
   });
 
   el('stopBrains')?.addEventListener('click', () => {
@@ -477,7 +478,8 @@ async function main() {
     el('startBrains').disabled = !manager.isLoaded();
     el('stepBrains').disabled = !manager.isLoaded();
     el('stopBrains').disabled = true;
-    setStatus(manager.isLoaded() ? (manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || 'model') + ' ready; agents stopped' : 'local brain not loaded');
+    const brainNode2 = el('brainStatus');
+    if (brainNode2) brainNode2.textContent = manager.isLoaded() ? (manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || 'model') + ' ready; agents stopped' : 'local brain not loaded';
     appendLog('agent brains stopped');
   });
 
