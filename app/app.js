@@ -229,6 +229,17 @@ function playRig(g,mode,loop=true){
   g._lastRigAnimName = ag ? ag.name : null;
 }
 function debugRigAnims(g){ try{ console.log('[geebr rig]', g.id, 'clips:', Object.keys(g.rigAnims||{})); }catch{} }
+function findHeadNodes(g){
+  if(g._headNodes) return g._headNodes;
+  const nodes=[];
+  if(g.rigRoot){
+    for(const n of [g.rigRoot,...g.rigRoot.getDescendants(false)]){
+      if(n.name && /head/i.test(n.name) && !/headphone/i.test(n.name)) nodes.push(n);
+    }
+  }
+  g._headNodes=nodes;
+  return nodes;
+}
 // Find named bones on any supported rig (Meshy PascalCase or KayKit lowercase)
 function findBones(g){
   if(g._bones) return g._bones;
@@ -289,7 +300,7 @@ function updateProceduralEmote(g,dt){
   if(g.emote==='dance'||g.emote==='cheer'){
     const s=Math.sin(t*7);
     R(b.armL,0,0, 1.9+s*.45); R(b.armR,0,0,-1.9-s*.45);
-    R(b.forearmL,-.5-.3*s); R(b.forearmR,-.5+.3*s);
+    R(b.forearmL,-.25-.15*s); R(b.forearmR,-.25+.15*s);
     R(b.head,0,Math.sin(t*3.5)*.25,0);
     R(b.spine,0,Math.sin(t*3.5)*.12,0);
     P(b.hips, Math.abs(Math.sin(t*7))*.09);
