@@ -216,7 +216,7 @@ export function buildDynamicGrammar(allowedCommands) {
   const spec = parts.join('\n');
   return {
     grammar: commandSpecToGrammar(spec),
-    instruction: 'Output one to three plain command lines, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. If the latest user message reports that someone says something, answer its meaning or follow its request (say first, then act); never copy the message into say().',
+    instruction: 'Output one to three plain command lines, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. If the latest user message reports that someone says something, answer its meaning or follow its request (say first, then act); never copy the message into say(). Never answer an action request with say() alone - after acknowledging, do the action. Prefer a multi-line plan when the request implies multiple steps.',
     responseFormat: { type: 'grammar', grammar: commandSpecToGrammar(spec) },
   };
 }

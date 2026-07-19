@@ -1196,6 +1196,7 @@ function buildAgentPrompt(g, cfg) {
   const goal = (cfg.goal || '').replace(/\s+/g, ' ').trim();
   const canGiveQuest = state.allowed.has('give_quest');
   const cmds = buildCommandExamples();
+  const recentActs = (cfg.recent || []).slice(-4);
   const systemMessage = [
     `Character: ${g.id}`,
     `Style: ${style}`,
@@ -1212,6 +1213,9 @@ function buildAgentPrompt(g, cfg) {
     'Never put the speaker attribution, such as "Tom says", inside say().',
     'Example: Tom says "which is bigger, a dog or a whale?" -> say("A whale is much bigger.")',
     'Output 1-3 command lines, each on its own line; they run in order as one plan (for example: say("On it!") then walk(n) then carry()). Do not output anything except command lines.',
+    'When a request implies more than one step, prefer a multi-line plan instead of a single command.',
+    'Do not answer an action request with say() alone: after acknowledging, DO the thing (emote, walk, carry, push, build, spell, ...).',
+    'If you have already used say() several turns in a row, choose a non-say action next unless the newest message is purely conversational.',
   ].join('\n');
   const commandReminder = [
     'SYSTEM: ' + String(perception).slice(0, 2400),
@@ -1220,6 +1224,7 @@ function buildAgentPrompt(g, cfg) {
     ...cmds,
     ...(quest ? ['Quest: ' + quest] : []),
     ...(goal ? ['Current goal: ' + goal] : []),
+    ...(recentActs.length ? ['Your last few turns: ' + recentActs.join(' | ')] : []),
   ].join('\n');
   return { systemMessage, commandReminder };
 }

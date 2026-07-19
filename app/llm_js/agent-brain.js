@@ -14,17 +14,19 @@ function oneLine(s) {
   return String(s || '').replace(/\s+/g, ' ').trim();
 }
 
-function firstCommandLine(text) {
+function commandLines(text) {
+  // Keep every plausible command line (multi-command plans); the downstream
+  // parser (parseLLMCommandLine) decides what is actually a command.
   return String(text || '')
     // Strip markdown code fences
     .replace(/```[a-z]*\n?/gi, '\n')
     .replace(/```/g, '\n')
-    // Strip leading/trailing whitespace per line
     .split('\n')
     .map(x => x.trim())
     // Filter out empty lines and pure markdown artifacts
     .filter(x => x && x !== '```' && !x.match(/^[`*#]+$/))
-    .filter(Boolean)[0] || '';
+    .filter(Boolean)
+    .join('\n');
 }
 
 export function createAgentBrainManager(config = {}) {
@@ -101,7 +103,7 @@ export function createAgentBrainManager(config = {}) {
       onToken: onToken,
       debugLog: (msg, data) => onDebug(msg, data),
     });
-    const line = firstCommandLine(text);
+    const line = commandLines(text);
     onDebug('decision', { agentId: agent.agentId, text, line });
     return line;
   }
