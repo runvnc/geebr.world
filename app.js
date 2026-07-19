@@ -171,7 +171,7 @@ function addTerrainPolish(scene){
 
 async function initKayKitAnimationSources(scene){
   if(state.animSources) return state.animSources;
-  const files=['Rig_Medium_General.glb','Rig_Medium_MovementBasic.glb','Rig_Medium_CombatRanged.glb','Rig_Medium_Tools.glb','Rig_Medium_Simulation.glb'];
+  const files=['Rig_Medium_General.glb','Rig_Medium_MovementBasic.glb','Rig_Medium_MovementAdvanced.glb','Rig_Medium_CombatRanged.glb','Rig_Medium_CombatMelee.glb','Rig_Medium_Tools.glb','Rig_Medium_Simulation.glb','Rig_Medium_Special.glb'];
   const groups=[];
   for(const file of files){
     try{
@@ -204,13 +204,55 @@ function playRig(g,mode,loop=true){
   if(!g?.rigged || g.rigMode===mode) return;
   if(g.activeRigAnim) g.activeRigAnim.stop();
   const choices={
-    idle:['Idle_A','Idle_B','Melee_Unarmed_Idle'], walk:['Walking_A','Walking_B','Walking_C'], panic:['Running_A','Running_B'],
-    talk:['Waving','Interact','Idle_B'], cast:['Ranged_Magic_Spellcasting','Ranged_Magic_Shoot','Ranged_Magic_Raise'],
-    push:['Interact','Melee_Unarmed_Attack_Punch_A','Push_Ups'], carry:['Holding_A','Holding_B','PickUp'], throw:['Throw','Ranged_Magic_Shoot'],
-    dig:['Dig','Digging','Pickaxe'], repair:['Hammer','Hammering','Work_A'], bonk:['Hit_A','Hit_B']
+    idle:['Idle_A','Idle_B','Melee_Unarmed_Idle','Idle_C','Idle_D','Bored','LookAround','Breathing'],
+    walk:['Walking_A','Walking_B','Walking_C','Walking_D','Sneaking'],
+    panic:['Running_A','Running_B','Running_C','Sprinting','Fleeing'],
+    talk:['Waving','Interact','Idle_B','Talking','Gesture','Explain','Converse'],
+    cast:['Ranged_Magic_Spellcasting','Ranged_Magic_Shoot','Ranged_Magic_Raise','Melee_Magic_Cast','Spellcast'],
+    push:['Interact','Melee_Unarmed_Attack_Punch_A','Push_Ups','Shoving'],
+    carry:['Holding_A','Holding_B','PickUp','Carrying','Lift'],
+    throw:['Throw','Ranged_Magic_Shoot','Toss','Tossing'],
+    dig:['Dig','Digging','Pickaxe','Shoveling','Mining'],
+    repair:['Hammer','Hammering','Work_A','Repairing','Building'],
+    bonk:['Hit_A','Hit_B','Stumble','Impact'],
+    dance:['Dance','Dancing','Silly_Dance','Happy_Dance'],
+    laugh:['Laugh','Laughing','Chuckling'],
+    sit:['Sit','Sitting','Sitting_Ground'],
+    wave:['Waving','Wave','Greeting','Hello'],
+    clap:['Clap','Clapping','Cheer'],
+    cheer:['Cheer','Celebrate','Victory','Jumping_Joy']
   }[mode] || ['Idle_A'];
-  const ag=pickAnim(g,choices) || pickAnim(g,['Idle_A']);
+  const ag=pickAnim(g,choices) || pickAnim(g,['Idle_A','Idle_B']);
   if(ag){ ag.start(loop,1.0,ag.from,ag.to,false); g.activeRigAnim=ag; g.rigMode=mode; }
+}
+function findHeadNodes(g){
+  if(g._headNodes) return g._headNodes;
+  const nodes=[];
+  if(g.rigRoot){
+    for(const n of g.rigRoot.getDescendants(false)){
+      if(n.name && /head/i.test(n.name) && !/headphone/i.test(n.name)) nodes.push(n);
+    }
+  }
+  g._headNodes=nodes;
+  return nodes;
+}
+function setupTTSHooks(){
+  const tts=window.geebrTTS;
+  if(!tts) return;
+  tts.addEventListener('speechstart',e=>{
+    const agent=e.detail?.agent; if(!agent) return;
+    const g=state.geebrs.find(x=>x.id===agent.id); if(!g) return;
+    g.speaking=true; g.anim='talk'; playRig(g,'talk',true);
+    if(g._speakTimeout) clearTimeout(g._speakTimeout);
+  });
+  tts.addEventListener('speechend',e=>{
+    const agent=e.detail?.agent; if(!agent) return;
+    const g=state.geebrs.find(x=>x.id===agent.id); if(!g) return;
+    g.speaking=false;
+    if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); }
+    if(g._headNodes) for(const h of g._headNodes) h.scaling.y=1;
+    if(g._speakTimeout) clearTimeout(g._speakTimeout);
+  });
 }
 async function createKayKitGeebr(scene,id,pos,file,label){
   const res=await BABYLON.SceneLoader.ImportMeshAsync('',CHAR_ASSET,file,scene);
@@ -598,7 +640,6 @@ function clearStreamingBubble(g) {
   if (g.anim === 'talk') { g.anim = 'idle'; playRig(g, 'idle', true); }
 }
 
-function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); setTimeout(()=>{ if(g.anim==='talk'){ g.anim='idle'; playRig(g,'idle',true); } },900); if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; } }
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
@@ -625,7 +666,7 @@ function parseLLMCommandLine(line){
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
   switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
-window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
+window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.showStreamingBubble=showStreamingBubble; window.clearStreamingBubble=clearStreamingBubble; window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
 // v13.2: avoid global executeCommand recursion; direct controls should keep working even if the perception panel changes/reflows.
 // Use one delegated handler instead of fragile per-button onclick assignments.
@@ -1311,7 +1352,8 @@ function setupUI(){
   updatePerceptionUI(); updateTurnUI();
 }
 
-function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
+function say(g,text){ log(g.id+': '+text); const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86); document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8}); g.anim='talk'; playRig(g,'talk',true); if(window.geebrTTS&&window.geebrTTS.ready){ window.geebrTTS.speak(g,text||'...'); } else { setTimeout(()=>{ if(g.anim==='talk'&&!g.speaking){ g.anim='idle'; playRig(g,'idle',true); } },900); } if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; } }
+function updateBubbles(dt){ const camera=state.camera, scene=state.scene, engine=state.engine; function projectHead(node){ const worldPos=node.getAbsolutePosition().add(new BABYLON.Vector3(0,1.0,0)); const screenPos=BABYLON.Vector3.Project(worldPos,BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); return screenPos; } for(const b of [...state.bubbles]){ b.ttl-=dt; const p=projectHead(b.node); b.div.style.left=p.x+'px'; b.div.style.top=(p.y-42)+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } } for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const worldPos=node.getAbsolutePosition().add(new BABYLON.Vector3(0,.8,0)); const p=BABYLON.Vector3.Project(worldPos,BABYLON.Matrix.IdentityReadOnly,scene.getTransformMatrix(),camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight())); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } } }
 function updateCompassHUD(){
   if(!state.camera||!compassHud) return;
   // Conventional compass rose: N top, E right, S bottom, W left. Keep it
@@ -1330,7 +1372,7 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
+function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
@@ -1470,7 +1512,7 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   const spawnPickPlane=BABYLON.MeshBuilder.CreateGround('spawn_pick_plane',{width:32,height:32,subdivisions:1},scene);
   spawnPickPlane.position.y=.025; spawnPickPlane.visibility=0; spawnPickPlane.isPickable=true;
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=new BABYLON.Vector3(pi.pickInfo.pickedPoint.x,0.6,pi.pickInfo.pickedPoint.z); if(mm?.interactive){ state.target=target; const tp=target.getAbsolutePosition?.()||pi.pickInfo.pickedPoint; state.zoomFocus=new BABYLON.Vector3(tp.x,0.6,tp.z); log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
-  setupUI(); installWorldAPI();
+  setupUI(); setupTTSHooks(); installWorldAPI();
   const restored=await loadWorldState();
   if(!restored){
     const g=await createGeneratedGeebr(scene,'geebr1',new BABYLON.Vector3(0,.06,0));
