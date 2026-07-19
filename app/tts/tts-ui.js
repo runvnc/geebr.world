@@ -11,6 +11,10 @@
     node.textContent=`backend: ${m.backend||'WASM CPU'} · isolated: ${m.isolated?'yes':'NO'} · threads: ${m.threads||1}/${m.hardwareConcurrency||'?'} · aggregate RTFx: ${fmt(m.rtfx)} · latest chunk RTFx: ${fmt(m.lastChunkRtfx)} · worker first audio: ${m.firstAudioMs==null?'—':Math.round(m.firstAudioMs)+' ms'} · say→arrival: ${m.audioArrivalMs==null?'—':Math.round(m.audioArrivalMs)+' ms'} · say→playback: ${m.playbackStartMs==null?'—':Math.round(m.playbackStartMs)+' ms'} · buffer: ${Math.round(m.bufferedMs||0)} ms · minimum: ${m.minBufferedMs==null?'—':Math.round(m.minBufferedMs)+' ms'} · underruns: ${m.underruns||0} · chunks: ${m.chunks||0}`;
   });
   tts.addEventListener('voiceschanged',refreshVoices);
+  tts.addEventListener('status',e=>{
+    const t=e.detail?.text||'';
+    if(/failed|error/i.test(t)) window.geebrToast?.(t,{type:'error',duration:5000});
+  });
   window.addEventListener('DOMContentLoaded',()=>{
     sync();
     // Browser HTTP/Cache Storage retains the downloaded ONNX bundle. Once the
@@ -30,8 +34,8 @@
     $('ttsLanguage').onchange=e=>tts.setLanguage(e.target.value);
     $('ttsVolume').oninput=e=>tts.setVolume(e.target.value);
     $('testAgentVoice').onclick=()=>{const g=window.geebrWorld?.getSelectedAgent?.();if(g){tts.setEnabled(true);$('ttsEnabled').checked=true;tts.speak(g,'Hello! This is my selected Pocket TTS voice.',$('agentTtsVoice').value);}};
-    $('deleteCustomVoice').onclick=async()=>{const id=$('agentTtsVoice').value;if(!id.startsWith('custom:'))return alert('Select a custom voice first.');if(confirm('Delete this custom voice from this browser?'))await tts.deleteVoice(id.slice(7));};
-    $('addCustomVoice').onclick=async()=>{const f=$('customVoiceFile').files?.[0];if(!f)return alert('Choose an audio sample first.');$('ttsStatus').textContent='Processing voice sample…';try{await tts.load();const id=await tts.addVoice($('customVoiceName').value,f);refreshVoices();$('agentTtsVoice').value='custom:'+id;$('agentTtsVoice').dispatchEvent(new Event('change'));$('ttsStatus').textContent='Custom voice ready';}catch(e){$('ttsStatus').textContent='Custom voice failed: '+e.message;}};
+    $('deleteCustomVoice').onclick=async()=>{const id=$('agentTtsVoice').value;if(!id.startsWith('custom:'))return window.geebrToast('Select a custom voice first.',{type:'warn'});if(await window.confirmDialog('Delete this custom voice from this browser?',{title:'Delete voice?',confirmText:'delete voice',danger:true}))await tts.deleteVoice(id.slice(7));};
+    $('addCustomVoice').onclick=async()=>{const f=$('customVoiceFile').files?.[0];if(!f)return window.geebrToast('Choose an audio sample first.',{type:'warn'});$('ttsStatus').textContent='Processing voice sample…';try{await tts.load();const id=await tts.addVoice($('customVoiceName').value,f);refreshVoices();$('agentTtsVoice').value='custom:'+id;$('agentTtsVoice').dispatchEvent(new Event('change'));$('ttsStatus').textContent='Custom voice ready';}catch(e){$('ttsStatus').textContent='Custom voice failed: '+e.message;}};
     $('recordCustomVoice').onclick=async e=>{
       if(recorder?.state==='recording'){recorder.stop();e.target.textContent='record sample';return;}
       try{stream=await navigator.mediaDevices.getUserMedia({audio:true});recorded=[];recorder=new MediaRecorder(stream);recorder.ondataavailable=x=>{if(x.data.size)recorded.push(x.data);};recorder.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(recorded,{type:recorder.mimeType});const file=new File([blob],(($('customVoiceName').value||'recorded-voice')+'.webm'),{type:blob.type});const dt=new DataTransfer();dt.items.add(file);$('customVoiceFile').files=dt.files;$('ttsStatus').textContent='Recording captured; click add uploaded sample.';};recorder.start();e.target.textContent='stop recording';$('ttsStatus').textContent='Recording custom voice…';

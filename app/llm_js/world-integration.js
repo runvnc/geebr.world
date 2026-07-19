@@ -392,7 +392,9 @@ async function main() {
         enableThinking: !!el('enableThinking')?.checked,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
       });
-      const cmd = world.parseLLMCommandLine(line) || { kind: 'look' };
+      const planLines = String(line || '').split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3);
+      const planCmds = planLines.map(l => world.parseLLMCommandLine(l)).filter(Boolean);
+      if (!planCmds.length) planCmds.push({ kind: 'look' });
       // Persist chat messages to history so they're remembered in future turns
       if (chatSuffix) {
         const chatLines = chatSuffix.trim().split('\n').filter(l => l.trim() && !l.startsWith('NEW SPEECH') && !l.startsWith('Respond to its meaning'));
@@ -408,7 +410,7 @@ async function main() {
       cfg.recent = (cfg.recent || []).concat(`chose ${line || 'nothing'}`).slice(-6);
       world.setBrainConfig(g.id, cfg);
       appendLog(`${g.id} brain -> ${line || 'look()'}`);
-      await world.stepAgentTurn(g.id, cmd, 'llm');
+      for (const planCmd of planCmds) await world.stepAgentTurn(g.id, planCmd, 'llm');
       // After turn resolves, add system result as user message
       const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';
       const summary = formatActionSummary(resultDesc);
@@ -487,6 +489,8 @@ async function main() {
   el('spawnCrate')?.addEventListener('click', () => world.spawnProp('crate'));
   el('spawnBarrel')?.addEventListener('click', () => world.spawnProp('barrel'));
   el('spawnWall')?.addEventListener('click', () => world.spawnProp('wall'));
+  el('spawnMushroom')?.addEventListener('click', () => world.spawnProp('mushroom'));
+  el('spawnLamp')?.addEventListener('click', () => world.spawnProp('lamp'));
 
   function sendChatToAgent() {
     const input = el('chatInput');

@@ -14,7 +14,7 @@ const state = {
   turn:{index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true}, globalHistory:[], nextAgentId:null,
   brainConfigs:new Map(), nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
 };
-function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); }
+function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); try{ const muted=(window._geebrLogToastMuteUntil&&performance.now()<window._geebrLogToastMuteUntil)||s.startsWith('selected '); if(!muted) window.geebrToast?.(s,{type:'info'}); }catch{} }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 async function createEngine(){ if(!navigator.gpu) throw new Error('WebGPU unavailable in this browser'); const engine = new BABYLON.WebGPUEngine(canvas,{antialias:true,adaptToDeviceRatio:true}); await engine.initAsync(); return engine; }
@@ -1208,10 +1208,10 @@ function buildAgentPrompt(g, cfg) {
     ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
     'Messages in the form "NAME says ..." report speech addressed to you.',
     'Understand and answer the meaning of that speech; do not copy or quote it back.',
-    'For a question, use say() with a short direct answer. For a request, respond or take the requested action.',
+    'For a question, use say() with a short direct answer. For a request, say() a brief reply AND then take the requested action.',
     'Never put the speaker attribution, such as "Tom says", inside say().',
     'Example: Tom says "which is bigger, a dog or a whale?" -> say("A whale is much bigger.")',
-    'Do not output anything except the command line.',
+    'Output 1-3 command lines, each on its own line; they run in order as one plan (for example: say("On it!") then walk(n) then carry()). Do not output anything except command lines.',
   ].join('\n');
   const commandReminder = [
     'SYSTEM: ' + String(perception).slice(0, 2400),
@@ -1544,20 +1544,28 @@ function setupUI(){
   const settle=document.getElementById('settleNow'); if(settle) settle.onclick=()=>settleWorld('manual settle');
   const copy=document.getElementById('copyPerception'); if(copy) copy.onclick=()=>{ const text=buildVisiblePerception(null,document.getElementById('visionRadius')?.value||5); navigator.clipboard?.writeText(text); log('copied perception text'); };
   const showMap=document.getElementById('showAsciiMap'); if(showMap) showMap.onchange=updatePerceptionUI;
-  const clearMapBtn=document.getElementById('clearMap'); if(clearMapBtn) clearMapBtn.onclick=()=>{
-    if(confirm('Clear all geebrs and objects from the map?')) { clearWorld(); saveWorldState(); }
+  const clearMapBtn=document.getElementById('clearMap'); if(clearMapBtn) clearMapBtn.onclick=async()=>{
+    if(await window.confirmDialog('Clear all geebrs and objects from the map?',{title:'Clear map?',confirmText:'clear map',danger:true})) {
+      const snap=localStorage.getItem('geebrWorldState');
+      window._geebrLogToastMuteUntil=performance.now()+1500;
+      clearWorld(); saveWorldState();
+      window.geebrToast?.('map cleared: all geebrs and objects removed',{type:'warn',duration:9000,action:snap?{label:'undo',onClick:async()=>{ try{ await restoreWorldState(JSON.parse(snap)); window.geebrToast?.('map restored',{type:'success'}); }catch(e){ window.geebrToast?.('undo failed: '+(e?.message||e),{type:'error'}); } }}:null});
+    }
   };
-  const resetStateBtn=document.getElementById('resetState'); if(resetStateBtn) resetStateBtn.onclick=()=>{
-    if(confirm('Reset to a blank demo world with one Geebr? This cannot be undone.')) {
+  const resetStateBtn=document.getElementById('resetState'); if(resetStateBtn) resetStateBtn.onclick=async()=>{
+    if(await window.confirmDialog('Reset to a blank demo world with one Geebr?',{title:'Reset state?',confirmText:'reset world',danger:true})) {
+      const snap=localStorage.getItem('geebrWorldState');
+      window._geebrLogToastMuteUntil=performance.now()+2500;
       localStorage.removeItem('geebrWorldState'); clearWorld();
       createGeneratedGeebr(state.scene,'geebr1',new BABYLON.Vector3(0,.06,0)).then(g=>{
         setGeebrLogicalPosition(g,new BABYLON.Vector3(0,0,0)); refreshAgentSelect(); selectGeebr(g); saveWorldState();
         log('state reset: blank demo world with one Geebr');
-      }).catch(err=>console.error('reset Geebr failed',err));
+        window.geebrToast?.('world reset to blank demo',{type:'warn',duration:9000,action:snap?{label:'undo',onClick:async()=>{ try{ await restoreWorldState(JSON.parse(snap)); window.geebrToast?.('previous world restored',{type:'success'}); }catch(e){ window.geebrToast?.('undo failed: '+(e?.message||e),{type:'error'}); } }}:null});
+      }).catch(err=>{ console.error('reset Geebr failed',err); window.geebrToast?.('reset failed: '+(err?.message||err),{type:'error'}); });
     }
   };
-  const clearHistoryBtn=document.getElementById('clearHistory'); if(clearHistoryBtn) clearHistoryBtn.onclick=()=>{
-    if(confirm('Clear chat and action history for every Geebr? The world and all customization will stay as they are.')) {
+  const clearHistoryBtn=document.getElementById('clearHistory'); if(clearHistoryBtn) clearHistoryBtn.onclick=async()=>{
+    if(await window.confirmDialog('Clear chat and action history for every Geebr? The world and all customization will stay as they are.',{title:'Clear history?',confirmText:'clear history',danger:true})) {
       clearConversationHistory();
     }
   };
