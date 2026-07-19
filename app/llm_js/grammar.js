@@ -40,6 +40,7 @@ face(direction: n|s|e|w)
 repair()
 panic()
 spell(name: push|spark|fireball)
+note(html)
 goal(text)
 give_quest(text)`),
     instruction: 'Output one to three plain command lines matching the geebr.world command syntax, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. Pick actions for this character based on perception, personality, goals, quest, and current goal.',
