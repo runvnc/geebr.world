@@ -85,3 +85,14 @@ Open:
 ```txt
 http://localhost:8000
 ```
+
+## v14.6 (current)
+
+- Speaking animation now driven by TTS events: `speechstart`/`speechend` from Pocket-TTS set `g.speaking`, play the `talk` rig animation for the real audio duration, and oscillate the head bone Y-scale (~14Hz) as a mouth flapping effect.
+- `say()` calls `geebrTTS.speak()` when TTS is loaded; falls back to a 900ms talk pose otherwise.
+- Speech bubbles now use a fixed 42px screen-space offset above the projected head (was fixed world-space 1.7 units that drifted with ortho zoom). APNG recorder unaffected.
+- All 8 KayKit animation packs are loaded (General, MovementBasic, MovementAdvanced, CombatRanged, CombatMelee, Tools, Simulation, Special).
+- New `emote(name)` command: dance, laugh, sit, wave, clap, cheer, sleep, bow. Mapped to real KayKit clips (Cheering, Sit_Floor_*, Lie_*, Waving, Interact, Push_Ups, Sit_Ups, Use_Item).
+- LLM agents see `emote(name)` in their command examples and can use it like any other command.
+- Dead root-level duplicates removed (`app.js`, `style.css`, `recorder.js` at repo root; live copies under `app/`).
+

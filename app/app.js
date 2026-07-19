@@ -252,6 +252,8 @@ async function createKayKitGeebr(scene,id,pos,file,label){
   const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:label,traits:{fireball:78,obedience:48},rigged:true,rigRoot:importedRoot,rigAnims:cloneAnimGroupsForRig(root,id),rigMode:null,activeRigAnim:null,cosmetic:{},logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true);
   state.geebrs.push(geebr);
+  const animCount=Object.keys(geebr.rigAnims||{}).length;
+  log(id+' rig anims available: '+animCount);
   return geebr;
 }
 async function createGeneratedGeebr(scene,id,pos){
