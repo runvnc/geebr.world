@@ -204,25 +204,25 @@ function playRig(g,mode,loop=true){
   if(!g?.rigged || g.rigMode===mode) return;
   if(g.activeRigAnim) g.activeRigAnim.stop();
   const choices={
-    idle:['Idle_A','Idle_B','Melee_Unarmed_Idle','Idle_C','Idle_D','Bored','LookAround','Breathing'],
-    walk:['Walking_A','Walking_B','Walking_C','Walking_D','Sneaking'],
-    panic:['Running_A','Running_B','Running_C','Sprinting','Fleeing'],
-    talk:['Talking_A','Talking_B','Talking','Waving','Interact','Gesture','Explain','Converse','Idle_B'],
-    cast:['Ranged_Magic_Spellcasting','Ranged_Magic_Shoot','Ranged_Magic_Raise','Melee_Magic_Cast','Spellcast'],
-    push:['Interact','Melee_Unarmed_Attack_Punch_A','Push_Ups','Shoving'],
-    carry:['Holding_A','Holding_B','PickUp','Carrying','Lift'],
-    throw:['Throw','Ranged_Magic_Shoot','Toss','Tossing'],
-    dig:['Dig','Digging','Pickaxe','Shoveling','Mining'],
-    repair:['Hammer','Hammering','Work_A','Repairing','Building'],
-    bonk:['Hit_A','Hit_B','Stumble','Impact'],
-    dance:['Dance','Dancing','Silly_Dance','Happy_Dance'],
-    laugh:['Laugh','Laughing','Chuckling'],
-    sit:['Sit','Sitting','Sitting_Ground'],
-    wave:['Waving','Wave','Greeting','Hello'],
-    clap:['Clap','Clapping','Cheer'],
-    cheer:['Cheer','Celebrate','Victory','Jumping_Joy'],
-    sleep:['Sleep','Sleeping','Lying_Down'],
-    bow:['Bow','Bowing','Salute']
+    idle:['Idle_A','Idle_B','Melee_Unarmed_Idle'],
+    walk:['Walking_A','Walking_B','Walking_C'],
+    panic:['Running_A','Running_B'],
+    talk:['Waving','Interact','Idle_B'],
+    cast:['Ranged_Magic_Spellcasting','Ranged_Magic_Shoot','Ranged_Magic_Raise'],
+    push:['Interact','Melee_Unarmed_Attack_Punch_A','Push_Ups'],
+    carry:['Holding_A','Holding_B','PickUp'],
+    throw:['Throw','Ranged_Magic_Shoot'],
+    dig:['Dig','Digging','Pickaxe'],
+    repair:['Hammer','Hammering','Work_A'],
+    bonk:['Hit_A','Hit_B'],
+    dance:['Cheering','Push_Ups','Sit_Ups'],
+    laugh:['Cheering','Interact'],
+    sit:['Sit_Floor_Idle','Sit_Floor_Down','Sit_Chair_Idle'],
+    wave:['Waving'],
+    clap:['Cheering'],
+    cheer:['Cheering'],
+    sleep:['Lie_Idle','Lie_Down'],
+    bow:['Interact','Use_Item']
   }[mode] || ['Idle_A'];
   const ag=pickAnim(g,choices) || pickAnim(g,['Idle_A']);
   if(ag){ ag.start(loop,1.0,ag.from,ag.to,false); g.activeRigAnim=ag; g.rigMode=mode; }
