@@ -7,7 +7,7 @@ const CHAR_ASSET = './assets/models/characters/kaykit/';
 const ANIM_ASSET = './assets/models/animations/kaykit/';
 const GEEBR_ASSET = './assets/models/characters/generated/';
 const WORLD = { size: 32, half: 16 };
-const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','spell.push','spell.spark','spell.fireball','goal','give_quest'];
+const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
   blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(['walk']), zoomFocus:null, animSources:null,
@@ -171,7 +171,7 @@ function addTerrainPolish(scene){
 
 async function initKayKitAnimationSources(scene){
   if(state.animSources) return state.animSources;
-  const files=['Rig_Medium_General.glb','Rig_Medium_MovementBasic.glb','Rig_Medium_CombatRanged.glb','Rig_Medium_Tools.glb','Rig_Medium_Simulation.glb'];
+  const files=['Rig_Medium_General.glb','Rig_Medium_MovementBasic.glb','Rig_Medium_MovementAdvanced.glb','Rig_Medium_CombatRanged.glb','Rig_Medium_CombatMelee.glb','Rig_Medium_Tools.glb','Rig_Medium_Simulation.glb','Rig_Medium_Special.glb'];
   const groups=[];
   for(const file of files){
     try{
@@ -204,13 +204,39 @@ function playRig(g,mode,loop=true){
   if(!g?.rigged || g.rigMode===mode) return;
   if(g.activeRigAnim) g.activeRigAnim.stop();
   const choices={
-    idle:['Idle_A','Idle_B','Melee_Unarmed_Idle'], walk:['Walking_A','Walking_B','Walking_C'], panic:['Running_A','Running_B'],
-    talk:['Waving','Interact','Idle_B'], cast:['Ranged_Magic_Spellcasting','Ranged_Magic_Shoot','Ranged_Magic_Raise'],
-    push:['Interact','Melee_Unarmed_Attack_Punch_A','Push_Ups'], carry:['Holding_A','Holding_B','PickUp'], throw:['Throw','Ranged_Magic_Shoot'],
-    dig:['Dig','Digging','Pickaxe'], repair:['Hammer','Hammering','Work_A'], bonk:['Hit_A','Hit_B']
+    idle:['Idle_A','Idle_B','Melee_Unarmed_Idle','Idle_C','Idle_D','Bored','LookAround','Breathing'],
+    walk:['Walking_A','Walking_B','Walking_C','Walking_D','Sneaking'],
+    panic:['Running_A','Running_B','Running_C','Sprinting','Fleeing'],
+    talk:['Talking_A','Talking_B','Talking','Waving','Interact','Gesture','Explain','Converse','Idle_B'],
+    cast:['Ranged_Magic_Spellcasting','Ranged_Magic_Shoot','Ranged_Magic_Raise','Melee_Magic_Cast','Spellcast'],
+    push:['Interact','Melee_Unarmed_Attack_Punch_A','Push_Ups','Shoving'],
+    carry:['Holding_A','Holding_B','PickUp','Carrying','Lift'],
+    throw:['Throw','Ranged_Magic_Shoot','Toss','Tossing'],
+    dig:['Dig','Digging','Pickaxe','Shoveling','Mining'],
+    repair:['Hammer','Hammering','Work_A','Repairing','Building'],
+    bonk:['Hit_A','Hit_B','Stumble','Impact'],
+    dance:['Dance','Dancing','Silly_Dance','Happy_Dance'],
+    laugh:['Laugh','Laughing','Chuckling'],
+    sit:['Sit','Sitting','Sitting_Ground'],
+    wave:['Waving','Wave','Greeting','Hello'],
+    clap:['Clap','Clapping','Cheer'],
+    cheer:['Cheer','Celebrate','Victory','Jumping_Joy'],
+    sleep:['Sleep','Sleeping','Lying_Down'],
+    bow:['Bow','Bowing','Salute']
   }[mode] || ['Idle_A'];
   const ag=pickAnim(g,choices) || pickAnim(g,['Idle_A']);
   if(ag){ ag.start(loop,1.0,ag.from,ag.to,false); g.activeRigAnim=ag; g.rigMode=mode; }
+}
+function findHeadNodes(g){
+  if(g._headNodes) return g._headNodes;
+  const nodes=[];
+  if(g.rigRoot){
+    for(const n of [g.rigRoot,...g.rigRoot.getDescendants(false)]){
+      if(n.name && /head/i.test(n.name) && !/headphone/i.test(n.name)) nodes.push(n);
+    }
+  }
+  g._headNodes=nodes;
+  return nodes;
 }
 async function createKayKitGeebr(scene,id,pos,file,label){
   const res=await BABYLON.SceneLoader.ImportMeshAsync('',CHAR_ASSET,file,scene);
@@ -604,16 +630,22 @@ function clearStreamingBubble(g) {
 }
 
 function say(g,text){
-  // Audio-only performance test: dispatch speech without bubble or animation
-  // updates, so main-thread presentation cannot perturb streaming playback.
+  // Dispatch speech before logging, DOM bubbles, animation, or history work.
   try{ window.geebrTTS?.speak(g,text,getBrainConfig(g.id).ttsVoiceId); }catch(e){ console.warn('Pocket-TTS say failed',e); }
   log(g.id+': '+text);
+  const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86);
+  document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8});
+  g.anim='talk'; playRig(g,'talk',true);
+  const speechRequested=localStorage.getItem('geebrTtsEnabled')==='1' && getBrainConfig(g.id).ttsEnabled!==false;
+  setTimeout(()=>{ if(g.anim==='talk' && (!speechRequested || window.geebrTTS?.current?.agent!==g)){ g.anim='idle'; playRig(g,'idle',true); } },speechRequested?2000:900);
   if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; }
 }
+window.geebrTTS?.addEventListener('speechstart',e=>{ const g=e.detail.agent; if(g){g.speaking=true;g.anim='talk';playRig(g,'talk',true);} });
+window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g){g.speaking=false;if(g.anim==='talk'){g.anim='idle';playRig(g,'idle',true);}if(g._headNodes)for(const h of g._headNodes)h.scaling.y=1;} });
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
-function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
+function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
 function parseWalkDestination(arg){
   arg=String(arg||'').trim();
   if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1).trim();
@@ -639,11 +671,12 @@ function parseLLMCommandLine(line){
   if(name==='goal') return {kind:'goal',text:arg||''};
   if(name==='give_quest') return {kind:'give_quest',text:arg||''};
   if(name==='touch') return {kind:'touch',target:arg||''};
+  if(name==='emote') return {kind:'emote',emote:(arg.split(',')[0]||'dance').trim().toLowerCase()||'dance'};
   if(['look','push','pull','carry','drop','throw','dig','repair','panic'].includes(name)) return {kind:name};
   return null;
 }
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
-  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
+  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
 window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
@@ -765,6 +798,17 @@ function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),9
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 function build(g,thing='wall'){ const p=g.root.position.add(g.dir.scale(1.25)); const x=clamp(Math.round(p.x),-15,15),z=clamp(Math.round(p.z),-15,15); if(thing==='crate') makeCrate(state.scene,x,z); else makeBlock(state.scene,x,z,false); say(g,'construction happened near the plan'); }
 function panic(g){ g.anim='panic'; playRig(g,'panic',true); say(g,'I have promoted the floor to manager'); if(!isTurnMode()){ for(let i=0;i<5;i++) setTimeout(()=>{ const v=new BABYLON.Vector3(Math.random()-.5,0,Math.random()-.5).normalize(); g.collider.physicsBody?.applyImpulse(v.scale(1.15),g.collider.position); },i*160); } else emitBadge(g,'panic'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); zeroMeshMotion(g.collider); },1050); }
+function emote(g,name){
+  const valid=['dance','laugh','sit','wave','clap','cheer','sleep','bow'];
+  name=(name||'dance').toLowerCase();
+  if(!valid.includes(name)) name='dance';
+  const durMs={dance:3200,laugh:2200,sit:4000,wave:1800,clap:2200,cheer:2600,sleep:5000,bow:1800}[name]||2600;
+  g.anim=name; playRig(g,name,true);
+  log(g.id+' emotes: '+name);
+  emitBadge(g,name);
+  if(g._emoteTimeout) clearTimeout(g._emoteTimeout);
+  g._emoteTimeout=setTimeout(()=>{ if(g.anim===name){ g.anim='idle'; playRig(g,'idle',true); } },durMs);
+}
 function setGoal(g,text){ const cfg=getBrainConfig(g.id); cfg.goal=text||''; setBrainConfig(g.id,cfg); say(g,text?`goal set: ${text}`:'goal cleared'); updatePerceptionUI(); }
 function giveQuest(g,text){ if(!state.allowed.has('give_quest')){ return say(g,'I cannot bestow quests'); } const targets=state.geebrs.filter(x=>x!==g && BABYLON.Vector3.Distance(g.root.position,x.root.position)<=2.0); if(!targets.length){ return say(g,'no one nearby to quest upon'); } const target=pickRandom(targets); const tcfg=getBrainConfig(target.id); tcfg.quest=text||''; setBrainConfig(target.id,tcfg); say(g,`bestowed quest upon ${target.id}: ${text}`); say(target,`received quest: ${text}`); updatePerceptionUI(); }
 function castSpell(g,spell){ g.anim='cast'; playRig(g,'cast',true); const origin=g.root.position.clone(); makeRing(origin,spell==='fireball'?state.materials.fire:state.materials.magic); if(spell==='spark'){ const t=nearestTarget(g,3); if(t){ const m=meta(t); if(m?.type==='lamp'||m?.type==='crystal') emitBadge(t,'glow'); else damage(t,.35,'spark'); } return setTimeout(()=>{ say(g,'sparkles are a valid plan'); g.anim='idle'; playRig(g,'idle',true); },220); }
@@ -1017,6 +1061,7 @@ function buildCommandExamples(){
   if(state.allowed.has('build')) ex.push('build(thing) e.g. build(wall)');
   if(state.allowed.has('repair')) ex.push('repair()');
   if(state.allowed.has('panic')) ex.push('panic()');
+  if(state.allowed.has('emote')) ex.push('emote(name) e.g. emote(dance) - dance, laugh, sit, wave, clap, cheer, sleep, bow');
   if(state.allowed.has('spell.push')) ex.push('spell(push)');
   if(state.allowed.has('spell.spark')) ex.push('spell(spark)');
   if(state.allowed.has('spell.fireball')) ex.push('spell(fireball)');
@@ -1420,7 +1465,11 @@ function updateBubbles(dt){
   const tm=scene.getTransformMatrix();
   const vp=camera.viewport.toGlobal(engine.getRenderWidth(),engine.getRenderHeight());
   function project(node,dy=1.7){ return BABYLON.Vector3.Project(node.getAbsolutePosition().add(new BABYLON.Vector3(0,dy,0)),BABYLON.Matrix.IdentityReadOnly,tm,vp); }
-  for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.7); b.div.style.left=p.x+'px'; b.div.style.top=p.y+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } }
+  // Bubbles: project the head (dy=1.0) then apply a fixed 42px screen-space
+  // offset so the bubble stays a consistent visual distance from the head
+  // regardless of ortho zoom level (was: fixed world-space dy=1.7 which
+  // drifted far above the head when zoomed in, overlapped when zoomed out).
+  for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.0); b.div.style.left=p.x+'px'; b.div.style.top=(p.y-42)+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } }
   for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } }
 }
 function updateCompassHUD(){
@@ -1452,7 +1501,7 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
+function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
