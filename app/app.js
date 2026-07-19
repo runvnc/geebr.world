@@ -226,6 +226,72 @@ function playRig(g,mode,loop=true){
   }[mode] || ['Idle_A'];
   const ag=pickAnim(g,choices) || pickAnim(g,['Idle_A']);
   if(ag){ ag.start(loop,1.0,ag.from,ag.to,false); g.activeRigAnim=ag; g.rigMode=mode; }
+  g._lastRigAnimName = ag ? ag.name : null;
+}
+function debugRigAnims(g){ try{ console.log('[geebr rig]', g.id, 'clips:', Object.keys(g.rigAnims||{})); }catch{} }
+// Find named bones on any supported rig (Meshy PascalCase or KayKit lowercase)
+function findBones(g){
+  if(g._bones) return g._bones;
+  const b={};
+  if(g.rigRoot){
+    const map={head:['Head','head'],neck:['neck','Neck'],hips:['Hips','hips'],spine:['Spine01','Spine','spine'],chest:['Spine02','chest'],armL:['LeftArm','upperarm.l'],armR:['RightArm','upperarm.r'],forearmL:['LeftForeArm','lowerarm.l'],forearmR:['RightForeArm','lowerarm.r'],handL:['LeftHand','hand.l'],handR:['RightHand','hand.r'],legL:['LeftUpLeg','upperleg.l'],legR:['RightUpLeg','upperleg.r'],shinL:['LeftLeg','lowerleg.l'],shinR:['RightLeg','lowerleg.r'],root:['Armature','root']};
+    const all=[g.rigRoot,...g.rigRoot.getDescendants(false)];
+    for(const key of Object.keys(map)){
+      for(const nm of map[key]){ const hit=all.find(n=>n.name===nm); if(hit){ b[key]=hit; break; } }
+    }
+  }
+  g._bones=b;
+  return b;
+}
+// Procedural emote fallback: drive bones directly when no matching rig clip exists
+function updateProceduralEmote(g,dt){
+  if(!g.emote || g.emoteTime==null) return;
+  g.emoteTime+=dt;
+  const t=g.emoteTime, b=findBones(g);
+  const damp=Math.min(1,t*6);
+  const endT={dance:3.2,laugh:2.2,sit:4.0,wave:1.8,clap:2.2,cheer:2.6,sleep:5.0,bow:1.8}[g.emote]||2.5;
+  const fade=t>endT-.4 ? Math.max(0,(endT-t)/.4) : 1;
+  const k=damp*fade;
+  const R=(bone,x=0,y=0,z=0)=>{ if(!bone) return; bone.rotation.x=x*k; bone.rotation.y=y*k; bone.rotation.z=z*k; };
+  if(g.emote==='dance'||g.emote==='cheer'){
+    const s=Math.sin(t*7);
+    R(b.armL,0,0, 1.9+s*.45); R(b.armR,0,0,-1.9-s*.45);
+    R(b.forearmL,-.5-.3*s); R(b.forearmR,-.5+.3*s);
+    R(b.head,0,Math.sin(t*3.5)*.25,0);
+    R(b.spine,0,Math.sin(t*3.5)*.12,0);
+    if(b.hips) b.hips.position.y=(b.hips._baseY ?? (b.hips._baseY=b.hips.position.y)) + Math.abs(Math.sin(t*7))*.09*k;
+  } else if(g.emote==='wave'){
+    R(b.armR,0,0,-2.2); R(b.forearmR,0,0,Math.sin(t*9)*.55);
+    R(b.head,0,-.25,0);
+  } else if(g.emote==='laugh'){
+    const s=Math.sin(t*11);
+    R(b.head,-.28+.1*s,0,0);
+    R(b.spine,-.06+.04*s,0,0);
+    R(b.armL,0,0,.5); R(b.armR,0,0,-.5);
+  } else if(g.emote==='clap'){
+    const s=Math.abs(Math.sin(t*8));
+    R(b.armL,0,0,1.25-.55*s); R(b.armR,0,0,-1.25+.55*s);
+    R(b.forearmL,-1.1); R(b.forearmR,-1.1);
+  } else if(g.emote==='sit'){
+    R(b.legL,-1.35); R(b.legR,-1.35); R(b.shinL,1.3); R(b.shinR,1.3);
+    if(b.hips) b.hips.position.y=(b.hips._baseY ?? (b.hips._baseY=b.hips.position.y))-.3*k;
+  } else if(g.emote==='sleep'){
+    R(b.head,.42,0,.3);
+    R(b.spine,.3);
+    if(b.hips) b.hips.position.y=(b.hips._baseY ?? (b.hips._baseY=b.hips.position.y))-.12*k + Math.sin(t*1.2)*.02;
+  } else if(g.emote==='bow'){
+    const p=Math.sin(Math.min(1,t/.9)*Math.PI);
+    R(b.spine,.75*p); R(b.chest,.35*p); R(b.head,.25*p);
+  }
+  if(t>=endT){
+    for(const key of Object.keys(b)){
+      const bone=b[key];
+      if(bone._baseY!=null){ bone.position.y=bone._baseY; delete bone._baseY; }
+      if(bone.rotation) bone.rotation.set(0,0,0);
+    }
+    g.emote=null; g.emoteTime=null;
+    if(g.anim!=='talk'){ g.anim='idle'; playRig(g,'idle',true); }
+  }
 }
 function findHeadNodes(g){
   if(g._headNodes) return g._headNodes;
@@ -254,6 +320,7 @@ async function createKayKitGeebr(scene,id,pos,file,label){
   state.geebrs.push(geebr);
   const animCount=Object.keys(geebr.rigAnims||{}).length;
   log(id+' rig anims available: '+animCount);
+  debugRigAnims(geebr);
   return geebr;
 }
 async function createGeneratedGeebr(scene,id,pos){
@@ -303,7 +370,7 @@ async function createGeneratedGeebr(scene,id,pos){
   const portraitRim=new BABYLON.PointLight(id+'_portrait_rim',new BABYLON.Vector3(1.6,2.35,1.45),scene);
   portraitRim.parent=root; portraitRim.diffuse=new BABYLON.Color3(.48,.70,1); portraitRim.intensity=.46; portraitRim.range=4.0;
   const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
-  playRig(geebr,'idle',true); state.geebrs.push(geebr); return geebr;
+  playRig(geebr,'idle',true); state.geebrs.push(geebr); debugRigAnims(geebr); return geebr;
 }
 async function createAgentCast(scene){
   try{
@@ -804,12 +871,22 @@ function emote(g,name){
   const valid=['dance','laugh','sit','wave','clap','cheer','sleep','bow'];
   name=(name||'dance').toLowerCase();
   if(!valid.includes(name)) name='dance';
-  const durMs={dance:3200,laugh:2200,sit:4000,wave:1800,clap:2200,cheer:2600,sleep:5000,bow:1800}[name]||2600;
-  g.anim=name; playRig(g,name,true);
   log(g.id+' emotes: '+name);
   emitBadge(g,name);
   if(g._emoteTimeout) clearTimeout(g._emoteTimeout);
-  g._emoteTimeout=setTimeout(()=>{ if(g.anim===name){ g.anim='idle'; playRig(g,'idle',true); } },durMs);
+  // Prefer a real rig clip when the rig has one; otherwise drive bones directly.
+  playRig(g,name,true);
+  const gotClip = g._lastRigAnimName && !/^Idle_/.test(g._lastRigAnimName);
+  if(gotClip){
+    g.anim=name;
+    g.emote=null;
+    const durMs={dance:3200,laugh:2200,sit:4000,wave:1800,clap:2200,cheer:2600,sleep:5000,bow:1800}[name]||2600;
+    g._emoteTimeout=setTimeout(()=>{ if(g.anim===name){ g.anim='idle'; playRig(g,'idle',true); } },durMs);
+    console.log('[emote]', g.id, name, '-> rig clip', g._lastRigAnimName);
+  } else {
+    g.anim=name; g.emote=name; g.emoteTime=0;
+    console.log('[emote]', g.id, name, '-> procedural bone drive (no rig clip on this character)');
+  }
 }
 function setGoal(g,text){ const cfg=getBrainConfig(g.id); cfg.goal=text||''; setBrainConfig(g.id,cfg); say(g,text?`goal set: ${text}`:'goal cleared'); updatePerceptionUI(); }
 function giveQuest(g,text){ if(!state.allowed.has('give_quest')){ return say(g,'I cannot bestow quests'); } const targets=state.geebrs.filter(x=>x!==g && BABYLON.Vector3.Distance(g.root.position,x.root.position)<=2.0); if(!targets.length){ return say(g,'no one nearby to quest upon'); } const target=pickRandom(targets); const tcfg=getBrainConfig(target.id); tcfg.quest=text||''; setBrainConfig(target.id,tcfg); say(g,`bestowed quest upon ${target.id}: ${text}`); say(target,`received quest: ${text}`); updatePerceptionUI(); }
