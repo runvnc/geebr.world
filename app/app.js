@@ -746,7 +746,7 @@ window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g)
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
-function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build'){ const bc=String(raw).match(/\bat\s+(.+)$/); return {kind:'build',thing:b||'wall',at:bc?parseWalkDestination(bc[1].trim()):null}; }
+function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build'){ const bc=String(raw).match(/\bat\s+(.+)$/); return {kind:'build',thing:b||'wall',at:bc?parseLocationArg(bc[1].trim()):null}; }
   if(a==='face') return {kind:'face',dir:(b||'n').toLowerCase()}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
 function parseWalkDestination(arg){
   arg=String(arg||'').trim();
@@ -756,6 +756,14 @@ function parseWalkDestination(arg){
   const legacy={north:'n',south:'s',east:'e',west:'w',n:'n',s:'s',e:'e',w:'w'};
   if(legacy[arg.toLowerCase()]) return {kind:'walk',dir:legacy[arg.toLowerCase()],destinationText:arg};
   if(/^[A-Za-z$/*][A-Za-z0-9_$/*-]*$/.test(arg)) return {kind:'walk',destination:{type:'label',label:arg},destinationText:arg};
+  return null;
+}
+function parseLocationArg(arg){
+  arg=String(arg||'').trim();
+  if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1).trim();
+  const xy=arg.match(/^\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?$/);
+  if(xy) return {type:'coord',x:Number(xy[1]),z:Number(xy[2])};
+  if(/^[A-Za-z$/*][A-Za-z0-9_$/*-]*$/.test(arg)) return {type:'label',label:arg};
   return null;
 }
 function parseLLMCommandLine(line){
@@ -769,7 +777,7 @@ function parseLLMCommandLine(line){
   if(name==='say') return {kind:'say',text:arg||'...'};
   if(name==='walk') return parseWalkDestination(arg);
   if(name==='spell') return {kind:'spell',spell:(arg.split(',')[0]||'spark').trim()||'spark'};
-  if(name==='build'){ const bp=arg.split(',').map(x=>x.trim()).filter(Boolean); return {kind:'build',thing:bp[0]||'wall',at:bp.length>1?parseWalkDestination(bp.slice(1).join(',')):null}; }
+  if(name==='build'){ const ci=arg.indexOf(','); const thing=(ci<0?arg:arg.slice(0,ci)).trim()||'wall'; const at=ci<0?null:parseLocationArg(arg.slice(ci+1)); return {kind:'build',thing,at}; }
   if(name==='face'){ const fd=(arg.split(',')[0]||'n').trim().toLowerCase(); return {kind:'face',dir:fd||'n'}; }
   if(name==='goal') return {kind:'goal',text:arg||''};
   if(name==='give_quest') return {kind:'give_quest',text:arg||''};
