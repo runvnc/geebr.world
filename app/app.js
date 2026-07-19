@@ -241,25 +241,58 @@ function findBones(g){
     }
   }
   g._bones=b;
+  console.log('[geebr bones]', g.id, 'found:', Object.keys(b).join(',') || 'NONE');
   return b;
+}
+// Capture a bone's rest transform once, so procedural emotes compose on top
+// of the rest pose and can be restored cleanly afterwards.
+function boneRest(bone){
+  if(!bone._rest){
+    bone._rest={
+      q: bone.rotationQuaternion ? bone.rotationQuaternion.clone() : null,
+      r: bone.rotation ? bone.rotation.clone() : null,
+      p: bone.position ? bone.position.clone() : null
+    };
+  }
+  return bone._rest;
+}
+function restoreBone(bone){
+  if(!bone || !bone._rest) return;
+  if(bone._rest.q){ bone.rotationQuaternion = bone.rotationQuaternion || new BABYLON.Quaternion(); bone.rotationQuaternion.copyFrom(bone._rest.q); }
+  if(bone._rest.r){ bone.rotation.copyFrom(bone._rest.r); }
+  if(bone._rest.p){ bone.position.copyFrom(bone._rest.p); }
 }
 // Procedural emote fallback: drive bones directly when no matching rig clip exists
 function updateProceduralEmote(g,dt){
-  if(!g.emote || g.emoteTime==null) return;
+  if(g.emote==null || g.emoteTime==null) return;
   g.emoteTime+=dt;
   const t=g.emoteTime, b=findBones(g);
+  if(!Object.keys(b).length){ g.emote=null; g.emoteTime=null; return; }
   const damp=Math.min(1,t*6);
   const endT={dance:3.2,laugh:2.2,sit:4.0,wave:1.8,clap:2.2,cheer:2.6,sleep:5.0,bow:1.8}[g.emote]||2.5;
   const fade=t>endT-.4 ? Math.max(0,(endT-t)/.4) : 1;
   const k=damp*fade;
-  const R=(bone,x=0,y=0,z=0)=>{ if(!bone) return; bone.rotation.x=x*k; bone.rotation.y=y*k; bone.rotation.z=z*k; };
+  // Compose rest * delta as quaternions; GLB bones ignore .rotation when
+  // rotationQuaternion is set, so we always write the quaternion.
+  const R=(bone,x=0,y=0,z=0)=>{
+    if(!bone) return;
+    const rest=boneRest(bone);
+    const dq=BABYLON.Quaternion.RotationYawPitchRoll(y*k,x*k,z*k);
+    const base=rest.q || BABYLON.Quaternion.RotationYawPitchRoll(rest.r.y,rest.r.x,rest.r.z);
+    bone.rotationQuaternion=base.multiply(dq);
+  };
+  const P=(bone,dy)=>{
+    if(!bone) return;
+    const rest=boneRest(bone);
+    bone.position.y=rest.p.y + dy*k;
+  };
   if(g.emote==='dance'||g.emote==='cheer'){
     const s=Math.sin(t*7);
     R(b.armL,0,0, 1.9+s*.45); R(b.armR,0,0,-1.9-s*.45);
     R(b.forearmL,-.5-.3*s); R(b.forearmR,-.5+.3*s);
     R(b.head,0,Math.sin(t*3.5)*.25,0);
     R(b.spine,0,Math.sin(t*3.5)*.12,0);
-    if(b.hips) b.hips.position.y=(b.hips._baseY ?? (b.hips._baseY=b.hips.position.y)) + Math.abs(Math.sin(t*7))*.09*k;
+    P(b.hips, Math.abs(Math.sin(t*7))*.09);
   } else if(g.emote==='wave'){
     R(b.armR,0,0,-2.2); R(b.forearmR,0,0,Math.sin(t*9)*.55);
     R(b.head,0,-.25,0);
@@ -274,35 +307,20 @@ function updateProceduralEmote(g,dt){
     R(b.forearmL,-1.1); R(b.forearmR,-1.1);
   } else if(g.emote==='sit'){
     R(b.legL,-1.35); R(b.legR,-1.35); R(b.shinL,1.3); R(b.shinR,1.3);
-    if(b.hips) b.hips.position.y=(b.hips._baseY ?? (b.hips._baseY=b.hips.position.y))-.3*k;
+    P(b.hips,-.3);
   } else if(g.emote==='sleep'){
     R(b.head,.42,0,.3);
-    R(b.spine,.3);
-    if(b.hips) b.hips.position.y=(b.hips._baseY ?? (b.hips._baseY=b.hips.position.y))-.12*k + Math.sin(t*1.2)*.02;
+    R(b.spine,.3,0,0);
+    P(b.hips,-.12 + Math.sin(t*1.2)*.02);
   } else if(g.emote==='bow'){
     const p=Math.sin(Math.min(1,t/.9)*Math.PI);
-    R(b.spine,.75*p); R(b.chest,.35*p); R(b.head,.25*p);
+    R(b.spine,.75*p,0,0); R(b.chest,.35*p,0,0); R(b.head,.25*p,0,0);
   }
   if(t>=endT){
-    for(const key of Object.keys(b)){
-      const bone=b[key];
-      if(bone._baseY!=null){ bone.position.y=bone._baseY; delete bone._baseY; }
-      if(bone.rotation) bone.rotation.set(0,0,0);
-    }
+    for(const key of Object.keys(b)) restoreBone(b[key]);
     g.emote=null; g.emoteTime=null;
     if(g.anim!=='talk'){ g.anim='idle'; playRig(g,'idle',true); }
   }
-}
-function findHeadNodes(g){
-  if(g._headNodes) return g._headNodes;
-  const nodes=[];
-  if(g.rigRoot){
-    for(const n of [g.rigRoot,...g.rigRoot.getDescendants(false)]){
-      if(n.name && /head/i.test(n.name) && !/headphone/i.test(n.name)) nodes.push(n);
-    }
-  }
-  g._headNodes=nodes;
-  return nodes;
 }
 async function createKayKitGeebr(scene,id,pos,file,label){
   const res=await BABYLON.SceneLoader.ImportMeshAsync('',CHAR_ASSET,file,scene);
@@ -885,6 +903,9 @@ function emote(g,name){
     console.log('[emote]', g.id, name, '-> rig clip', g._lastRigAnimName);
   } else {
     g.anim=name; g.emote=name; g.emoteTime=0;
+    // Stop any looping rig clip (e.g. idle) so it cannot overwrite our bone writes
+    if(g.activeRigAnim){ try{ g.activeRigAnim.stop(); }catch{} g.activeRigAnim=null; }
+    g.rigMode='procedural_'+name;
     console.log('[emote]', g.id, name, '-> procedural bone drive (no rig clip on this character)');
   }
 }
