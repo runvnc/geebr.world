@@ -66,6 +66,19 @@ experiments, so feedback about *what just happened* matters more than chrome.
   Esc exits click-to-spawn, panel section open-state persists (World setup
   open on first visit), stale Qwen hint copy fixed.
 
+## v15 features (done)
+
+- ✅ Multi-command plans: agents can emit 1-3 command lines per turn
+  (grammar `@max 3`, prompts updated, world-integration parses each line and
+  runs them sequentially via stepAgentTurn; say-then-act works, e.g.
+  say("On it!") / walk(n) / carry()). maxTokens 48->96 for plan room.
+- ✅ Chat dock: chat UI moved out of World setup into an always-visible
+  floating dock bottom-left with a live 'to: <agent>' indicator.
+- ✅ Library (new panel section + library.js): save/load/delete named world
+  setups (full snapshots) and save/spawn/delete named geebr templates
+  (brain config + traits; spawned copies get fresh conversation).
+- ✅ Full spawn palette: mushroom + lamp buttons wired through spawnProp.
+
 ## Proposed plan
 
 **P0 — feedback loop (cheap, high impact)**

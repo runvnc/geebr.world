@@ -64,3 +64,21 @@
     });
   });
 })();
+
+/* chat dock: keep the 'talking to' indicator in sync with the selected agent */
+(() => {
+  function ready2(fn) {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+    else fn();
+  }
+  ready2(() => {
+    const chatTarget = document.getElementById('chatTarget');
+    if (!chatTarget) return;
+    const update = () => {
+      const id = window.geebrWorld?.getSelectedAgent?.()?.id;
+      chatTarget.textContent = 'to: ' + (id || 'click a geebr');
+    };
+    setInterval(update, 700);
+    update();
+  });
+})();

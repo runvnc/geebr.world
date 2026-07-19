@@ -1309,8 +1309,10 @@ function spawnProp(kind='crate'){
   let obj;
   if(kind==='barrel') obj=makeBarrel(state.scene,x,z);
   else if(kind==='wall') obj=makeBlock(state.scene,x,z,false);
+  else if(kind==='mushroom') obj=makeMushroom(state.scene,x,z);
+  else if(kind==='lamp') obj=makeLamp(state.scene,x,z);
   else obj=makeCrate(state.scene,x,z);
-  state.target=obj; log('spawned '+kind+' at '+x+','+z); updatePerceptionUI(); saveWorldState(); return obj;
+  if(obj) state.target=obj; log('spawned '+kind+' at '+x+','+z); updatePerceptionUI(); saveWorldState(); return obj;
 }
 async function spawnAt(type, x, z) {
   x = clamp(Math.round(x), -15, 15);

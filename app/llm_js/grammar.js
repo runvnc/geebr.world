@@ -24,7 +24,7 @@ walk(destination)`),
   },
   geebrCommands: {
     label: 'geebr.world one-turn agent command',
-    grammar: commandSpecToGrammar(`@one
+    grammar: commandSpecToGrammar(`@max 3
 say(text)
 walk(destination)
 look()
@@ -41,7 +41,7 @@ panic()
 spell(name: push|spark|fireball)
 goal(text)
 give_quest(text)`),
-    instruction: 'Output exactly one plain command line matching the geebr.world command syntax. Do not output JSON. Do not explain. Pick one action for this character based on perception, personality, goals, quest, and current goal.',
+    instruction: 'Output one to three plain command lines matching the geebr.world command syntax, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. Pick actions for this character based on perception, personality, goals, quest, and current goal.',
   },
   choice: { label: 'Custom choice example', grammar: `root ::= "option-a" | "option-b" | "option-c"` },
 };
@@ -193,7 +193,7 @@ export function parseCustomConstraint(text) {
 }
 
 export function buildDynamicGrammar(allowedCommands) {
-  const parts = ['@one'];
+  const parts = ['@max 3'];
   if (allowedCommands.has('say')) parts.push('say(text)');
   if (allowedCommands.has('walk')) parts.push('walk(destination)');
   if (allowedCommands.has('look')) parts.push('look()');
@@ -216,7 +216,7 @@ export function buildDynamicGrammar(allowedCommands) {
   const spec = parts.join('\n');
   return {
     grammar: commandSpecToGrammar(spec),
-    instruction: 'Output exactly one plain command line matching the command syntax. Do not output JSON. Do not explain. If the latest user message reports that someone says something, answer its meaning or follow its request; never copy the message into say().',
+    instruction: 'Output one to three plain command lines, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. If the latest user message reports that someone says something, answer its meaning or follow its request (say first, then act); never copy the message into say().',
     responseFormat: { type: 'grammar', grammar: commandSpecToGrammar(spec) },
   };
 }
