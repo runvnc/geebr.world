@@ -832,10 +832,22 @@ function parseLocationArg(arg){
   if(/^[A-Za-z$/*][A-Za-z0-9_$/*-]*$/.test(arg)) return {type:'label',label:arg};
   return null;
 }
+
+function splitPlanLines(text){
+  const raw=String(text||'').split('\n');
+  const out=[]; let buf=null,depth=0;
+  for(const ln of raw){
+    if(buf===null && /^\s*note\s*\(/i.test(ln)){ buf=ln; depth=(ln.match(/\(/g)||[]).length-(ln.match(/\)/g)||[]).length; if(depth<=0){ out.push(buf); buf=null; } continue; }
+    if(buf!==null){ buf+='\n'+ln; depth+=(ln.match(/\(/g)||[]).length-(ln.match(/\)/g)||[]).length; if(depth<=0){ out.push(buf); buf=null; } continue; }
+    const t=ln.trim(); if(t) out.push(t);
+  }
+  if(buf!==null) out.push(buf);
+  return out;
+}
 function parseLLMCommandLine(line){
   line=String(line||'').trim();
   if(!line) return null;
-  const m=line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\((.*)\)$/);
+  const m=line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\(([^]*)\)$/);
   if(!m) return parseCommand(line);
   const name=m[1].toLowerCase();
   let arg=m[2].trim();
@@ -856,7 +868,7 @@ function parseLLMCommandLine(line){
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
   switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall',cmd.at||null); case 'face': return face(g,cmd.dir||'n'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'note': return note(g,cmd.html||cmd.text||''); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
-window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
+window.splitPlanLines=splitPlanLines; window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
 // v13.2: avoid global executeCommand recursion; direct controls should keep working even if the perception panel changes/reflows.
 // Use one delegated handler instead of fragile per-button onclick assignments.
