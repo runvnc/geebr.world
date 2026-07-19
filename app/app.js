@@ -527,14 +527,42 @@ function renderNoteTexture(scene,html){
   const drawFallback=()=>{ ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#3a2f22'; ctx.font='20px monospace'; const t=noteTextFromHtml(html); const words=t.split(/\s+/); let line='',y=46; for(const w of words){ if(ctx.measureText(line+w).width>W-40){ ctx.fillText(line,20,y); y+=26; line=''; } line+=w+' '; if(y>H-20) break; } ctx.fillText(line,20,y); tex.update(); };
   drawFallback();
   try{
-    const css='margin:0;padding:18px;box-sizing:border-box;width:'+W+'px;height:'+H+'px;background:#f3ecd8;color:#2a2318;font-family:Georgia,serif;font-size:17px;line-height:1.4;overflow:hidden;word-wrap:break-word;';
-    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="'+css.replace(/"/g,"'")+'">'+String(html||'')+'</div></foreignObject></svg>';
-    const img=new Image();
-    img.onload=()=>{ try{ ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H); ctx.drawImage(img,0,0,W,H); tex.update(); }catch(e){ console.warn('note drawImage failed',e); } };
-    img.onerror=()=>{ /* keep fallback text */ };
-    img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+    const drawSvg=(htmlIn)=>{
+      try{
+        const css2='margin:0;padding:18px;box-sizing:border-box;width:'+W+'px;height:'+H+'px;background:#f3ecd8;color:#2a2318;font-family:Georgia,serif;font-size:17px;line-height:1.4;overflow:hidden;word-wrap:break-word;';
+        const svg2='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="'+css2.replace(/"/g,"'")+'">'+String(htmlIn||'')+'</div></foreignObject></svg>';
+        const img=new Image();
+        img.onload=()=>{ try{ ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H); ctx.drawImage(img,0,0,W,H); tex.update(); }catch(e){ console.warn('note drawImage failed',e); } };
+        img.onerror=()=>{ /* keep fallback text */ };
+        img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg2);
+      }catch(e){ console.warn('note SVG draw failed',e); }
+    };
+    drawSvg(html);
+    if(/<img\b[^>]*\bsrc=["']?https?:/i.test(String(html||''))){
+      inlineNoteImages(html).then(h2=>{ if(h2!==html) drawSvg(h2); }).catch(()=>{});
+    }
   }catch(e){ console.warn('note HTML render failed, using text fallback',e); }
   return tex;
+}
+async function inlineNoteImages(html){
+  const d=document.createElement('div'); d.innerHTML=String(html||'');
+  const imgs=Array.from(d.querySelectorAll('img'));
+  await Promise.all(imgs.map(async im=>{
+    const src=im.getAttribute('src')||'';
+    if(!/^https?:/i.test(src)) return;
+    try{
+      const r=await fetch(src,{mode:'cors'});
+      if(!r.ok) throw new Error('http '+r.status);
+      const b=await r.blob();
+      const dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(b); });
+      im.setAttribute('src',dataUrl);
+    }catch(e){
+      im.removeAttribute('src');
+      im.setAttribute('alt','[image unavailable]');
+      im.setAttribute('style','display:inline-block;width:96px;height:96px;border:1px dashed #7a6a55;color:#7a6a55;font-size:12px;text-align:center;line-height:96px;');
+    }
+  }));
+  return d.innerHTML;
 }
 function makeNote(scene,x,z,html='<p>empty note</p>'){
   const m=BABYLON.MeshBuilder.CreateBox('note',{width:.6,height:.02,depth:.82},scene);
@@ -1595,8 +1623,8 @@ function installWorldAPI(){
 function setupUI(){
   installDirectControlHandlers();
   refreshAgentSelect();
-  const inp=document.getElementById('cmd');
-  if(inp) inp.addEventListener('keydown',e=>{ if(e.key==='Enter') runCommand(inp.value); });
+  const cmdInp=document.getElementById('cmd');
+  if(cmdInp) cmdInp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&cmdInp.value.trim()){ runCommand(cmdInp.value.trim()); cmdInp.value=''; } });
   const allowed=document.getElementById('allowedCommands');
   if(allowed){
     allowed.textContent='';
