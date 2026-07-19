@@ -7,10 +7,10 @@ const CHAR_ASSET = './assets/models/characters/kaykit/';
 const ANIM_ASSET = './assets/models/animations/kaykit/';
 const GEEBR_ASSET = './assets/models/characters/generated/';
 const WORLD = { size: 32, half: 16 };
-const COMMANDS = ['say','walk','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','spell.push','spell.spark','spell.fireball','goal','give_quest'];
+const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
-  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(['walk']), zoomFocus:null, animSources:null,
+  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(['walk','face']), zoomFocus:null, animSources:null,
   turn:{index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true}, globalHistory:[], nextAgentId:null,
   brainConfigs:new Map(), nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
 };
@@ -746,7 +746,8 @@ window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g)
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
-function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build') return {kind:'build',thing:b||'wall'}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
+function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build'){ const bc=String(raw).match(/\bat\s+(.+)$/); return {kind:'build',thing:b||'wall',at:bc?parseWalkDestination(bc[1].trim()):null}; }
+  if(a==='face') return {kind:'face',dir:(b||'n').toLowerCase()}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'say',text:'unknown command: '+raw}; }
 function parseWalkDestination(arg){
   arg=String(arg||'').trim();
   if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1).trim();
@@ -768,7 +769,8 @@ function parseLLMCommandLine(line){
   if(name==='say') return {kind:'say',text:arg||'...'};
   if(name==='walk') return parseWalkDestination(arg);
   if(name==='spell') return {kind:'spell',spell:(arg.split(',')[0]||'spark').trim()||'spark'};
-  if(name==='build') return {kind:'build',thing:(arg.split(',')[0]||'wall').trim()||'wall'};
+  if(name==='build'){ const bp=arg.split(',').map(x=>x.trim()).filter(Boolean); return {kind:'build',thing:bp[0]||'wall',at:bp.length>1?parseWalkDestination(bp.slice(1).join(',')):null}; }
+  if(name==='face'){ const fd=(arg.split(',')[0]||'n').trim().toLowerCase(); return {kind:'face',dir:fd||'n'}; }
   if(name==='goal') return {kind:'goal',text:arg||''};
   if(name==='give_quest') return {kind:'give_quest',text:arg||''};
   if(name==='touch') return {kind:'touch',target:arg||''};
@@ -777,7 +779,7 @@ function parseLLMCommandLine(line){
   return null;
 }
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
-  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
+  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing'])); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall',cmd.at||null); case 'face': return face(g,cmd.dir||'n'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); default: return say(g,'unknown command object'); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
 window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
@@ -897,7 +899,19 @@ function carry(g){ const t=nearestTarget(g,1.8); if(!t) return say(g,'arms found
 function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); h.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC); h.position=g.root.position.add(g.dir.scale(.95)); h.position.y=.65; if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
 function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); say(g,'hole installed'); } }
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
-function build(g,thing='wall'){ const p=g.root.position.add(g.dir.scale(1.25)); const x=clamp(Math.round(p.x),-15,15),z=clamp(Math.round(p.z),-15,15); if(thing==='crate') makeCrate(state.scene,x,z); else makeBlock(state.scene,x,z,false); say(g,'construction happened near the plan'); }
+function face(g,dir){ const dirs={n:[0,0,-1],north:[0,0,-1],s:[0,0,1],south:[0,0,1],e:[-1,0,0],east:[-1,0,0],w:[1,0,0],west:[1,0,0]}; const v=dirs[String(dir||'n').toLowerCase()]||dirs.n; setGeebrFacing(g,new BABYLON.Vector3(v[0],v[1],v[2])); say(g,'facing '+String(dir||'n')); }
+function build(g,thing='wall',at=null){
+  let x,z;
+  if(at?.type==='label'){ const t=state.perceptionLabels?.get(String(at.label||'').toLowerCase()); if(!t||t.isDisposed?.()) return say(g,'cannot build at unknown label '+at.label); const tp=t.getAbsolutePosition?.()||t.position; x=clamp(Math.round(tp.x),-15,15); z=clamp(Math.round(tp.z),-15,15); }
+  else if(at?.type==='coord'){ x=clamp(Math.round(at.x),-15,15); z=clamp(Math.round(at.z),-15,15); }
+  else { const p=g.root.position.add(g.dir.scale(1.25)); x=clamp(Math.round(p.x),-15,15); z=clamp(Math.round(p.z),-15,15); }
+  // keep the builder out of its own construction
+  const lp=g.logicalPos||g.root.position;
+  if(Math.hypot(lp.x-x,lp.z-z)<.6){ const p=g.root.position.add(g.dir.scale(1.25)); x=clamp(Math.round(p.x),-15,15); z=clamp(Math.round(p.z),-15,15); }
+  setGeebrFacing(g,new BABYLON.Vector3(Math.sign(x-lp.x),0,Math.sign(z-lp.z)));
+  if(thing==='crate') makeCrate(state.scene,x,z); else makeBlock(state.scene,x,z,false);
+  say(g,'built '+thing+' at ('+x+','+z+')'); updatePerceptionUI(); saveWorldState();
+}
 function panic(g){ g.anim='panic'; playRig(g,'panic',true); say(g,'I have promoted the floor to manager'); if(!isTurnMode()){ for(let i=0;i<5;i++) setTimeout(()=>{ const v=new BABYLON.Vector3(Math.random()-.5,0,Math.random()-.5).normalize(); g.collider.physicsBody?.applyImpulse(v.scale(1.15),g.collider.position); },i*160); } else emitBadge(g,'panic'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); zeroMeshMotion(g.collider); },1050); }
 function emote(g,name){
   const valid=['dance','laugh','sit','wave','clap','cheer','sleep','bow'];
@@ -1175,7 +1189,8 @@ function buildCommandExamples(){
   if(state.allowed.has('drop')) ex.push('drop()');
   if(state.allowed.has('throw')) ex.push('throw()');
   if(state.allowed.has('dig')) ex.push('dig()');
-  if(state.allowed.has('build')) ex.push('build(thing) e.g. build(wall)');
+  if(state.allowed.has('build')) ex.push('build(thing) e.g. build(wall), optionally at a location: build(wall, "3,5") or build(crate, C1); builds in front of you if no location given');
+  if(state.allowed.has('face')) ex.push('face(direction) e.g. face(n) - rotate without moving (n/s/e/w)');
   if(state.allowed.has('repair')) ex.push('repair()');
   if(state.allowed.has('panic')) ex.push('panic()');
   if(state.allowed.has('emote')) ex.push('emote(name) e.g. emote(dance) - dance, laugh, sit, wave, clap, cheer, sleep, bow');

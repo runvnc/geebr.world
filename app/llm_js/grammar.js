@@ -35,7 +35,8 @@ carry()
 drop()
 throw()
 dig()
-build(thing: wall|crate)
+build(thing: wall|crate, at)
+face(direction: n|s|e|w)
 repair()
 panic()
 spell(name: push|spark|fireball)
@@ -204,7 +205,8 @@ export function buildDynamicGrammar(allowedCommands) {
   if (allowedCommands.has('drop')) parts.push('drop()');
   if (allowedCommands.has('throw')) parts.push('throw()');
   if (allowedCommands.has('dig')) parts.push('dig()');
-  if (allowedCommands.has('build')) parts.push('build(thing: wall|crate)');
+  if (allowedCommands.has('build')) parts.push('build(thing: wall|crate, at)');
+  if (allowedCommands.has('face')) parts.push('face(direction: n|s|e|w)');
   if (allowedCommands.has('repair')) parts.push('repair()');
   if (allowedCommands.has('panic')) parts.push('panic()');
   if (allowedCommands.has('spell.push')) parts.push('spell(name: push)');
