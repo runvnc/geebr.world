@@ -526,22 +526,26 @@ function renderNoteTexture(scene,html){
   const ctx=tex.getContext();
   const drawFallback=()=>{ ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#3a2f22'; ctx.font='20px monospace'; const t=noteTextFromHtml(html); const words=t.split(/\s+/); let line='',y=46; for(const w of words){ if(ctx.measureText(line+w).width>W-40){ ctx.fillText(line,20,y); y+=26; line=''; } line+=w+' '; if(y>H-20) break; } ctx.fillText(line,20,y); tex.update(); };
   drawFallback();
-  try{
-    const drawSvg=(htmlIn)=>{
-      try{
-        const css2='margin:0;padding:18px;box-sizing:border-box;width:'+W+'px;height:'+H+'px;background:#f3ecd8;color:#2a2318;font-family:Georgia,serif;font-size:17px;line-height:1.4;overflow:hidden;word-wrap:break-word;';
-        const svg2='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="'+css2.replace(/"/g,"'")+'">'+String(htmlIn||'')+'</div></foreignObject></svg>';
-        const img=new Image();
-        img.onload=()=>{ try{ ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H); ctx.drawImage(img,0,0,W,H); tex.update(); }catch(e){ console.warn('note drawImage failed',e); } };
-        img.onerror=()=>{ /* keep fallback text */ };
-        img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg2);
-      }catch(e){ console.warn('note SVG draw failed',e); }
-    };
-    drawSvg(html);
-    if(/<img\b[^>]*\bsrc=["']?https?:/i.test(String(html||''))){
-      inlineNoteImages(html).then(h2=>{ if(h2!==html) drawSvg(h2); }).catch(()=>{});
+  (async()=>{
+    let html2=String(html||'');
+    if(/<img\b[^>]*\bsrc=["']?https?:/i.test(html2)){
+      try{ html2=await inlineNoteImages(html2); }catch(e){ /* keep original */ }
     }
-  }catch(e){ console.warn('note HTML render failed, using text fallback',e); }
+    if(window.html2canvas){
+      try{
+        const host=document.createElement('div');
+        host.style.cssText='position:absolute;left:-10000px;top:0;width:'+W+'px;height:'+H+'px;margin:0;padding:18px;box-sizing:border-box;background:#f3ecd8;color:#2a2318;font-family:Georgia,serif;font-size:17px;line-height:1.4;overflow:hidden;word-wrap:break-word;';
+        host.innerHTML=html2;
+        document.body.appendChild(host);
+        const canvas=await html2canvas(host,{backgroundColor:'#f3ecd8',width:W,height:H,windowWidth:W,windowHeight:H,scale:1,useCORS:true,allowTaint:false,logging:false});
+        host.remove();
+        ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H);
+        ctx.drawImage(canvas,0,0,W,H); tex.update();
+        return;
+      }catch(e){ console.warn('note html2canvas failed, trying SVG fallback',e); }
+    }
+    if(typeof renderNoteTextureSVG==='function') renderNoteTextureSVG(tex,ctx,W,H,html2);
+  })();
   return tex;
 }
 async function inlineNoteImages(html){
