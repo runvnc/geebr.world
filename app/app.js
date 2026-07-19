@@ -303,7 +303,9 @@ function updateProceduralEmote(g,dt){
     R(b.forearmL,-.25-.15*s); R(b.forearmR,-.25+.15*s);
     R(b.head,0,Math.sin(t*3.5)*.25,0);
     R(b.spine,0,Math.sin(t*3.5)*.12,0);
-    P(b.hips, Math.abs(Math.sin(t*7))*.09);
+    // Bounce the whole character via the armature/root instead of a skinned
+    // hips bone (hips translation only moves the bone, not the visual mesh).
+    if(b.root){ const rest=boneRest(b.root); b.root.position.y=rest.p.y + Math.abs(Math.sin(t*7))*.12*k; }
   } else if(g.emote==='wave'){
     R(b.armR,0,0,-2.2); R(b.forearmR,0,0,Math.sin(t*9)*.55);
     R(b.head,0,-.25,0);
@@ -318,11 +320,12 @@ function updateProceduralEmote(g,dt){
     R(b.forearmL,-1.1); R(b.forearmR,-1.1);
   } else if(g.emote==='sit'){
     R(b.legL,-1.35); R(b.legR,-1.35); R(b.shinL,1.3); R(b.shinR,1.3);
-    P(b.hips,-.3);
+    // Lower the entire character so the butt visually meets the ground.
+    if(b.root){ const rest=boneRest(b.root); b.root.position.y=rest.p.y - .28*k; }
   } else if(g.emote==='sleep'){
     R(b.head,.42,0,.3);
     R(b.spine,.3,0,0);
-    P(b.hips,-.12 + Math.sin(t*1.2)*.02);
+    if(b.root){ const rest=boneRest(b.root); b.root.position.y=rest.p.y - .08*k + Math.sin(t*1.2)*.015; }
   } else if(g.emote==='bow'){
     const p=Math.sin(Math.min(1,t/.9)*Math.PI);
     R(b.spine,.75*p,0,0); R(b.chest,.35*p,0,0); R(b.head,.25*p,0,0);
@@ -917,6 +920,9 @@ function emote(g,name){
     // Stop any looping rig clip (e.g. idle) so it cannot overwrite our bone writes
     if(g.activeRigAnim){ try{ g.activeRigAnim.stop(); }catch{} g.activeRigAnim=null; }
     g.rigMode='procedural_'+name;
+    // Reset every bone to its captured rest pose so rig-clip leftovers (e.g.
+    // a hand gesture from idle) don't linger into the procedural emote.
+    const _b=findBones(g); for(const key of Object.keys(_b)) restoreBone(_b[key]);
     console.log('[emote]', g.id, name, '-> procedural bone drive (no rig clip on this character)');
   }
 }
