@@ -23,7 +23,7 @@ walk(destination)`),
     instruction: 'Output only plain command lines, one command per line. Choose only commands that are relevant to the user request.',
   },
   geebrCommands: {
-    label: 'geebr.world one-turn agent command',
+    label: 'geebr.world one-turn agent plan (1-3 commands)',
     grammar: commandSpecToGrammar(`@max 3
 say(text)
 walk(destination)
