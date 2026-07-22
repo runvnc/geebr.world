@@ -6,7 +6,28 @@
   <title>Geebr World — Local Agent Toybox</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="geebr-preflight-pending">
+  <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
+    <section class="compatibility-card">
+      <div class="compatibility-mark" aria-hidden="true">G</div>
+      <p class="compatibility-kicker">geebr.world</p>
+      <h1>This browser cannot run Geebr World yet.</h1>
+      <p id="compatibilityReason">Geebr World needs WebGPU for its 3D world and local character brain.</p>
+      <div class="compatibility-help">
+        <strong>Try a browser with WebGPU enabled:</strong>
+        <ul>
+          <li>Safari 26 or newer on a supported Mac</li>
+          <li>A current version of Chrome or Edge</li>
+          <li>A current Firefox build with WebGPU available on your device</li>
+        </ul>
+      </div>
+      <p class="compatibility-detail" id="compatibilityDetail"></p>
+      <div class="compatibility-actions">
+        <button id="compatibilityRetry" type="button">Try again</button>
+        <a href="/">Back to geebr.world</a>
+      </div>
+    </section>
+  </main>
   <canvas id="renderCanvas"></canvas>
   <div id="hud">
     <div class="brand">geebr.world <span>v14 turn-based perception</span></div>
@@ -156,21 +177,6 @@
     </div>
   </div>
   <div id="hint">Set up the world, customize characters, then let the local Gemma brain choose one constrained command per turn. Manual command buttons are gone on purpose; the agents drive the toybox now.</div>
-  <script src="https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako_deflate.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-  <script src="note-svg.js"></script>
-  <script src="recorder.js"></script>
-  <script src="confirm-dialog.js"></script>
-  <script src="toast.js"></script>
-  <script src="ui-polish.js"></script>
-  <script src="library.js"></script>
-  <script src="https://cdn.babylonjs.com/babylon.js"></script>
-  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
-  <script src="tts/pocket-tts-manager.js"></script>
-  <script src="tts/tts-ui.js"></script>
-  <script src="app.js"></script>
-  <script type="module" src="llm_js/world-integration.js"></script>
+  <script src="preflight.js"></script>
 </body>
 </html>

@@ -276,8 +276,10 @@
     });
   }
 
-  window.addEventListener('DOMContentLoaded', () => {
+  const initRecorderUI = () => {
     $('startRecording')?.addEventListener('click', startRecording);
     $('stopRecording')?.addEventListener('click', stopRecording);
-  });
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', initRecorderUI, { once:true });
+  else initRecorderUI();
 })();

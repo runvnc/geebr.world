@@ -182,3 +182,22 @@ code { color:#ffe0a0; }
 .lib-row { display:flex; gap:7px; margin-bottom:7px; }
 .lib-row input { flex:1; min-width:0; border:1px solid rgba(255,255,255,.18); color:#fff; background:rgba(0,0,0,.28); border-radius:10px; padding:7px 8px; font-size:11px; }
 .lib-row select { flex:1.2; min-width:0; }
+
+/* ---- WebGPU compatibility gate (preflight.js) ---- */
+.geebr-preflight-pending > :not(#compatibilityScreen):not(script) { visibility:hidden; }
+.compatibility-screen[hidden] { display:none; }
+.compatibility-screen { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; box-sizing:border-box; overflow:auto; padding:24px; color:#edf5e8; background:radial-gradient(circle at 50% 15%,#24372d 0,#111a17 42%,#090d0c 100%); }
+.compatibility-card { width:min(560px,100%); box-sizing:border-box; padding:34px; border:1px solid rgba(207,255,172,.25); border-radius:24px; background:rgba(15,23,20,.94); box-shadow:0 30px 90px #0009,inset 0 0 60px rgba(147,220,119,.035); }
+.compatibility-mark { display:grid; place-items:center; width:50px; height:50px; margin-bottom:20px; border-radius:15px; color:#152017; background:linear-gradient(135deg,#ddffa7,#70d9aa); font:950 27px/1 system-ui,sans-serif; box-shadow:0 10px 28px rgba(114,220,170,.18); }
+.compatibility-kicker { margin:0 0 8px; color:#a9cf9e; font:800 11px/1 ui-monospace,monospace; letter-spacing:.14em; text-transform:uppercase; }
+.compatibility-card h1 { margin:0 0 14px; color:#f3f8ef; font:850 clamp(25px,5vw,38px)/1.08 system-ui,sans-serif; letter-spacing:-.035em; }
+.compatibility-card > p { color:#c8d5c4; font:15px/1.55 system-ui,sans-serif; }
+.compatibility-help { margin:22px 0; padding:17px 19px; border:1px solid rgba(255,255,255,.1); border-radius:15px; background:rgba(255,255,255,.035); font:14px/1.5 system-ui,sans-serif; }
+.compatibility-help strong { color:#eaf5e2; }
+.compatibility-help ul { margin:9px 0 0; padding-left:21px; color:#bdcbb8; }
+.compatibility-detail { padding-top:4px; color:#8fa08c!important; font:11px/1.5 ui-monospace,monospace!important; overflow-wrap:anywhere; }
+.compatibility-actions { display:flex; align-items:center; gap:12px; margin-top:22px; }
+.compatibility-actions button,.compatibility-actions a { box-sizing:border-box; flex:0 0 auto; padding:10px 16px; border-radius:11px; text-decoration:none; font:800 13px/1 system-ui,sans-serif; }
+.compatibility-actions button { color:#142019; background:linear-gradient(135deg,#d7ff9a,#78dbad); }
+.compatibility-actions a { color:#d7e5d1; border:1px solid rgba(255,255,255,.16); }
+.geebr-incompatible > :not(#compatibilityScreen):not(script) { display:none!important; }

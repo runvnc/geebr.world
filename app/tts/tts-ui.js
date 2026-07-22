@@ -15,7 +15,7 @@
     const t=e.detail?.text||'';
     if(/failed|error/i.test(t)) window.geebrToast?.(t,{type:'error',duration:5000});
   });
-  window.addEventListener('DOMContentLoaded',()=>{
+  const initTtsUI=()=>{
     sync();
     // Browser HTTP/Cache Storage retains the downloaded ONNX bundle. Once the
     // user has successfully loaded Pocket-TTS, restore its worker eagerly on
@@ -41,5 +41,7 @@
       try{stream=await navigator.mediaDevices.getUserMedia({audio:true});recorded=[];recorder=new MediaRecorder(stream);recorder.ondataavailable=x=>{if(x.data.size)recorded.push(x.data);};recorder.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(recorded,{type:recorder.mimeType});const file=new File([blob],(($('customVoiceName').value||'recorded-voice')+'.webm'),{type:blob.type});const dt=new DataTransfer();dt.items.add(file);$('customVoiceFile').files=dt.files;$('ttsStatus').textContent='Recording captured; click add uploaded sample.';};recorder.start();e.target.textContent='stop recording';$('ttsStatus').textContent='Recording custom voice…';
       }catch(err){$('ttsStatus').textContent='Microphone failed: '+err.message;}
     };
-  });
+  };
+  if(document.readyState==='loading')window.addEventListener('DOMContentLoaded',initTtsUI,{once:true});
+  else initTtsUI();
 })();
