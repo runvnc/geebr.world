@@ -10,7 +10,7 @@ const WORLD = { size: 32, half: 16 };
 const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
-  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new Map(), held:new Map(), allowed:new Set(['walk','face']), zoomFocus:null, animSources:null,
+  blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new WeakMap(), held:new Map(), allowed:new Set(['walk','face']), zoomFocus:null, animSources:null,
   turn:{index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true}, globalHistory:[], nextAgentId:null,
   brainConfigs:new Map(), nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
 };
@@ -437,6 +437,19 @@ function addBody(mesh,motion,shape='BOX',mass=1,opts={}){ if(!BABYLON.PhysicsBod
 function tag(mesh,type,extra={}){ state.meta.set(mesh,{type,state:extra.state||'intact',material:extra.material||type,tileMaterial:extra.tileMaterial||null,health:extra.health??2,interactive:extra.interactive!==false,zone:extra.zone||'world',flammable:!!extra.flammable, soft:!!extra.soft}); mesh.metadata=state.meta.get(mesh); return mesh; }
 function meta(mesh){ const m=state.meta.get(mesh)||mesh?.metadata; if(m?.proxy) return state.meta.get(m.proxy)||m.proxy.metadata; return m; }
 function logicalTarget(mesh){ const m=state.meta.get(mesh)||mesh?.metadata; return m?.proxy || mesh; }
+function disposeWorldObject(mesh){
+  if(!mesh) return;
+  const mm=meta(mesh);
+  try{ mm?.cleanup?.(); }catch(e){ console.warn('object cleanup failed',e); }
+  try{ mesh.physicsBody?.dispose?.(); }catch{}
+  // Notes own unique GPU resources. Shared world materials/textures must not be disposed.
+  if(mm?.ownsMaterial){
+    try{ mesh.material?.dispose?.(false,true); }catch{}
+  }
+  state.meta.delete(mesh);
+  try{ mesh.dispose?.(false,true); }catch{}
+}
+
 function damage(mesh,amount=1,kind='hit'){
   const m=meta(mesh); if(!m || !m.interactive) return;
   m.health-=amount;
@@ -447,9 +460,8 @@ function damage(mesh,amount=1,kind='hit'){
 function breakObject(mesh,kind='hit'){
   const m=meta(mesh); if(!m || m.state==='broken') return; m.state='broken'; emitBadge(mesh,kind==='fire'?'poof':'bonk');
   const p=mesh.getAbsolutePosition().clone(); const material=mesh.material; const count=m.type==='wall'?7:5;
-  if(mesh.physicsBody){ try{ mesh.physicsBody.dispose(); }catch{} }
-  mesh.dispose(); state.props=state.props.filter(x=>x!==mesh); state.blocks=state.blocks.filter(x=>x!==mesh); state.meta.delete(mesh);
-  for(let i=0;i<count;i++){ const s=BABYLON.MeshBuilder.CreateBox('rubble_'+m.type,{size:.18+Math.random()*.22},state.scene); s.position=p.add(new BABYLON.Vector3((Math.random()-.5)*.55,.2+Math.random()*.4,(Math.random()-.5)*.55)); s.rotation.set(Math.random(),Math.random(),Math.random()); s.material=material||state.materials.stone; addBody(s,'dynamic','BOX',.18,{restitution:.18}); addShadow(s); tag(s,'rubble',{health:1,interactive:false}); const v=new BABYLON.Vector3(Math.random()-.5,.6,Math.random()-.5).scale(1.8); s.physicsBody?.applyImpulse(v,s.position); setTimeout(()=>s.dispose(),8500); }
+  disposeWorldObject(mesh); state.props=state.props.filter(x=>x!==mesh); state.blocks=state.blocks.filter(x=>x!==mesh);
+  for(let i=0;i<count;i++){ const s=BABYLON.MeshBuilder.CreateBox('rubble_'+m.type,{size:.18+Math.random()*.22},state.scene); s.position=p.add(new BABYLON.Vector3((Math.random()-.5)*.55,.2+Math.random()*.4,(Math.random()-.5)*.55)); s.rotation.set(Math.random(),Math.random(),Math.random()); s.material=material||state.materials.stone; addBody(s,'dynamic','BOX',.18,{restitution:.18}); addShadow(s); tag(s,'rubble',{health:1,interactive:false}); const v=new BABYLON.Vector3(Math.random()-.5,.6,Math.random()-.5).scale(1.8); s.physicsBody?.applyImpulse(v,s.position); setTimeout(()=>disposeWorldObject(s),8500); }
 }
 function impulse(mesh,from,power,up=.25){ if(!mesh?.physicsBody) return; const dir=mesh.getAbsolutePosition().subtract(from); if(dir.length()<.001) dir.set(Math.random()-.5,0,Math.random()-.5); dir.y=up; dir.normalize(); mesh.physicsBody.applyImpulse(dir.scale(power),mesh.getAbsolutePosition()); }
 function emitBadge(target,text){ const div=document.createElement('div'); div.className='badge'; div.textContent=text; document.body.appendChild(div); const node=target.root||target; state.badges.push({div,node,ttl:1.05,vy:-28}); }
@@ -513,8 +525,8 @@ function makeTile(scene,x,z,material='grass'){ const t=BABYLON.MeshBuilder.Creat
 function makeBlock(scene,x,z,cracked=false){ const b=BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:.62,depth:.96},scene); b.position.set(x,.31,z); addToScene(b,cracked?state.materials.cracked:state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(b,'wall',{health:cracked?1:3,material:'stone',state:cracked?'cracked':'intact'}); state.blocks.push(b); return b; }
 function makeCrate(scene,x,z){ const m=BABYLON.MeshBuilder.CreateBox('crate',{size:.72},scene); m.position.set(x,.38,z); addToScene(m,state.materials.wood,{shape:'BOX',mass:1.4,restitution:.12}); tag(m,'crate',{health:2,material:'wood',flammable:true}); state.props.push(m); return m; }
 function makeBarrel(scene,x,z){ const b=BABYLON.MeshBuilder.CreateCylinder('barrel',{height:.78,diameter:.55,tessellation:10},scene); b.position.set(x,.42,z); b.rotation.z=Math.random()*.08; addToScene(b,state.materials.wood,{shape:'CYLINDER',mass:1.1,restitution:.22,friction:.55}); tag(b,'barrel',{health:2,material:'wood',flammable:true}); state.props.push(b); return b; }
-function makeMushroom(scene,x,z,s=.7){ const stem=BABYLON.MeshBuilder.CreateCylinder('mushroom_stem',{height:.42*s,diameter:.18*s,tessellation:7},scene); stem.position.set(x,.21*s,z); stem.material=state.materials.canvas; const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_cap',{diameter:.52*s,segments:10},scene); cap.position.set(x,.46*s,z); cap.scaling.y=.38; cap.material=state.materials.mushroom; addShadow(stem); addShadow(cap); tag(cap,'mushroom',{health:2,material:'soft',soft:true}); state.props.push(cap); return cap; }
-function makeLamp(scene,x,z){ const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.position.set(x,.46,z); pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.position.set(x,.98,z); c.material=state.materials.magic; addShadow(c); tag(c,'lamp',{health:1,material:'crystal'}); state.props.push(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(x,.96,z),scene); light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; }
+function makeMushroom(scene,x,z,s=.7){ const root=new BABYLON.TransformNode('mushroom_root',scene); root.position.set(x,0,z); const stem=BABYLON.MeshBuilder.CreateCylinder('mushroom_stem',{height:.42*s,diameter:.18*s,tessellation:7},scene); stem.parent=root; stem.position.y=.21*s; stem.material=state.materials.canvas; const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_cap',{diameter:.52*s,segments:10},scene); cap.parent=root; cap.position.y=.46*s; cap.scaling.y=.38; cap.material=state.materials.mushroom; addShadow(stem); addShadow(cap); tag(root,'mushroom',{health:2,material:'soft',soft:true}); stem.metadata={proxy:root}; cap.metadata={proxy:root}; state.props.push(root); return root; }
+function makeLamp(scene,x,z){ const root=new BABYLON.TransformNode('lamp_root',scene); root.position.set(x,0,z); const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.parent=root; pole.position.y=.46; pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.parent=root; c.position.y=.98; c.material=state.materials.magic; addShadow(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(0,.96,0),scene); light.parent=root; light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; tag(root,'lamp',{health:1,material:'crystal'}); pole.metadata={proxy:root}; c.metadata={proxy:root}; state.props.push(root); return root; }
 function makeBakery(scene){ const x=-7,z=-4.5; const base=BABYLON.MeshBuilder.CreateBox('mushroom_bakery_base',{width:2.15,height:1.25,depth:1.75},scene); base.position.set(x,.62,z); addToScene(base,state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(base,'bakery',{health:6,material:'stone'}); const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_bakery_cap',{diameter:2.8,segments:14},scene); cap.position.set(x,1.62,z); cap.scaling.set(1.15,.38,1); cap.material=state.materials.mushroom; addShadow(cap); const door=BABYLON.MeshBuilder.CreateBox('tiny_round_door',{width:.50,height:.72,depth:.06},scene); door.position.set(x,.42,z-.91); door.material=state.materials.wood; const chimney=BABYLON.MeshBuilder.CreateCylinder('chimney',{diameter:.28,height:.72,tessellation:6},scene); chimney.position.set(x+.82,1.95,z+.22); chimney.material=state.materials.stone; addShadow(chimney); makeLamp(scene,x-1.8,z-.2); }
 function makeFence(scene,x0,z0,count,dir='x'){ for(let i=0;i<count;i++){ const x=x0+(dir==='x'?i*.52:0),z=z0+(dir==='z'?i*.52:0); const post=BABYLON.MeshBuilder.CreateCylinder('fence_post',{height:.52,diameter:.09,tessellation:5},scene); post.position.set(x,.33,z); addToScene(post,state.materials.wood,{motion:'static',shape:'CYLINDER',mass:0}); tag(post,'fence',{health:1,material:'wood',flammable:true}); } for(const y of [.32,.53]){ const rail=BABYLON.MeshBuilder.CreateBox('fence_rail',{width:dir==='x'?count*.52:.08,height:.07,depth:dir==='x'?.08:count*.52},scene); rail.position.set(x0+(dir==='x'?(count-1)*.26:0),y,z0+(dir==='z'?(count-1)*.26:0)); rail.material=state.materials.wood; addShadow(rail); } }
 
@@ -537,8 +549,9 @@ function renderNoteTexture(scene,html){
         host.style.cssText='position:absolute;left:-10000px;top:0;width:'+W+'px;height:'+H+'px;margin:0;padding:18px;box-sizing:border-box;background:#f3ecd8;color:#2a2318;font-family:Georgia,serif;font-size:17px;line-height:1.4;overflow:hidden;word-wrap:break-word;';
         host.innerHTML=html2;
         document.body.appendChild(host);
-        const canvas=await html2canvas(host,{backgroundColor:'#f3ecd8',width:W,height:H,windowWidth:W,windowHeight:H,scale:1,useCORS:true,allowTaint:false,logging:false});
-        host.remove();
+        let canvas;
+        try{ canvas=await html2canvas(host,{backgroundColor:'#f3ecd8',width:W,height:H,windowWidth:W,windowHeight:H,scale:1,useCORS:true,allowTaint:false,logging:false}); }
+        finally{ host.remove(); }
         ctx.fillStyle='#f3ecd8'; ctx.fillRect(0,0,W,H);
         ctx.drawImage(canvas,0,0,W,H); tex.update();
         return;
@@ -578,7 +591,7 @@ function makeNote(scene,x,z,html='<p>empty note</p>'){
   m.material=mat;
   addToScene(m,mat,{shape:'BOX',mass:.2,restitution:.05,friction:.6});
   tag(m,'note',{health:1,material:'paper',flammable:true});
-  const mm=meta(m); mm.noteHtml=String(html||''); mm.noteText=noteTextFromHtml(html);
+  const mm=meta(m); mm.noteHtml=String(html||''); mm.noteText=noteTextFromHtml(html); mm.ownsMaterial=true;
   state.props.push(m);
   return m;
 }
@@ -984,7 +997,7 @@ function touch(g,targetId=''){
 function push(g,sign=1){ const t=nearestTarget(g); if(!t) return say(g,'nothing to shove'); const from=sign>0?g.root.position:t.position.add(g.root.position.subtract(t.position).scale(2)); impulse(t,from,sign>0?4.8:2.2,.18); const m=meta(t); if(m?.type==='barrel') { m.state='rolling'; emitBadge(t,'roll'); } if(m?.type==='mushroom') emitBadge(t,'boing'); damage(t,.25,'push'); g.anim='push'; playRig(g,'push',false); say(g,sign>0?'helpfully pushing the wrong thing':'pulling with moral uncertainty'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); },540); }
 function carry(g){ const t=nearestTarget(g,1.8); if(!t) return say(g,'arms found no object'); const m=meta(t); if(!m || ['wall','bakery','crystal'].includes(m.type)) return say(g,'too spiritually heavy'); if(state.held.get(g.id)) drop(g,false); state.held.set(g.id,t); playRig(g,'carry',true); t.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.ANIMATED); if(m.type==='note'){ const txt=(m.noteText||noteTextFromHtml(m.noteHtml||''))||'blank'; say(g,'the note says: '+txt); } else { say(g,'I am responsible for this now'); } }
 function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); h.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC); h.position=g.root.position.add(g.dir.scale(.95)); h.position.y=.65; if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
-function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); say(g,'hole installed'); } }
+function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); state.props.push(hole); say(g,'hole installed'); } }
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 
 function note(g,html='<p>empty note</p>'){
@@ -1482,10 +1495,10 @@ function clearWorld() {
   }
   for (const m of state.props.concat(state.blocks)) {
     if (!m || m.isDisposed?.()) continue;
-    try { if (m.physicsBody) m.physicsBody.dispose(); } catch {}
-    try { m.dispose(); } catch {}
+    disposeWorldObject(m);
   }
-  state.geebrs = []; state.props = []; state.blocks = []; state.held = new Map();
+  for(const item of state.bubbles.concat(state.badges)) item.div?.remove?.();
+  state.geebrs = []; state.props = []; state.blocks = []; state.bubbles=[]; state.badges=[]; state.held = new Map(); state.meta=new WeakMap();
   state.selected = null; state.target = null; state.brainConfigs = new Map();
   state.globalHistory = [];
   state.turn = {index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true};
