@@ -1763,7 +1763,7 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } else syncGeebr(g); g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
+function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
@@ -1810,9 +1810,9 @@ function makeBetterWater(scene){
   const water=BABYLON.MeshBuilder.CreateGround('water_lagoon_sheet',{width:9.72,height:11.92,subdivisions:28},scene);
   // Lift well above the muted grid and terrain. This intentionally avoids coplanar overlap.
   water.position.set(11.05,.155,9.05); water.material=mat; water.isPickable=false; water.receiveShadows=false;
-  const pos=water.getVerticesData(BABYLON.VertexBuffer.PositionKind); water.metadata={basePositions:pos.slice()};
+  const pos=water.getVerticesData(BABYLON.VertexBuffer.PositionKind); water.metadata={basePositions:pos.slice(),animatedPositions:pos};
   scene.onBeforeRenderObservable.add(()=>{
-    const t=performance.now()*0.001; const arr=water.getVerticesData(BABYLON.VertexBuffer.PositionKind); const base=water.metadata.basePositions;
+    const t=performance.now()*0.001, arr=water.metadata.animatedPositions, base=water.metadata.basePositions;
     for(let i=0;i<arr.length;i+=3){ const x=base[i], z=base[i+2]; arr[i+1]=Math.sin(x*1.35+t*.9+z*.21)*.018+Math.sin(z*1.85-t*.72)*.011; }
     water.updateVerticesData(BABYLON.VertexBuffer.PositionKind,arr,false,false);
   });
@@ -1847,6 +1847,7 @@ function addTerrainPolish(scene){
   makeStoneQuarrySurface(scene);
   makeBetterWater(scene);
   makeShoreRocks(scene);
+  const grassGroups=[[],[]];
   for(let i=0;i<620;i++){
     const x=-15.4+Math.random()*30.8, z=-15.4+Math.random()*30.8;
     const pathCenter=Math.sin(x*.28)*.48 + Math.sin(x*.77+1.8)*.18;
@@ -1854,8 +1855,14 @@ function addTerrainPolish(scene){
     const h=.09+Math.random()*.18, d=.035+Math.random()*.055;
     const blade=BABYLON.MeshBuilder.CreateCylinder('grass_tuft',{height:h,diameterTop:.004,diameterBottom:d,tessellation:4},scene);
     blade.position.set(x,.055+h*.35,z); blade.rotation.set((Math.random()-.5)*.22,Math.random()*Math.PI,(Math.random()-.5)*.22);
-    blade.material=Math.random()<.65?state.materials.grassBlade:state.materials.grassBlade2; blade.isPickable=false; addShadow(blade);
+    const group=Math.random()<.65?0:1; blade.material=group?state.materials.grassBlade2:state.materials.grassBlade; blade.isPickable=false;
+    grassGroups[group].push(blade);
   }
+  grassGroups.forEach((meshes,i)=>{
+    if(!meshes.length) return;
+    const merged=BABYLON.Mesh.MergeMeshes(meshes,true,true,undefined,false,true);
+    if(merged){ merged.name='grass_tufts_merged_'+i; merged.isPickable=false; addShadow(merged); }
+  });
 }
 
 async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.055,.071,.088,1); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
