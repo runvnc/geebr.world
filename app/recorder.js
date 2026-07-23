@@ -3,9 +3,12 @@
 (() => {
   'use strict';
 
-  const FPS = 6;
-  const MAX_SECONDS = 45;
-  const MAX_WIDTH = 960;
+  const FPS = 4;
+  const MAX_SECONDS = 20;
+  const MAX_WIDTH = 640;
+  // Frames are retained as raw RGBA until UPNG encoding. Keep a hard byte cap
+  // so high-DPI/ultrawide canvases cannot push the tab into memory pressure.
+  const MAX_RAW_BYTES = 128 * 1024 * 1024;
   const PNG_SIGNATURE_BYTES = 8;
   let session = null;
 
@@ -88,8 +91,14 @@
       lines.slice(0,4).forEach((text,i)=>ctx.fillText(text,x+w/2,firstY+i*lineH,w-10*sx));
       ctx.restore();
     }
-    s.frames.push(ctx.getImageData(0, 0, s.surface.width, s.surface.height).data.buffer.slice(0));
-    status(`recording ${s.frames.length} frames · ${((performance.now()-s.started)/1000).toFixed(1)}s`);
+    const frame=ctx.getImageData(0, 0, s.surface.width, s.surface.height).data.buffer.slice(0);
+    if(s.rawBytes+frame.byteLength>MAX_RAW_BYTES){
+      status('recording memory limit reached · encoding…');
+      stopRecording();
+      return;
+    }
+    s.frames.push(frame); s.rawBytes+=frame.byteLength;
+    status(`recording ${s.frames.length} frames · ${((performance.now()-s.started)/1000).toFixed(1)}s · ${Math.round(s.rawBytes/1048576)} MB`);
     if ((performance.now() - s.started) >= MAX_SECONDS * 1000) stopRecording();
   }
 
@@ -209,7 +218,7 @@
       window.UPNG.pako = window.pako;
       const source = $('renderCanvas');
       const rawSurface = document.createElement('canvas'); rawSurface.width=source.width; rawSurface.height=source.height;
-      session = { source, rawSurface, surface:makeCaptureSurface(source), frames:[], initialState:snapshotWorld(), started:performance.now(), nextFrameAt:performance.now(), stopping:false, capturing:false };
+      session = { source, rawSurface, surface:makeCaptureSurface(source), frames:[], rawBytes:0, initialState:snapshotWorld(), started:performance.now(), nextFrameAt:performance.now(), stopping:false, capturing:false };
       $('startRecording').disabled = true;
       $('startRecording').classList.add('recording');
       $('stopRecording').disabled = false;
@@ -236,6 +245,7 @@
     } catch (e) {
       console.error('APNG export failed', e); status(`export failed: ${e.message}`);
     } finally {
+      s.frames.length=0; s.rawSurface.width=1; s.rawSurface.height=1; s.surface.width=1; s.surface.height=1;
       session = null;
       $('startRecording').disabled = false;
       $('startRecording').classList.remove('recording');
