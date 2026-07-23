@@ -194,6 +194,7 @@ async function main() {
   });
   let running = false;
   let stepIndex = 0;
+  window.addEventListener('geebr:clear-conversations', event => manager.clearConversations(event.detail?.agentId ?? null));
   // Auto-load the brain on startup
   // Populate model selector
   const modelSelect = el('modelSelect');

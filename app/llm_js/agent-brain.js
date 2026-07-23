@@ -3,7 +3,7 @@ import { generate as generateWebLLM } from './gpt-runner.js';
 import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs.js';
 import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js';
 import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js';
-import { generate as generateLiteRT, createLiteRTEngine } from './gpt-runner-litert.js';
+import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js';
 import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js';
 
 const SUPPORTED_MODELS = {
@@ -102,6 +102,7 @@ export function createAgentBrainManager(config = {}) {
       enableThinking: agent.enableThinking ?? false,
       onToken: onToken,
       debugLog: (msg, data) => onDebug(msg, data),
+      agentId: agent.agentId || 'default',
     });
     const line = commandLines(text);
     onDebug('decision', { agentId: agent.agentId, text, line });
@@ -133,5 +134,6 @@ export function createAgentBrainManager(config = {}) {
     setModel,
     getModelKey,
     getSupportedModels: () => Object.entries(SUPPORTED_MODELS).map(([key, cfg]) => ({ key, label: cfg.label })),
+    clearConversations: (agentId = null) => clearLiteRTConversations(agentId),
   };
 }

@@ -1475,6 +1475,7 @@ async function spawnAt(type, x, z) {
   return obj;
 }
 function clearWorld() {
+  window.dispatchEvent(new CustomEvent('geebr:clear-conversations'));
   for (const g of state.geebrs) {
     try { if (g.collider) g.collider.dispose(); } catch {}
     try { if (g.root) g.root.dispose(); } catch {}
@@ -1495,6 +1496,7 @@ function clearWorld() {
 }
 
 function clearConversationHistory() {
+  window.dispatchEvent(new CustomEvent('geebr:clear-conversations'));
   state.globalHistory = [];
   for (const g of state.geebrs) {
     const cfg = getBrainConfig(g.id);

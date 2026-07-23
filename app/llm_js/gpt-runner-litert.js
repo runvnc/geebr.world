@@ -15,35 +15,70 @@ function stripThinkBlocks(text) {
     .trimStart();
 }
 
-// Conversation cache: keyed by system prompt hash, reuses prefill
+// LiteRT conversations retain KV/history state, so they must be explicitly
+// bounded and disposed. Keep one conversation per agent/configuration, rotate
+// it periodically, and cap the total number retained by the page.
 const conversationCache = new Map();
+const MAX_CONVERSATIONS = 8;
+const MAX_TURNS_PER_CONVERSATION = 12;
 
 function hashSystemPrompt(text) {
-  // Simple hash for system prompt to use as cache key
   let h = 0;
-  for (let i = 0; i < text.length; i++) {
-    h = ((h << 5) - h + text.charCodeAt(i)) | 0;
-  }
+  for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
   return String(h);
+}
+
+function disposeConversation(conv) {
+  if (!conv) return;
+  for (const method of ['delete', 'dispose', 'close']) {
+    try {
+      if (typeof conv[method] === 'function') { conv[method](); return; }
+    } catch (error) {
+      console.warn('[geebr-brain] conversation disposal failed', error);
+      return;
+    }
+  }
+}
+
+function evictConversation(key) {
+  const entry = conversationCache.get(key);
+  if (!entry) return;
+  conversationCache.delete(key);
+  disposeConversation(entry.conv);
+}
+
+export function clearLiteRTConversations(agentId = null) {
+  for (const [key, entry] of [...conversationCache]) {
+    if (agentId === null || entry.agentId === String(agentId)) evictConversation(key);
+  }
 }
 
 // Build a fake engine object with chat.completions.create() that internally
 // calls LiteRT-LM engine.createConversation() + conversation.sendMessage().
 export function createLiteRTEngine(litertEngine) {
-  async function getOrCreateConversation(systemContent) {
-    const key = hashSystemPrompt(systemContent || '');
-    let conv = conversationCache.get(key);
-    if (!conv) {
-      const conversationConfig = {};
-      if (systemContent) {
-        conversationConfig.preface = {
-          messages: [{ role: 'system', content: systemContent }],
-        };
-      }
-      conv = await litertEngine.createConversation(conversationConfig);
-      conversationCache.set(key, conv);
+  async function getOrCreateConversation(systemContent, agentId) {
+    const owner = String(agentId || 'default');
+    const key = owner + ':' + hashSystemPrompt(systemContent || '');
+    let entry = conversationCache.get(key);
+    if (entry && entry.turns >= MAX_TURNS_PER_CONVERSATION) {
+      evictConversation(key);
+      entry = null;
     }
-    return conv;
+    if (!entry) {
+      const conversationConfig = {};
+      if (systemContent) conversationConfig.preface = { messages: [{ role: 'system', content: systemContent }] };
+      const conv = await litertEngine.createConversation(conversationConfig);
+      entry = { conv, agentId: owner, turns: 0, lastUsed: performance.now() };
+      conversationCache.set(key, entry);
+      while (conversationCache.size > MAX_CONVERSATIONS) evictConversation(conversationCache.keys().next().value);
+    } else {
+      // Refresh insertion order so the map also acts as a small LRU.
+      conversationCache.delete(key);
+      conversationCache.set(key, entry);
+    }
+    entry.turns += 1;
+    entry.lastUsed = performance.now();
+    return entry.conv;
   }
 
   async function generateText(messages, opts = {}) {
@@ -63,7 +98,7 @@ export function createLiteRTEngine(litertEngine) {
     const chatMessages = messages.filter(m => m.role !== 'system');
 
     // Get or create cached conversation (reuses prefill for same system prompt)
-    const conversation = await getOrCreateConversation(systemContent);
+    const conversation = await getOrCreateConversation(systemContent, opts.agentId);
 
     // Only send the LAST user message - the conversation maintains history
     // The agent-brain.js passes full history, but we only need the latest turn
@@ -105,8 +140,7 @@ export function createLiteRTEngine(litertEngine) {
       },
     },
     unload: () => {
-      // Clear conversation cache
-      conversationCache.clear();
+      clearLiteRTConversations();
       try { litertEngine.delete(); } catch {}
     },
   };
@@ -132,6 +166,7 @@ export async function generate(engine, prompt, opts = {}) {
       top_p: 0.95,
       onToken: onToken,
       extra_body: { enable_thinking: enableThinking },
+      agentId: opts.agentId || 'default',
     };
 
     debugLog?.('LiteRT request config', { model: getCurrentModel(), max_tokens: maxTokens, temperature, message_count: opts.messages.length, streaming: !!onToken });
@@ -160,6 +195,7 @@ export async function generate(engine, prompt, opts = {}) {
     temperature,
     top_p: 0.95,
     onToken: onToken,
+    agentId: opts.agentId || 'default',
   };
 
   debugLog?.('LiteRT request config', {
