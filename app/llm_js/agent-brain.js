@@ -93,7 +93,7 @@ export function createAgentBrainManager(config = {}) {
       : generateWebLLM;
 
     const text = await generateFn(engine, '', {
-      maxTokens: agent.maxTokens || 96, // room for up to 3 command lines per plan
+      maxTokens: agent.maxTokens || 256, // room for long multi-line plans/poems
       temperature: agent.temperature ?? 0,
       frequencyPenalty: agent.frequencyPenalty ?? 0.15,
       responseFormat,

@@ -393,7 +393,7 @@ async function main() {
         enableThinking: !!el('enableThinking')?.checked,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
       });
-      const planLines = (typeof window.splitPlanLines==='function' ? window.splitPlanLines(line) : String(line || '').split('\n').map(l => l.trim()).filter(Boolean)).slice(0, 3);
+      const planLines = (typeof window.splitPlanLines==='function' ? window.splitPlanLines(line) : String(line || '').split('\n').map(l => l.trim()).filter(Boolean));
       const planCmds = planLines.map(l => world.parseLLMCommandLine(l)).filter(Boolean);
       // Bare continuation lines (e.g. poem lines without say()) right after a say are treated as more speech.
       for (let i = 0; i < planCmds.length; i++) {
