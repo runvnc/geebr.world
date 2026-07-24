@@ -158,10 +158,10 @@ function syncSelectedBrainUI(world) {
   if (!g) return;
   const cfg = world.getBrainConfig(g.id);
   if (el('brainEnabled')) el('brainEnabled').checked = cfg.enabled !== false;
-  if (el('brainStyle')) el('brainStyle').value = cfg.style || 'fireball goblin';
+  if (el('brainStyle')) el('brainStyle').value = cfg.style || 'helpful geebr';
   if (el('agentPersonality')) el('agentPersonality').value = cfg.personality || '';
   if (el('fireballTemptation')) el('fireballTemptation').value = cfg.fireballTemptation ?? g.traits?.fireball ?? 50;
-  if (el('chaosLevel')) el('chaosLevel').value = cfg.chaos ?? 55;
+  if (el('chaosLevel')) el('chaosLevel').value = cfg.chaos ?? 1;
   if (el('agentQuest')) el('agentQuest').value = cfg.quest || '';
   if (el('agentGoal')) el('agentGoal').value = cfg.goal || '';
   if (el('agentTtsEnabled')) el('agentTtsEnabled').checked = cfg.ttsEnabled !== false;
@@ -173,8 +173,8 @@ function saveSelectedBrainUI(world) {
   if (!g) return;
   world.setBrainConfig(g.id, {
     enabled: el('brainEnabled')?.checked !== false,
-    style: el('brainStyle')?.value || 'helpful idiot',
-    personality: el('agentPersonality')?.value || 'goofy, curious, imperfect',
+    style: el('brainStyle')?.value || 'helpful geebr',
+    personality: el('agentPersonality')?.value || 'helpful and friendly',
     fireballTemptation: Number(el('fireballTemptation')?.value || 50),
     chaos: Number(el('chaosLevel')?.value || 50),
     quest: el('agentQuest')?.value || '',

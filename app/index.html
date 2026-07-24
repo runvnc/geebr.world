@@ -68,6 +68,7 @@
         <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
         <div class="row setup-row"><button id="spawnMushroom" type="button">mushroom</button><button id="spawnLamp" type="button">lamp</button></div>
         <div class="row setup-row"><button id="clearMap" type="button" class="danger-btn">clear map</button><button id="resetState" type="button" class="danger-btn">reset state</button></div>
+        <div class="row setup-row"><button id="resetCustomizations" type="button" class="danger-btn">reset geebr customizations</button></div>
         <button id="clearHistory" type="button" class="clear-history-btn">clear chat &amp; action history</button>
         <div class="section-subtitle">Click-to-spawn mode</div>
         <div class="spawn-panel">
@@ -112,15 +113,15 @@
         <summary>Agent customization</summary>
         <div class="custom-grid">
           <label>Agent <select id="agentSelect"></select></label>
-          <label>Brain style <select id="brainStyle"><option>helpful idiot</option><option>builder</option><option selected>fireball goblin</option><option>coward</option><option>reckless mage</option><option>nervous mushroom</option></select></label>
+          <label>Brain style <select id="brainStyle"><option selected>helpful geebr</option><option>builder</option><option>fireball goblin</option><option>coward</option><option>helpful mage</option><option>nervous mushroom</option></select></label>
           <label>Body <select id="bodyStyle"><option value="goblin">goblin</option><option value="mushroom">mushroom</option><option value="bot">tiny bot</option></select></label>
           <label>Brain enabled <input id="brainEnabled" type="checkbox" checked /></label>
           <label>Fireball temptation <input id="fireballTemptation" type="range" min="0" max="100" value="82" /></label>
-          <label>Chaos <input id="chaosLevel" type="range" min="0" max="100" value="55" /></label>
+          <label>Chaos <input id="chaosLevel" type="range" min="0" max="100" value="1" /></label>
         <label>Quest <input id="agentQuest" type="text" placeholder="medium-term goal set by world/human" /></label>
         <label>Current goal <input id="agentGoal" type="text" placeholder="set by agent via goal()" readonly /></label>
         </div>
-        <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">goofy, curious, imperfect, tries to be useful but often misunderstands</textarea></label>
+        <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">helpful and friendly</textarea></label>
         <div class="section-subtitle">Character voice</div>
         <div class="custom-grid">
           <label>Speak aloud <input id="agentTtsEnabled" type="checkbox" checked /></label>

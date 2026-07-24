@@ -1390,7 +1390,7 @@ window.getAgentPerception=(agentId=null,radius=7)=>buildVisiblePerception(agentI
 function getBrainConfig(agentId){
   if(!state.brainConfigs.has(agentId)){
     const g=state.geebrs.find(x=>x.id===agentId);
-    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'reckless mage':'fireball goblin',personality:'goofy, curious, imperfect, tries to be useful but often misunderstands',goals:'explore, interact with nearby objects, react to other geebrs, and be funny',fireballTemptation:g?.traits?.fireball??60,chaos:55,recent:[],quest:'',goal:'',giveQuest:false,ttsEnabled:true,ttsVoiceId:'builtin:alba'});
+    state.brainConfigs.set(agentId,{enabled:true,style:g?.style==='mage'?'helpful mage':'helpful geebr',personality:'helpful and friendly',goals:'help the user, follow instructions carefully, explore, interact with nearby objects',fireballTemptation:g?.traits?.fireball??20,chaos:1,recent:[],quest:'',goal:'',giveQuest:false,ttsEnabled:true,ttsVoiceId:'builtin:alba'});
   }
   return state.brainConfigs.get(agentId);
 }
@@ -1428,7 +1428,7 @@ async function spawnCharacter(){
     g=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
   }
   setGeebrLogicalPosition(g,pos);
-  setBrainConfig(id,{style:'helpful idiot',personality:'newly spawned, confused, eager to participate',fireballTemptation:45,chaos:60});
+  setBrainConfig(id,{style:'helpful geebr',personality:'helpful and friendly',fireballTemptation:20,chaos:1});
   refreshAgentSelect(); selectGeebr(g); log('spawned character '+id); updatePerceptionUI(); saveWorldState(); return g;
 }
 function spawnProp(kind='crate'){
@@ -1463,7 +1463,7 @@ async function spawnAt(type, x, z) {
       obj=createGeebr(state.scene,id,pos,pickRandom(palettes),pickRandom(styles));
     }
     setGeebrLogicalPosition(obj, pos);
-    setBrainConfig(id, {style:'helpful idiot', personality:'newly spawned, confused, eager to participate', fireballTemptation:45, chaos:60});
+    setBrainConfig(id, {style:'helpful geebr', personality:'helpful and friendly', fireballTemptation:20, chaos:1});
     refreshAgentSelect();
     selectGeebr(obj);
     log('spawned ' + id + ' at ' + x + ',' + z);
@@ -1499,7 +1499,7 @@ function clearWorld() {
   }
   for(const item of state.bubbles.concat(state.badges)) item.div?.remove?.();
   state.geebrs = []; state.props = []; state.blocks = []; state.bubbles=[]; state.badges=[]; state.held = new Map(); state.meta=new WeakMap();
-  state.selected = null; state.target = null; state.brainConfigs = new Map();
+  state.selected = null; state.target = null; /* brainConfigs intentionally preserved: agent customizations survive map clears and resets */
   state.globalHistory = [];
   state.turn = {index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true};
   refreshAgentSelect();
@@ -1615,7 +1615,13 @@ async function restoreWorldState(input) {
     if(g.traits) geebr.traits=g.traits;
     setGeebrLogicalPosition(geebr,new BABYLON.Vector3(g.x,0,g.z));
   }
-  if(data.brainConfigs) state.brainConfigs=new Map(data.brainConfigs);
+  if(data.brainConfigs){
+    const incoming=new Map(data.brainConfigs);
+    for(const [id,cfg] of incoming) state.brainConfigs.set(id,cfg);
+    for(const id of Array.from(state.brainConfigs.keys())){
+      if(!incoming.has(id) && !state.geebrs.some(g=>g.id===id)) state.brainConfigs.delete(id); // prune only orphans
+    }
+  }
   state.nextSpawnId=data.nextSpawnId||(state.geebrs.length+1);
   state.globalHistory=data.globalHistory||[];
   state.turn.index=data.turnIndex||0;
@@ -1690,7 +1696,7 @@ function setupUI(){
     }
   };
   const resetStateBtn=document.getElementById('resetState'); if(resetStateBtn) resetStateBtn.onclick=async()=>{
-    if(await window.confirmDialog('Reset to a blank demo world with one Geebr?',{title:'Reset state?',confirmText:'reset world',danger:true})) {
+    if(await window.confirmDialog('Reset to a blank demo world with one Geebr? Geebr customizations (personality, voice, chaos etc.) are kept.',{title:'Reset state?',confirmText:'reset world',danger:true})) {
       const snap=localStorage.getItem('geebrWorldState');
       window._geebrLogToastMuteUntil=performance.now()+2500;
       localStorage.removeItem('geebrWorldState'); clearWorld();
@@ -1699,6 +1705,14 @@ function setupUI(){
         log('state reset: blank demo world with one Geebr');
         window.geebrToast?.('world reset to blank demo',{type:'warn',duration:9000,action:snap?{label:'undo',onClick:async()=>{ try{ await restoreWorldState(JSON.parse(snap)); window.geebrToast?.('previous world restored',{type:'success'}); }catch(e){ window.geebrToast?.('undo failed: '+(e?.message||e),{type:'error'}); } }}:null});
       }).catch(err=>{ console.error('reset Geebr failed',err); window.geebrToast?.('reset failed: '+(err?.message||err),{type:'error'}); });
+    }
+  };
+  const resetCustomBtn=document.getElementById('resetCustomizations'); if(resetCustomBtn) resetCustomBtn.onclick=async()=>{
+    if(await window.confirmDialog('Reset ALL geebr customizations (personality, style, voice, chaos, goals) back to defaults for every geebr? Conversation history is also cleared.',{title:'Reset customizations?',confirmText:'reset customizations',danger:true})) {
+      state.brainConfigs=new Map();
+      for(const g of state.geebrs) getBrainConfig(g.id);
+      refreshAgentSelect(); saveWorldState(); updatePerceptionUI();
+      window.geebrToast?.('geebr customizations reset to defaults',{type:'warn',duration:6000});
     }
   };
   const clearHistoryBtn=document.getElementById('clearHistory'); if(clearHistoryBtn) clearHistoryBtn.onclick=async()=>{
@@ -1915,7 +1929,7 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   if(!restored){
     const g=await createGeneratedGeebr(scene,'geebr1',new BABYLON.Vector3(0,.06,0));
     setGeebrLogicalPosition(g,new BABYLON.Vector3(0,0,0));
-    setBrainConfig(g.id,{style:'curious Geebr',personality:'goofy, curious, imperfect, eager to understand and help',fireballTemptation:20,chaos:45});
+    setBrainConfig(g.id,{style:'helpful geebr',personality:'helpful and friendly',fireballTemptation:20,chaos:1});
     refreshAgentSelect(); selectGeebr(g); saveWorldState();
     log('blank demo world ready with one Geebr');
   }
