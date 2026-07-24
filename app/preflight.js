@@ -10,6 +10,7 @@
     ['confirm-dialog.js'],
     ['toast.js'],
     ['ui-polish.js'],
+    ['tabs.js'],
     ['library.js'],
     ['https://cdn.babylonjs.com/babylon.js'],
     ['https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js'],

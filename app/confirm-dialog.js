@@ -16,8 +16,9 @@
   let active = null;
 
   function panelRect() {
-    const panel = document.querySelector('#hud .panel');
-    return panel ? panel.getBoundingClientRect() : null;
+    const panel = document.querySelector('#sidePanel.open') || document.querySelector('#sidePanel');
+    if (panel && panel.classList.contains('open')) return panel.getBoundingClientRect();
+    return null;
   }
 
   function fitOverlay(root) {

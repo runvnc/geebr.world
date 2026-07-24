@@ -201,3 +201,35 @@ code { color:#ffe0a0; }
 .compatibility-actions button { color:#142019; background:linear-gradient(135deg,#d7ff9a,#78dbad); }
 .compatibility-actions a { color:#d7e5d1; border:1px solid rgba(255,255,255,.16); }
 .geebr-incompatible > :not(#compatibilityScreen):not(script) { display:none!important; }
+
+/* ---- v15 shell: top bar + icon rail + tabbed side panel ---- */
+#topBar { position:fixed; left:0; right:0; top:0; height:52px; z-index:60; display:flex; align-items:center; gap:10px; padding:0 14px; box-sizing:border-box; background:rgba(13,17,21,.72); border-bottom:1px solid rgba(255,255,255,.12); backdrop-filter:blur(14px); color:#fff; }
+#topBar .brand { margin:0; font-size:17px; flex:0 0 auto; }
+#topBar .topbar-group { display:flex; align-items:center; gap:6px; }
+#topBar .topbar-group button { flex:0 0 auto; padding:7px 12px; font-size:11px; }
+#topBar .topbar-spacer { flex:1; }
+#topBar .top-pill { font:10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#ffe1a8; background:rgba(0,0,0,.30); border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:6px 10px; white-space:nowrap; }
+#topBar .top-toggle { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:900; color:#ecf7df; white-space:nowrap; }
+#topBar .top-toggle input { width:16px; height:16px; accent-color:#d7ff9a; }
+#ttsTopToggle { flex:0 0 auto; width:36px; height:36px; padding:0; border-radius:50%; font-size:16px; background:rgba(255,255,255,.10); }
+#ttsTopToggle.on { background:rgba(215,255,154,.22); box-shadow:0 0 10px rgba(215,255,154,.18); }
+
+#hud { top:62px; }
+
+#rail { position:fixed; left:10px; top:64px; z-index:60; display:flex; flex-direction:column; gap:6px; }
+#rail .rail-btn { width:44px; height:44px; flex:0 0 44px; padding:0; border-radius:14px; font-size:19px; line-height:1; background:rgba(16,20,25,.62); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(12px); box-shadow:0 10px 24px rgba(0,0,0,.28); }
+#rail .rail-btn:hover { background:rgba(255,255,255,.16); }
+#rail .rail-btn.active { background:rgba(215,255,154,.20); border-color:rgba(215,255,154,.5); box-shadow:0 0 14px rgba(215,255,154,.14); }
+
+#sidePanel { position:fixed; left:62px; top:64px; bottom:16px; width:364px; z-index:59; display:none; overflow-y:auto; box-sizing:border-box; padding:12px; border-radius:20px; background:rgba(16,20,25,.62); border:1px solid rgba(255,255,255,.15); box-shadow:0 18px 48px rgba(0,0,0,.34); backdrop-filter:blur(14px); color:#fff; }
+#sidePanel.open { display:block; }
+#sidePanel .pane { display:none; }
+#sidePanel .pane.active { display:block; }
+.pane-title { margin:2px 0 10px; font-size:13px; font-weight:950; text-transform:uppercase; letter-spacing:.09em; color:#efffe8; opacity:.9; }
+.pane-note { display:block; color:#aebead; font:9px/1.4 ui-monospace,monospace; margin:4px 2px 8px; }
+
+/* chat dock: bottom-right so it never collides with the left panel */
+#chatDock { left:auto; right:18px; bottom:16px; width:360px; }
+#hint { right:18px; bottom:auto; top:64px; max-width:360px; font-size:12px; }
+#compassHud { top:64px; }
+#toastStack { bottom:auto; top:120px; }

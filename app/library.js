@@ -119,6 +119,26 @@
       } catch (e) { toast('spawn failed: ' + (e?.message || e), { type: 'error' }); }
     };
 
+    $('applyGeebrPreset').onclick = async () => {
+      const name = $('geebrPresetSelect').value;
+      const entry = load(GKEY)[name];
+      if (!entry) return toast('pick a saved geebr first', { type: 'warn' });
+      const g = world.getSelectedAgent?.();
+      if (!g) return toast('select a geebr first', { type: 'warn' });
+      if (entry.brain) {
+        const cfg = JSON.parse(JSON.stringify(entry.brain));
+        delete cfg.messages; delete cfg.recent; delete cfg.pendingChat; // keep live conversation
+        world.setBrainConfig(g.id, cfg);
+      }
+      if (entry.geebr?.traits) g.traits = entry.geebr.traits;
+      if (entry.geebr?.style && g.style !== entry.geebr.style) {
+        const bs = document.getElementById('bodyStyle');
+        if (bs) { bs.value = entry.geebr.style; bs.dispatchEvent(new Event('change')); }
+      }
+      world.saveWorldState();
+      toast('applied "' + name + '" to ' + g.id, { type: 'success' });
+    };
+
     $('deleteGeebrPreset').onclick = async () => {
       const name = $('geebrPresetSelect').value;
       const all = load(GKEY);
