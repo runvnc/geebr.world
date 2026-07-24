@@ -43,11 +43,8 @@ function setOrthoZoom(camera,halfWidth){
   camera.metadata ||= {}; camera.metadata.orthoHalfWidth=halfWidth;
 }
 function setupMouseWheelZoom(camera){
-  camera.metadata ||= {}; camera.metadata.orthoHalfWidth=12.5;
-  setOrthoZoom(camera,camera.metadata.orthoHalfWidth);
   canvas.addEventListener('wheel',ev=>{
     ev.preventDefault();
-    const current=camera.metadata.orthoHalfWidth||12.5;
     const factor=ev.deltaY>0?1.10:.90;
     const focus=state.zoomFocus || state.target?.getAbsolutePosition?.() || state.selected?.root?.position;
     if(focus){
@@ -55,9 +52,8 @@ function setupMouseWheelZoom(camera){
       f.y=0.6;
       camera.setTarget(BABYLON.Vector3.Lerp(camera.target,f,ev.deltaY>0?.18:.42));
     }
-    setOrthoZoom(camera,clamp(current*factor,.82,24.5));
+    camera.radius=clamp(camera.radius*factor,10,28);
   },{passive:false});
-  window.addEventListener('resize',()=>setOrthoZoom(camera,camera.metadata.orthoHalfWidth||12.5));
 }
 function hashNoise(x,z){
   const n=Math.sin(x*127.1+z*311.7)*43758.5453123;
@@ -1820,30 +1816,68 @@ function makeStoneQuarrySurface(scene){
   return stone;
 }
 function makeWaterMat(scene){
-  const m=mat(scene,'v12_water_lagoon_tex','water_painterly.png',{uScale:4,vScale:5,alpha:.9,emissive:new BABYLON.Color3(.015,.06,.07),specular:new BABYLON.Color3(.35,.45,.45)});
-  m.diffuseColor=new BABYLON.Color3(.55,.85,.9);
+  const m=mat(scene,'v12_water_base_tex','water_painterly.png',{uScale:3,vScale:3.4,alpha:.93,emissive:new BABYLON.Color3(.02,.08,.09),specular:new BABYLON.Color3(.5,.62,.62)});
+  m.diffuseColor=new BABYLON.Color3(.62,.92,.98);
   return m;
 }
+function makeFoamTexture(scene){
+  const S=256; const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+  const ctx=cv.getContext('2d'); ctx.clearRect(0,0,S,S);
+  for(let i=0;i<46;i++){ const x=(i/46)*S+((i*37)%13-6), y=S*.5+Math.sin(i*1.7)*S*.16; const r=7+((i*23)%14);
+    const rg=ctx.createRadialGradient(x,y,1,x,y,r); rg.addColorStop(0,'rgba(255,255,255,0.85)'); rg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  const tex=new BABYLON.DynamicTexture('foam_dyn',cv,scene,true); tex.update();
+  tex.wrapU=BABYLON.Texture.WRAP_ADDRESSMODE; tex.wrapV=BABYLON.Texture.CLAMP_ADDRESSMODE; tex.hasAlpha=true;
+  return tex;
+}
 function makeBetterWater(scene){
-  const mat=window.__waterMat||(window.__waterMat=makeWaterMat(scene));
   const water=BABYLON.MeshBuilder.CreateGround('water_lagoon_sheet',{width:9.72,height:11.92,subdivisions:28},scene);
-  // Lift well above the muted grid and terrain. This intentionally avoids coplanar overlap.
-  water.position.set(11.05,.155,9.05); water.material=mat; water.isPickable=false; water.receiveShadows=false;
+  water.position.set(11.05,.155,9.05); water.material=makeWaterMat(scene); water.isPickable=false; water.receiveShadows=false;
   const pos=water.getVerticesData(BABYLON.VertexBuffer.PositionKind); water.metadata={basePositions:pos.slice(),animatedPositions:pos};
+  // Shimmer layer scrolling against the base for interference sparkle.
+  const shim=BABYLON.MeshBuilder.CreateGround('water_shimmer',{width:9.72,height:11.92,subdivisions:1},scene);
+  shim.position.set(11.05,.168,9.05); shim.isPickable=false;
+  const shimM=mat(scene,'v12_water_shim_tex','water_soft.png',{uScale:2.1,vScale:2.6,alpha:.32,emissive:new BABYLON.Color3(.03,.10,.11),specular:new BABYLON.Color3(.6,.7,.7)});
+  shimM.diffuseColor=new BABYLON.Color3(.7,1,1); shimM.disableLighting=true;
+  shim.material=shimM;
+  const baseTx=water.material.diffuseTexture, shimTx=shimM.diffuseTexture;
+  // Cartoon foam rim hugging the pond's edges.
+  const foamTx=makeFoamTexture(scene);
+  const foamM=new BABYLON.StandardMaterial('v12_foam',scene);
+  foamM.emissiveColor=new BABYLON.Color3(.95,1,1); foamM.diffuseColor=new BABYLON.Color3(0,0,0);
+  foamM.opacityTexture=foamTx; foamM.disableLighting=true; foamM.backFaceCulling=false;
+  const W=9.72,H=11.92,cx=11.05,cz=9.05,bw=.42;
+  const mkFoam=(w,h,x,z,rot)=>{ const f=BABYLON.MeshBuilder.CreateGround('foam_edge',{width:w,height:h},scene); f.position.set(x,.175,z); f.rotation.z=rot||0; f.material=foamM; f.isPickable=false; return f; };
+  mkFoam(W,bw,cx,cz-H/2+bw*.4); mkFoam(W,bw,cx,cz+H/2-bw*.4);
+  const left=mkFoam(H,bw,0,0,0); left.rotation.y=Math.PI/2; left.position.set(cx-W/2+bw*.4,.175,cz);
+  const right=mkFoam(H,bw,0,0,0); right.rotation.y=Math.PI/2; right.position.set(cx+W/2-bw*.4,.175,cz);
   scene.onBeforeRenderObservable.add(()=>{
     const t=performance.now()*0.001, arr=water.metadata.animatedPositions, base=water.metadata.basePositions;
-    for(let i=0;i<arr.length;i+=3){ const x=base[i], z=base[i+2]; arr[i+1]=Math.sin(x*1.35+t*.9+z*.21)*.018+Math.sin(z*1.85-t*.72)*.011; }
+    for(let i=0;i<arr.length;i+=3){ const x=base[i], z=base[i+2]; arr[i+1]=Math.sin(x*1.35+t*.9+z*.21)*.022+Math.sin(z*1.85-t*.72)*.013; }
     water.updateVerticesData(BABYLON.VertexBuffer.PositionKind,arr,false,false);
+    if(baseTx){ baseTx.uOffset=(t*.014)%1; baseTx.vOffset=(Math.sin(t*.11)*.01); }
+    if(shimTx){ shimTx.uOffset=(-t*.021)%1; shimTx.vOffset=(t*.012)%1; }
   });
-  const glintMat=terrainMat(scene,'v12_water_glint',new BABYLON.Color3(.72,.96,.94),.04,new BABYLON.Color3(.02,.12,.13),.36);
-  for(let j=0;j<7;j++){
-    const pts=[]; const z=-5.0+j*1.62;
-    for(let i=0;i<14;i++){ const x=-4.15+i*.64; pts.push(new BABYLON.Vector3(x,.23,z+Math.sin(i*.75+j)*.055)); }
-    const line=BABYLON.MeshBuilder.CreateTube('water_glint_ribbon',{path:pts,radius:.009,tessellation:4},scene);
-    line.position.set(11.05,0,9.05); line.material=glintMat; line.isPickable=false;
-    scene.onBeforeRenderObservable.add(()=>{ line.position.x=11.05+Math.sin(performance.now()*0.00045+j)*.16; line.position.z=9.05+Math.cos(performance.now()*0.00039+j)*.09; });
-  }
   return water;
+}
+function makeGroundTexture(scene){
+  const S=1024, T=S/32;
+  const cv=document.createElement('canvas'); cv.width=cv.height=S;
+  const ctx=cv.getContext('2d');
+  const g=ctx.createLinearGradient(0,0,S,S);
+  g.addColorStop(0,'#4a7a2e'); g.addColorStop(.5,'#41722b'); g.addColorStop(1,'#4b7c33');
+  ctx.fillStyle=g; ctx.fillRect(0,0,S,S);
+  for(let tx=0;tx<32;tx++)for(let tz=0;tz<32;tz++){
+    if(((tx*31+tz*17)%7)<3){ ctx.fillStyle='rgba('+(30+((tx*13+tz*7)%25))+','+(70+((tx*11+tz*5)%35))+',26,'+(0.05+(((tx+tz)%5)*.02))+')'; ctx.fillRect(tx*T,tz*T,T,T); }
+  }
+  for(let i=0;i<9000;i++){ const x=Math.random()*S,y=Math.random()*S,r=Math.random()*2.2+.6; ctx.fillStyle=Math.random()<.5?'rgba(255,255,215,0.05)':'rgba(12,32,10,0.06)'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  ctx.strokeStyle='rgba(20,38,14,0.45)'; ctx.lineWidth=2.2;
+  for(let i=0;i<=32;i++){ const c=i*T; ctx.beginPath(); ctx.moveTo(c,0); ctx.lineTo(c,S); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,c); ctx.lineTo(S,c); ctx.stroke(); }
+  ctx.strokeStyle='rgba(215,255,175,0.09)'; ctx.lineWidth=1;
+  for(let i=0;i<=32;i++){ const c=i*T+2.4; ctx.beginPath(); ctx.moveTo(c,0); ctx.lineTo(c,S); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,c); ctx.lineTo(S,c); ctx.stroke(); }
+  const tex=new BABYLON.DynamicTexture('ground_baked_dyn',cv,scene,true);
+  tex.update(); tex.wrapU=tex.wrapV=BABYLON.Texture.CLAMP_ADDRESSMODE; tex.anisotropicFilteringLevel=8;
+  return tex;
 }
 function makeTileGridLines(scene){
   const lines=[];
@@ -1897,11 +1931,13 @@ function addTerrainPolish(scene){
     if(mesh.name.startsWith('tile_')) { mesh.visibility=.18; mesh.isPickable=true; }
   }
   const grass=BABYLON.MeshBuilder.CreateGround('continuous_safe_grass',{width:31.8,height:31.8,subdivisions:8},scene);
-  grass.position.set(0,.018,0); grass.material=mat(scene,'v12_safe_grass_tex','grass_meadow.png',{uScale:16,vScale:16,specular:new BABYLON.Color3(.012,.014,.010)}); grass.receiveShadows=true; grass.isPickable=false;
+  grass.position.set(0,.018,0);
+  const groundM=new BABYLON.StandardMaterial('v12_ground_baked',scene);
+  groundM.diffuseTexture=makeGroundTexture(scene); groundM.specularColor=new BABYLON.Color3(.012,.014,.010);
+  grass.material=groundM; grass.receiveShadows=true; grass.isPickable=false;
   // Add static ground physics body so props don't fall through
   const groundBody=new BABYLON.PhysicsAggregate(grass,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
   groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
-  makeTileGridLines(scene);
   makeIslandCliff(scene);
   makePathRibbon(scene);
   makeStoneQuarrySurface(scene);
@@ -1927,7 +1963,7 @@ function addTerrainPolish(scene){
 
 async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.035,.055,.062,1);
   scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.02; scene.fogColor=new BABYLON.Color3(.045,.075,.085); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,1.05,18,new BABYLON.Vector3(0,.6,0),scene); state.camera=camera; camera.mode=BABYLON.Camera.ORTHOGRAPHIC_CAMERA; camera.lowerRadiusLimit=10; camera.upperRadiusLimit=28; camera.panningSensibility=60; camera.minZ=.1; camera.maxZ=4000; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,1.05,18,new BABYLON.Vector3(0,.6,0),scene); state.camera=camera; camera.fov=.30; camera.lowerRadiusLimit=10; camera.upperRadiusLimit=28; camera.panningSensibility=60; camera.minZ=.1; camera.maxZ=4000; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;
@@ -1955,6 +1991,7 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
   scene.environmentTexture=envTexture;
   scene.environmentIntensity=.42;
+  try{ state.glow=new BABYLON.GlowLayer('soft_glow',scene,{mainTextureSamples:2}); state.glow.intensity=.6; }catch(e){ console.warn('glow layer unavailable',e); }
   scene.imageProcessingConfiguration.contrast=1.2;
   scene.imageProcessingConfiguration.exposure=1.12;
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
