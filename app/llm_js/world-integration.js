@@ -395,6 +395,10 @@ async function main() {
       });
       const planLines = (typeof window.splitPlanLines==='function' ? window.splitPlanLines(line) : String(line || '').split('\n').map(l => l.trim()).filter(Boolean)).slice(0, 3);
       const planCmds = planLines.map(l => world.parseLLMCommandLine(l)).filter(Boolean);
+      // Bare continuation lines (e.g. poem lines without say()) right after a say are treated as more speech.
+      for (let i = 0; i < planCmds.length; i++) {
+        if (planCmds[i].kind === 'unknown' && planCmds[i].raw && planCmds[i-1]?.kind === 'say') planCmds[i] = { kind: 'say', text: planCmds[i].raw };
+      }
       if (!planCmds.length) planCmds.push({ kind: 'look' });
       // Persist chat messages to history so they're remembered in future turns
       if (chatSuffix) {
