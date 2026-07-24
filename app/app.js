@@ -151,7 +151,7 @@ function makeBetterWater(scene){
   }
   return water;
 }
-function addTerrainPolish(scene){
+function addTerrainPolishLegacy(scene){
   // v11: terrain is now a vertex-painted continuous surface with irregular biomes.
   // The 1m box tiles remain hidden/muted as collision/picking scaffolding, not as the visible ground material.
   makeVertexTerrain(scene);
@@ -1840,6 +1840,31 @@ function makeBetterWater(scene){
   }
   return water;
 }
+function makeIslandCliff(scene){
+  // Floating-diorama island: a chunky rock/dirt block under the grass so the world reads as an elevated island with cliff sides.
+  const dirt=terrainMat(scene,'v12_cliff_dirt',new BABYLON.Color3(.30,.22,.14),.004);
+  const rock=terrainMat(scene,'v12_cliff_rock',new BABYLON.Color3(.23,.21,.18),.006);
+  const upper=BABYLON.MeshBuilder.CreateBox('island_cliff_upper',{width:31.9,height:1.1,depth:31.9},scene);
+  upper.position.set(0,-.56,0); upper.material=dirt; upper.isPickable=false; upper.receiveShadows=true;
+  const lower=BABYLON.MeshBuilder.CreateBox('island_cliff_lower',{width:30.6,height:2.4,depth:30.6},scene);
+  lower.position.set(0,-2.28,0); lower.material=rock; lower.isPickable=false;
+  const base=BABYLON.MeshBuilder.CreateBox('island_cliff_base',{width:27.5,height:1.6,depth:27.5},scene);
+  base.position.set(0,-4.2,0); base.material=terrainMat(scene,'v12_cliff_base',new BABYLON.Color3(.17,.16,.13),.004); base.isPickable=false;
+  // Jagged rim rocks for a hand-cut cliff silhouette.
+  const rim=[];
+  for(let i=0;i<64;i++){
+    const side=i%4;
+    const off=-15.6+((i*1.93)%1)*31.2;
+    const x=(side===0||side===1)?off:(side===2?-15.9:15.9);
+    const z=side===0?-15.9:(side===1?15.9:off);
+    const r=BABYLON.MeshBuilder.CreatePolyhedron('cliff_rim_rock',{type:1,size:.34+((i*7)%5)*.09},scene);
+    r.position.set(x+((i*13)%7-3)*.06,-.12-((i*11)%4)*.22,z+((i*17)%7-3)*.06);
+    r.rotation.set(i*.7,i*1.3,i*.31); r.material=i%3?rock:dirt; r.isPickable=false;
+    rim.push(r);
+  }
+  const merged=BABYLON.Mesh.MergeMeshes(rim,true,true,undefined,false,false);
+  if(merged){ merged.name='cliff_rim_merged'; merged.isPickable=false; }
+}
 function addTerrainPolish(scene){
   // Mute underlying cube grid so it remains useful for click/pick/collision but stops visually fighting the terrain.
   const ghostMats={};
@@ -1857,6 +1882,7 @@ function addTerrainPolish(scene){
   // Add static ground physics body so props don't fall through
   const groundBody=new BABYLON.PhysicsAggregate(grass,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
   groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+  makeIslandCliff(scene);
   makePathRibbon(scene);
   makeStoneQuarrySurface(scene);
   makeBetterWater(scene);
@@ -1879,7 +1905,8 @@ function addTerrainPolish(scene){
   });
 }
 
-async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.055,.071,.088,1); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
+async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.035,.055,.062,1);
+  scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.075,.085); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
   const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,1.05,18,new BABYLON.Vector3(0,.6,0),scene); state.camera=camera; camera.mode=BABYLON.Camera.ORTHOGRAPHIC_CAMERA; camera.lowerRadiusLimit=10; camera.upperRadiusLimit=28; camera.panningSensibility=60; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
@@ -1903,13 +1930,24 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   });
   canvas.addEventListener('contextmenu',e=>{ e.preventDefault(); const pick=scene.pick(scene.pointerX,scene.pointerY); if(pick?.hit && pick.pickedPoint){ const tx=Math.round(pick.pickedPoint.x), tz=Math.round(pick.pickedPoint.z); let info=`tile (${tx},${tz})`; const m=pick.pickedMesh; const mm=meta(m); if(mm?.type && mm.type!=='tile') info+=` - ${mm.type} (${mm.state||'intact'})`; const owner=m?.metadata?.ownerId; if(owner){ const g=state.geebrs.find(x=>x.id===owner); if(g) info+=` - ${g.id} (${g.anim||'idle'})`; } log(info); } });
   canvas.addEventListener('pointermove',e=>{ if(e.buttons&2){ e.preventDefault(); const dx=e.movementX*0.02, dy=e.movementY*0.02; const right=camera.getDirection(BABYLON.Vector3.Right()); const up=camera.getDirection(BABYLON.Vector3.Up()); const newTarget=camera.target.add(right.scale(dx)).subtract(up.scale(dy)); newTarget.y=0.6; camera.target.copyFrom(newTarget); state.zoomFocus=camera.target.clone(); } });
-  const hemi=new BABYLON.HemisphericLight('soft_overall',new BABYLON.Vector3(.2,1,.1),scene); hemi.intensity=.28; hemi.groundColor=new BABYLON.Color3(.11,.14,.13); const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.42,-.92,.55),scene); sun.position=new BABYLON.Vector3(8,14,-9); sun.intensity=1.22; sun.diffuse=new BABYLON.Color3(1,.88,.70); const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-8,4,6),scene); fill.intensity=.24; fill.diffuse=new BABYLON.Color3(.50,.67,1); fill.range=18; state.shadow=new BABYLON.ShadowGenerator(2048,sun); state.shadow.useBlurExponentialShadowMap=true; state.shadow.blurKernel=18;
+  const hemi=new BABYLON.HemisphericLight('soft_overall',new BABYLON.Vector3(.2,1,.1),scene); hemi.intensity=.34; hemi.diffuse=new BABYLON.Color3(.62,.72,.78); hemi.groundColor=new BABYLON.Color3(.14,.13,.10); const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.42,-.92,.55),scene); sun.position=new BABYLON.Vector3(8,14,-9); sun.intensity=1.22; sun.diffuse=new BABYLON.Color3(1,.88,.70); const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-8,4,6),scene); fill.intensity=.24; fill.diffuse=new BABYLON.Color3(.50,.67,1); fill.range=18; state.shadow=new BABYLON.ShadowGenerator(2048,sun); state.shadow.useBlurExponentialShadowMap=true; state.shadow.blurKernel=18;
   // Neutral environment reflections give PBR clay broad shape cues without making it glossy.
   const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
   scene.environmentTexture=envTexture;
   scene.environmentIntensity=.42;
-  scene.imageProcessingConfiguration.contrast=1.12;
-  scene.imageProcessingConfiguration.exposure=1.04;
+  scene.imageProcessingConfiguration.contrast=1.16;
+  scene.imageProcessingConfiguration.exposure=1.06;
+  // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
+  try{
+    const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);
+    rp.fxaaEnabled=true;
+    rp.bloomEnabled=true; rp.bloomThreshold=.74; rp.bloomWeight=.24; rp.bloomScale=.5;
+    rp.vignetteEnabled=true; rp.vignetteWeight=1.5; rp.vignetteStretch=.6;
+    rp.sharpenEnabled=true; rp.sharpen.edgeAmount=.22;
+    rp.depthOfFieldEnabled=true; rp.depthOfField.focalLength=58; rp.depthOfField.fStop=9.0; rp.depthOfField.focusDistance=camera.radius*1000;
+    state.renderPipeline=rp;
+    scene.onBeforeRenderObservable.add(()=>{ if(rp.depthOfFieldEnabled) rp.depthOfField.focusDistance=camera.radius*1000; });
+  }catch(e){ console.warn('render pipeline unavailable, continuing without post fx',e); }
   state.materials={
     grass:mat(scene,'grass','grass_meadow.png',{uScale:1,vScale:1}), dirt:mat(scene,'dirt','dirt_loam.png',{uScale:1,vScale:1}), stone:mat(scene,'stone','stone_soft.png',{uScale:1,vScale:1}),
     grassSurf:mat(scene,'grassSurf','grass_meadow.png',{uScale:7.5,vScale:7.5}), dirtSurf:mat(scene,'dirtSurf','dirt_loam.png',{uScale:5.8,vScale:1.3}), stoneSurf:mat(scene,'stoneSurf','stone_soft.png',{uScale:3.4,vScale:3.0}),

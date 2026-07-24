@@ -225,11 +225,14 @@ code { color:#ffe0a0; }
 #sidePanel.open { display:block; }
 #sidePanel .pane { display:none; }
 #sidePanel .pane.active { display:block; }
+#sidePanel .recordbar { margin-bottom:12px; }
+#sidePanel .section-subtitle { margin:12px 0 6px; }
+#sidePanel .spawn-mode-toggle { margin-bottom:7px; }
 .pane-title { margin:2px 0 10px; font-size:13px; font-weight:950; text-transform:uppercase; letter-spacing:.09em; color:#efffe8; opacity:.9; }
 .pane-note { display:block; color:#aebead; font:9px/1.4 ui-monospace,monospace; margin:4px 2px 8px; }
 
 /* chat dock: bottom-right so it never collides with the left panel */
 #chatDock { left:auto; right:18px; bottom:16px; width:360px; }
-#hint { right:18px; bottom:auto; top:64px; max-width:360px; font-size:12px; }
+#hint { right:auto; left:50%; transform:translateX(-50%); bottom:14px; top:auto; max-width:420px; font-size:12px; text-align:center; }
 #compassHud { top:64px; }
 #toastStack { bottom:auto; top:120px; }
