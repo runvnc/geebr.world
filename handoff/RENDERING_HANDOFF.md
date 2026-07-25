@@ -1,5 +1,167 @@
 # geebr.world — Rendering / Material Quality — HANDOFF
 
+---
+
+## LATEST SESSION UPDATE — 2026-07-25 ~17:15 UTC
+
+**This section supersedes all stale status, priorities, and terrain-height notes below. Read this section first; use the rest only for durable pipeline background.**
+
+### Current git / working-tree state
+
+- Committed HEAD remains `60d489f` (`update rendering handoff after grass integration`).
+- **Everything in this update is on disk but UNCOMMITTED.**
+- Modified: `app/app.js`, `app/look.js`, `app/terrain-hd.js`.
+- New: `app/prop-review.html`.
+- New final runtime assets: `assets/models/props/gen/blade_cluster.glb`, `daisy_clump.glb`.
+- New source/pipeline files: `handoff/tile_work/asset_blade_cluster.png`, `asset_daisy_clump.png`, `p_blade_cluster.txt`, `p_daisy_clump.txt`, `tripo_one.py`, and `handoff/tile_work/generated/` with raw/baked intermediate GLBs.
+- `deno check --no-lock app/app.js app/terrain-hd.js app/look.js` passes.
+
+### User art-workflow decision — LOCKED
+
+All visible assets, including tiny vegetation props, must originate from the **master reference through image editing**, not hand-authored substitute geometry/textures:
+
+`master/reference crops -> gpt-image-1 edit2.py -> Tripo -> bake.py -> mandatory orm.py -> integration`
+
+The built-in `edit_image` currently routes to `gpt-image-2` and rejects `input_fidelity`. Use `handoff/tile_work/edit2.py`, which explicitly calls `gpt-image-1` with `input_fidelity='high'`.
+
+### Approved reference-derived vegetation
+
+Generated from the master plus `ref_grass_a.png` / `ref_grass_b.png`:
+
+- `asset_blade_cluster.png`: chunky low-poly olive/moss blade cluster.
+- `asset_daisy_clump.png`: two chunky ivory daisies with yellow centers.
+
+Processed outputs:
+
+- `assets/models/props/gen/blade_cluster.glb`
+  - Tripo limit 2200; 2213 vertices / 2159 faces.
+  - ~2.17 MB; real AO; roughness .88; metallic 0.
+- `assets/models/props/gen/daisy_clump.glb`
+  - Tripo limit 2500; 1866 vertices / 2500 faces.
+  - ~1.59 MB; real AO; roughness .88; metallic 0.
+
+`tripo_one.py IMAGE OUTPUT FACE_LIMIT` was added because `cmp.py` hardcodes 6000 faces.
+
+`app/prop-review.html` is a WebGPU review page for both props. The user's laptop supports WebGPU but desktop Chrome reports WebGL unsupported:
+
+`http://localhost:8791/prop-review.html?webgpu=1`
+
+### Vegetation integration
+
+`terrain-hd.js::buildVegetation()` now imports the generated GLBs, normalizes them from bounds, scatters deterministic patch-density clones, and merges by type:
+
+- many cells bare,
+- normal cells 1–2 blade clusters,
+- a few dense cells 3–4,
+- daisies only in selected patches,
+- deterministic six-mode 3D orientation (upright, sideways, inverted, and two strong leans), random yaw, and ±10% scale,
+- **no color jitter**.
+
+Current scales: blade `.50`, daisy `.42`. Output meshes: `hd_generated_blade_clusters`, `hd_generated_daisy_clumps`.
+
+**Late correction:** the generated vegetation was initially placed at absolute `y=.026`, so it was buried under the imported grass top (`y=.442`). It now uses `(API.state.terrainTopY??0)+.018`. Verified in `/tmp/geebr_veg_height_final.jpg`: blade clusters and daisies are clearly visible across the island. A later orientation investigation found two real Babylon issues: imported clones retained an identity `rotationQuaternion`, so Euler `rotation.set(...)` was ignored; and merging complicated transform verification. Final fix keeps the clones separate and assigns `rotationQuaternion=BABYLON.Quaternion.FromEulerAngles(...)` across six distinct 3D modes. Verified at a close ~6x6-tile view in `/tmp/geebr_vegpatch.jpg`: sideways, inverted, upright, and leaning forms are visibly different. **Final art correction:** six-mode orientation remains for daisies, but blade clusters are upright-only with random yaw and a gentle single-axis lean; sideways/inverted grass looked trampled.
+
+Thin instances were attempted but imported-GLB root/prototype visibility and transform behavior was unreliable. Clone+merge is the proven temporary path. Optimize only after appearance is locked, using normalized prototype containers.
+
+### Terrain changes
+
+1. **Dirt trenches removed.** `proceduralTerrainAt()` now returns grass for every in-island cell. Future paths must be surface dressing over grass, never removed/lower foundation cells.
+2. **Tile variation is square-safe.** Arbitrary yaw caused overlaps/corner voids. Current deterministic D4 transforms use quarter-turn yaw plus independent X/Z mirrors at scale magnitude `1.006`, giving eight stable orientations.
+3. **Edge junk removed.** Deleted the 96 procedural `hd_rim_rock` chunks. Edge remains plain pending the proper reference-derived cliff.
+4. **Measured terrain top:** mesh maximum `y=0.442002...`; authoritative `state.terrainTopY=.445`.
+
+### Burial fixes
+
+#### Geebrs / gameplay
+
+`setGeebrLogicalPosition()` and `animate()` were resetting root Y to zero every frame. They now use `state.terrainTopY` for:
+
+- logical placement,
+- walking interpolation,
+- collider target (`terrainTopY + .74`),
+- preview/generated character placement,
+- dig-hole placement.
+
+The invisible Havok ground is at `terrainTopY - .005`.
+
+#### HD fences / crates / sign / tent / lantern
+
+These were authored in `terrain-hd.js::buildScenery()` at old ground zero. Their `hd_` names caused the generic lift to skip them. `buildScenery()` now explicitly lifts:
+
+- `hd_posts`,
+- `hd_rails`,
+- `hd_planks` (sign + decorative crates),
+- `hd_tent_cloth`,
+- lantern cage, bulb, and light.
+
+Runtime bounds now show posts/planks beginning at `.445`; tent bottom moved from `.294` to `.739`. User confirmed this is fixed.
+
+### Selection-ring fix
+
+Babylon's torus is horizontal by default; old `rotation.x=Math.PI/2` stood it upright. It now has rotation `[0,0,0]`.
+
+- ring Y: `terrainTopY + .035`
+- glow disc Y: `terrainTopY + .018`
+
+Runtime: Geebr root `.445`, ring `.480`, disc `.463`. User confirmed.
+
+### Shared-look cleanup
+
+`app/look.js` defaults now match live locked values:
+
+- detail `.11`
+- exposure `1.28`
+- contrast `1.10`
+
+SSAO remains strength `2.2`, radius `.9`, samples 16, maxZ 60.
+
+### Latest verification
+
+Latest broad render: `/tmp/geebr_scenery_lift_final.jpg` (ephemeral). It confirms continuous grass, clean edge, raised scenery/Geebr, horizontal ring, and generated vegetation.
+
+Last `shot_fast.py` run at 800×550:
+
+- ready ~12.1 s; total ~21 s,
+- 50 meshes / 67 materials,
+- pipelines `[drp, ssao]`,
+- SSAO 2.2/.9,
+- DOF active,
+- art mode active; TTS skipped.
+
+Server may need restarting:
+
+`python3 -m http.server 8791 --directory /files/geebr.world/app`
+
+### Immediate next session
+
+1. **Inspect and commit this completed batch.** Suggested commits:
+   - vegetation source images + final GLBs + helper/review page,
+   - terrain/vegetation/height/ring/scenery code fixes,
+   - handoff.
+   Decide whether to retain raw/baked `handoff/tile_work/generated/` intermediates; final GLBs/source PNGs definitely stay.
+2. Build the **reference-derived cliff/edge asset**:
+   - use `ref_edge.png` and `asset_tile7.png`,
+   - matching thin olive cap,
+   - two chunky masonry courses, narrow dark seams,
+   - square/corner-compatible footprint,
+   - Tripo ~8000 faces,
+   - measure stone bake gain rather than assuming .60,
+   - mandatory `orm.py`,
+   - integrate behind a flag before replacing bedrock.
+3. Then convert **tree, boulder3, crate**, replacing procedural counterparts rather than layering duplicates.
+4. Add path transitions later as separate surface props.
+5. Convert grass/vegetation to production thin instances only after visual lock and real-GPU measurement.
+
+### Constraints still locked
+
+- Grass is smooth matte clay/felt, not photoreal/fuzzy.
+- No per-instance color tint jitter.
+- No extra grass slab variants.
+- Never return to procedural grass as final.
+- Batch related changes before rendering.
+- Use the master-reference edit workflow for every visible new asset.
+
+
 **Last updated:** 2026-07-25 ~14:30 UTC
 **Supersedes:** `ASSET_PIPELINE_HANDOFF.md` (delete it; everything still relevant is folded in below)
 
