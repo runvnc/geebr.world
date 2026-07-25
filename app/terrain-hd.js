@@ -311,6 +311,36 @@
     return m;
   }
 
+  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
+    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
+    const m=new BABYLON.Mesh(name,scene);
+    const positions=[], indices=[], colors=[];
+    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
+    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
+    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
+    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
+    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
+    const top=[], lip=[], bottom=[];
+    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
+    for(let i=0;i<outer.length;i++){
+      top.push(push(inner[i][0],0,inner[i][1],topColor));
+      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
+      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
+    }
+    for(let i=0;i<outer.length;i++){
+      const j=(i+1)%outer.length;
+      indices.push(topCenter,top[i],top[j]);
+      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
+      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
+      indices.push(bottomCenter,bottom[j],bottom[i]);
+    }
+    const vd=new BABYLON.VertexData();
+    vd.positions=positions; vd.indices=indices; vd.colors=colors;
+    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
+    vd.applyToMesh(m,true);
+    return m;
+  }
+
   window.GeebrHD = { version:'hd1', surface, normalFromCanvas, ormFromCanvas, grade, dyn, loadImage, macroHeightCanvas, stoneFloorHeight,
                      paintGrassDetail, paintDirtDetail, paintStoneDetail, paintStrataDetail, canvasOf };
 })();
@@ -337,15 +367,45 @@
     return m;
   }
 
+  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
+    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
+    const m=new BABYLON.Mesh(name,scene);
+    const positions=[], indices=[], colors=[];
+    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
+    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
+    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
+    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
+    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
+    const top=[], lip=[], bottom=[];
+    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
+    for(let i=0;i<outer.length;i++){
+      top.push(push(inner[i][0],0,inner[i][1],topColor));
+      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
+      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
+    }
+    for(let i=0;i<outer.length;i++){
+      const j=(i+1)%outer.length;
+      indices.push(topCenter,top[i],top[j]);
+      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
+      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
+      indices.push(bottomCenter,bottom[j],bottom[i]);
+    }
+    const vd=new BABYLON.VertexData();
+    vd.positions=positions; vd.indices=indices; vd.colors=colors;
+    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
+    vd.applyToMesh(m,true);
+    return m;
+  }
+
   /* ---------- 1. island top surface ---------------------------------- */
   async function buildIslandTop(scene){
     const { WORLD } = API;
-    const REPEAT = 1.7;   // world units per texture tile
-    const GAP = .012;     // hairline seam that reads as the grid
+    const REPEAT = 3.6;
+    const GAP = .014;
 
     const mats = {
-      grass: await HD.surface(scene,{ name:'grass', flatColor:'#5d6428',
-        normalSrc:HD.stoneFloorHeight(512,17,5,3), normalStrength:1.6, rough:.90, roughVar:.06, ao:.25 }),
+      grass: await HD.surface(scene,{ name:'grass', flatColor:'#71883a',
+        normalSrc:HD.macroHeightCanvas(512,17,34,.52), normalStrength:.72, rough:.94, roughVar:.04, ao:.12 }),
       dirt: await HD.surface(scene,{ name:'dirt', file:'dirt_path.png',
         gradeOpts:{ sat:.72, bright:1.10, contrast:1.02, tintR:1.05, tintG:.98, tintB:.86 },
         paint:cv=>HD.paintDirtDetail(cv,31), normalStrength:3.0, rough:.94, roughVar:.08, ao:.62 }),
@@ -360,24 +420,28 @@
         const cx=tx+.5, cz=tz+.5;
         const kind = API.proceduralTerrainAt(cx,cz);
         const key = groups[kind] ? kind : 'grass';
-        // continuous world-space UVs: the texture flows across tile borders
         const u0=(tx+WORLD.halfW)/REPEAT, u1=(tx+1+WORLD.halfW)/REPEAT;
         const v0=(tz+WORLD.halfH)/REPEAT, v1=(tz+1+WORLD.halfH)/REPEAT;
         const top=rect(u0,v0,u1,v1);
         const side=rect(u0,0,u1,.55);
         const fu=[side,side,side,side,top,side];
         const n=noise(tx*3.1+5,tz*2.7-3);
-        const h=.58+n*.018;
-        // per-tile tint plus a bright top / dark sides bevel, baked into vertex colours
-        const t=.96+noise(tx*11.3+1,tz*13.7+9)*.06;
-        const warm=.96+noise(tx*5.9,tz*3.3)*.09;
+        const h=.42+n*.025;
+        const t=.94+noise(tx*11.3+1,tz*13.7+9)*.13;
+        const warm=.97+noise(tx*5.9,tz*3.3)*.07;
         const topC=new BABYLON.Color4(t*warm,t,t*(2-warm),1);
-        const sideC=new BABYLON.Color4(topC.r*.34,topC.g*.32,topC.b*.30,1);
-        const botC=new BABYLON.Color4(.12,.11,.10,1);
+        const sideC=key==='grass'
+          ? new BABYLON.Color4(.27*t,.30*t,.12*t,1)
+          : new BABYLON.Color4(topC.r*.40,topC.g*.37,topC.b*.33,1);
+        const botC=new BABYLON.Color4(.10,.09,.07,1);
         const fc=[sideC,sideC,sideC,sideC,topC,botC];
-        const box=BABYLON.MeshBuilder.CreateBox('hd_tile',{ width:1-GAP, height:h, depth:1-GAP, faceUV:fu, faceColors:fc },scene);
-        // gentle per-tile height wobble so the surface is not machine flat
-        const lift=(noise(tx*7.7,tz*5.3)-.5)*.010;
+        const box=key==='grass'
+          ? roundedTile('hd_tile',1-GAP,1-GAP,h,.075,scene,topC,sideC)
+          : BABYLON.MeshBuilder.CreateBox('hd_tile',{
+              width:1-GAP, height:h, depth:1-GAP, faceUV:fu, faceColors:fc,
+              wrap:true, topBaseAt:0, bottomBaseAt:0, size:1
+            },scene);
+        const lift=(noise(tx*7.7,tz*5.3)-.5)*.018;
         box.position.set(cx,-h/2+lift,cz);
         groups[key].push(box);
       }
@@ -497,12 +561,72 @@
     return m;
   }
 
+  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
+    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
+    const m=new BABYLON.Mesh(name,scene);
+    const positions=[], indices=[], colors=[];
+    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
+    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
+    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
+    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
+    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
+    const top=[], lip=[], bottom=[];
+    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
+    for(let i=0;i<outer.length;i++){
+      top.push(push(inner[i][0],0,inner[i][1],topColor));
+      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
+      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
+    }
+    for(let i=0;i<outer.length;i++){
+      const j=(i+1)%outer.length;
+      indices.push(topCenter,top[i],top[j]);
+      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
+      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
+      indices.push(bottomCenter,bottom[j],bottom[i]);
+    }
+    const vd=new BABYLON.VertexData();
+    vd.positions=positions; vd.indices=indices; vd.colors=colors;
+    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
+    vd.applyToMesh(m,true);
+    return m;
+  }
+
   function crossedQuads(scene,name,w,h,y){
     const a=BABYLON.MeshBuilder.CreatePlane(name,{width:w,height:h,sideOrientation:BABYLON.Mesh.DOUBLESIDE},scene);
     const b=BABYLON.MeshBuilder.CreatePlane(name,{width:w,height:h,sideOrientation:BABYLON.Mesh.DOUBLESIDE},scene);
     a.position.y=y; b.position.y=y; b.rotation.y=Math.PI/2;
     const m=BABYLON.Mesh.MergeMeshes([a,b],true,true,undefined,false,false);
     m.name=name;
+    return m;
+  }
+
+  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
+    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
+    const m=new BABYLON.Mesh(name,scene);
+    const positions=[], indices=[], colors=[];
+    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
+    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
+    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
+    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
+    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
+    const top=[], lip=[], bottom=[];
+    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
+    for(let i=0;i<outer.length;i++){
+      top.push(push(inner[i][0],0,inner[i][1],topColor));
+      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
+      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
+    }
+    for(let i=0;i<outer.length;i++){
+      const j=(i+1)%outer.length;
+      indices.push(topCenter,top[i],top[j]);
+      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
+      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
+      indices.push(bottomCenter,bottom[j],bottom[i]);
+    }
+    const vd=new BABYLON.VertexData();
+    vd.positions=positions; vd.indices=indices; vd.colors=colors;
+    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
+    vd.applyToMesh(m,true);
     return m;
   }
 
@@ -757,6 +881,36 @@
     m.albedoColor=color; m.metallic=metallic; m.roughness=rough;
     if(emissive) m.emissiveColor=emissive;
     m.environmentIntensity=.45;
+    return m;
+  }
+
+  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
+    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
+    const m=new BABYLON.Mesh(name,scene);
+    const positions=[], indices=[], colors=[];
+    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
+    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
+    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
+    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
+    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
+    const top=[], lip=[], bottom=[];
+    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
+    for(let i=0;i<outer.length;i++){
+      top.push(push(inner[i][0],0,inner[i][1],topColor));
+      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
+      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
+    }
+    for(let i=0;i<outer.length;i++){
+      const j=(i+1)%outer.length;
+      indices.push(topCenter,top[i],top[j]);
+      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
+      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
+      indices.push(bottomCenter,bottom[j],bottom[i]);
+    }
+    const vd=new BABYLON.VertexData();
+    vd.positions=positions; vd.indices=indices; vd.colors=colors;
+    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
+    vd.applyToMesh(m,true);
     return m;
   }
 
