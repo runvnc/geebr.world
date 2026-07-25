@@ -342,7 +342,7 @@
   }
 
   window.GeebrHD = { version:'hd1', surface, normalFromCanvas, ormFromCanvas, grade, dyn, loadImage, macroHeightCanvas, stoneFloorHeight,
-                     paintGrassDetail, paintDirtDetail, paintStoneDetail, paintStrataDetail, canvasOf };
+                     paintGrassDetail, paintDirtDetail, paintStoneDetail, paintStrataDetail, canvasOf, roundedTile };
 })();
 
 /* ==================================================================
@@ -367,35 +367,6 @@
     return m;
   }
 
-  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
-    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
-    const m=new BABYLON.Mesh(name,scene);
-    const positions=[], indices=[], colors=[];
-    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
-    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
-    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
-    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
-    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
-    const top=[], lip=[], bottom=[];
-    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
-    for(let i=0;i<outer.length;i++){
-      top.push(push(inner[i][0],0,inner[i][1],topColor));
-      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
-      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
-    }
-    for(let i=0;i<outer.length;i++){
-      const j=(i+1)%outer.length;
-      indices.push(topCenter,top[i],top[j]);
-      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
-      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
-      indices.push(bottomCenter,bottom[j],bottom[i]);
-    }
-    const vd=new BABYLON.VertexData();
-    vd.positions=positions; vd.indices=indices; vd.colors=colors;
-    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
-    vd.applyToMesh(m,true);
-    return m;
-  }
 
   /* ---------- 1. island top surface ---------------------------------- */
   async function buildIslandTop(scene){
@@ -449,10 +420,11 @@
         if(key==='grass' && grassProto){
           box=grassProto.clone('hd_grass_tile');
           box.setEnabled(true); box.isVisible=true; box.isPickable=false;
-          // Tripo's source axes/extents are discovered at runtime below; the
-          // preview established that the tile footprint is unit-scale.
           box.rotation.y=Math.floor(yawRnd()*4)*Math.PI/2;
-          box.position.set(cx,lift,cz);
+          // The source footprint is 0.996 x 1.000. A tiny uniform expansion
+          // closes sub-pixel gaps without returning to the old inset-tile hack.
+          box.scaling.setAll(1.006);
+          box.position.set(cx,lift+.010,cz);
         } else {
           const u0=(tx+WORLD.halfW)/REPEAT, u1=(tx+1+WORLD.halfW)/REPEAT;
           const v0=(tz+WORLD.halfH)/REPEAT, v1=(tz+1+WORLD.halfH)/REPEAT;
@@ -462,7 +434,7 @@
           const topC=new BABYLON.Color4(t*warm,t,t*(2-warm),1);
           const sideC=key==='grass' ? new BABYLON.Color4(.27*t,.30*t,.12*t,1) : new BABYLON.Color4(topC.r*.40,topC.g*.37,topC.b*.33,1);
           box=key==='grass'
-            ? roundedTile('hd_tile',1-GAP,1-GAP,h,.075,scene,topC,sideC)
+            ? HD.roundedTile('hd_tile',1-GAP,1-GAP,h,.075,scene,topC,sideC)
             : BABYLON.MeshBuilder.CreateBox('hd_tile',{ width:1-GAP,height:h,depth:1-GAP,
                 faceUV:[side,side,side,side,top,side],faceColors:[sideC,sideC,sideC,sideC,topC,new BABYLON.Color4(.10,.09,.07,1)],wrap:true },scene);
           box.position.set(cx,-h/2+lift,cz);
@@ -594,35 +566,6 @@
     return m;
   }
 
-  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
-    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
-    const m=new BABYLON.Mesh(name,scene);
-    const positions=[], indices=[], colors=[];
-    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
-    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
-    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
-    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
-    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
-    const top=[], lip=[], bottom=[];
-    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
-    for(let i=0;i<outer.length;i++){
-      top.push(push(inner[i][0],0,inner[i][1],topColor));
-      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
-      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
-    }
-    for(let i=0;i<outer.length;i++){
-      const j=(i+1)%outer.length;
-      indices.push(topCenter,top[i],top[j]);
-      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
-      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
-      indices.push(bottomCenter,bottom[j],bottom[i]);
-    }
-    const vd=new BABYLON.VertexData();
-    vd.positions=positions; vd.indices=indices; vd.colors=colors;
-    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
-    vd.applyToMesh(m,true);
-    return m;
-  }
 
   function crossedQuads(scene,name,w,h,y){
     const a=BABYLON.MeshBuilder.CreatePlane(name,{width:w,height:h,sideOrientation:BABYLON.Mesh.DOUBLESIDE},scene);
@@ -633,35 +576,6 @@
     return m;
   }
 
-  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
-    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
-    const m=new BABYLON.Mesh(name,scene);
-    const positions=[], indices=[], colors=[];
-    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
-    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
-    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
-    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
-    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
-    const top=[], lip=[], bottom=[];
-    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
-    for(let i=0;i<outer.length;i++){
-      top.push(push(inner[i][0],0,inner[i][1],topColor));
-      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
-      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
-    }
-    for(let i=0;i<outer.length;i++){
-      const j=(i+1)%outer.length;
-      indices.push(topCenter,top[i],top[j]);
-      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
-      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
-      indices.push(bottomCenter,bottom[j],bottom[i]);
-    }
-    const vd=new BABYLON.VertexData();
-    vd.positions=positions; vd.indices=indices; vd.colors=colors;
-    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
-    vd.applyToMesh(m,true);
-    return m;
-  }
 
   function buildVegetation(scene){
     const { WORLD } = API;
@@ -917,35 +831,6 @@
     return m;
   }
 
-  function roundedTile(name, width, depth, height, radius, scene, topColor, sideColor){
-    const w=width*.5, d=depth*.5, r=Math.min(radius,w*.45,d*.45), bevel=.045;
-    const m=new BABYLON.Mesh(name,scene);
-    const positions=[], indices=[], colors=[];
-    const outer=[[-w+r,-d],[w-r,-d],[w,-d+r],[w,d-r],[w-r,d],[-w+r,d],[-w,d-r],[-w,-d+r]];
-    const iw=w-bevel, id=d-bevel, ir=Math.max(.02,r-bevel*.35);
-    const inner=[[-iw+ir,-id],[iw-ir,-id],[iw,-id+ir],[iw,id-ir],[iw-ir,id],[-iw+ir,id],[-iw,id-ir],[-iw,-id+ir]];
-    const push=(x,y,z,c)=>{ positions.push(x,y,z); colors.push(c.r,c.g,c.b,1); return positions.length/3-1; };
-    const topCenter=push(0,0,0,topColor), bottomCenter=push(0,-height,0,sideColor);
-    const top=[], lip=[], bottom=[];
-    const bevelColor=new BABYLON.Color4(topColor.r*.78,topColor.g*.82,topColor.b*.68,1);
-    for(let i=0;i<outer.length;i++){
-      top.push(push(inner[i][0],0,inner[i][1],topColor));
-      lip.push(push(outer[i][0],-bevel,outer[i][1],bevelColor));
-      bottom.push(push(outer[i][0],-height,outer[i][1],sideColor));
-    }
-    for(let i=0;i<outer.length;i++){
-      const j=(i+1)%outer.length;
-      indices.push(topCenter,top[i],top[j]);
-      indices.push(top[i],lip[i],lip[j], top[i],lip[j],top[j]);
-      indices.push(lip[i],bottom[i],bottom[j], lip[i],bottom[j],lip[j]);
-      indices.push(bottomCenter,bottom[j],bottom[i]);
-    }
-    const vd=new BABYLON.VertexData();
-    vd.positions=positions; vd.indices=indices; vd.colors=colors;
-    const normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,normals); vd.normals=normals;
-    vd.applyToMesh(m,true);
-    return m;
-  }
 
   async function buildScenery(scene, api){
     const { WORLD } = api;

@@ -54,8 +54,10 @@ function applyClayLookToMeshes(meshes,scene,opts){ LOOK()?.applyClayLookToMeshes
 function colorMat(scene,name,color,emissive=null){ const m=new BABYLON.PBRMaterial(name,scene); m.albedoColor=color; m.metallic=0; m.roughness=.90; m.environmentIntensity=.55; m.specularIntensity=.16; if(emissive) m.emissiveColor=emissive; return applyClayLook(m,scene,{detail:.11}); }
 
 function makeWaterMaterial(scene){
-  const m=mat(scene,'water_soft','water_painterly.png',{uScale:4.5,vScale:4.5,alpha:.72,specular:new BABYLON.Color3(.16,.24,.25),emissive:new BABYLON.Color3(.006,.022,.028)});
-  m.backFaceCulling=false;
+  const m=mat(scene,'water_soft','water_painterly.png',{uScale:4.5,vScale:4.5,alpha:.72,roughness:.24,detail:0,emissive:new BABYLON.Color3(.006,.022,.028)});
+  // Water is deliberately not clay: retain a broad environment highlight and
+  // avoid the shared detail normal used by opaque props.
+  m.environmentIntensity=.78; m.specularIntensity=.72; m.backFaceCulling=false;
   return m;
 }
 function setOrthoZoom(camera,halfWidth){
@@ -1841,8 +1843,8 @@ function makeStoneQuarrySurface(scene){
   return stone;
 }
 function makeWaterMat(scene){
-  const m=mat(scene,'v12_water_base_tex','water_painterly.png',{uScale:3,vScale:3.4,alpha:.93,emissive:new BABYLON.Color3(.02,.08,.09),specular:new BABYLON.Color3(.5,.62,.62)});
-  m.diffuseColor=new BABYLON.Color3(.62,.92,.98);
+  const m=mat(scene,'v12_water_base_tex','water_painterly.png',{uScale:3,vScale:3.4,alpha:.93,roughness:.22,detail:0,emissive:new BABYLON.Color3(.02,.08,.09)});
+  m.albedoColor=new BABYLON.Color3(.62,.92,.98); m.environmentIntensity=.82; m.specularIntensity=.75;
   return m;
 }
 function makeFoamTexture(scene){
@@ -1863,9 +1865,9 @@ function makeBetterWater(scene){
   const shim=BABYLON.MeshBuilder.CreateGround('water_shimmer',{width:9.72,height:11.92,subdivisions:1},scene);
   shim.position.set(11.05,.168,9.05); shim.isPickable=false;
   const shimM=mat(scene,'v12_water_shim_tex','water_soft.png',{uScale:2.1,vScale:2.6,alpha:.32,emissive:new BABYLON.Color3(.03,.10,.11),specular:new BABYLON.Color3(.6,.7,.7)});
-  shimM.diffuseColor=new BABYLON.Color3(.7,1,1); shimM.disableLighting=true;
+  shimM.albedoColor=new BABYLON.Color3(.7,1,1); shimM.unlit=true;
   shim.material=shimM;
-  const baseTx=water.material.diffuseTexture, shimTx=shimM.diffuseTexture;
+  const baseTx=water.material.albedoTexture, shimTx=shimM.albedoTexture;
   // Cartoon foam rim hugging the pond's edges.
   const foamTx=makeFoamTexture(scene);
   const foamM=new BABYLON.StandardMaterial('v12_foam',scene);
@@ -2224,7 +2226,7 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   // Tonemap + diorama grade (teal-lifted shadows, warm highlights). The old
   // ACES at contrast/exposure 1.34 was crushing shadows and desaturating the
   // olive greens relative to the concept art.
-  LOOK()?.applyTonemap(scene);
+  LOOK()?.applyTonemap(scene,{exposure:1.28,contrast:1.10,tonemap:'neutral',grade:true});
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
   try{
     const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);
