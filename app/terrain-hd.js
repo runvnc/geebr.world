@@ -404,8 +404,6 @@
     const GAP = .014;
 
     const mats = {
-      grass: await HD.surface(scene,{ name:'grass', flatColor:'#71883a',
-        normalSrc:HD.macroHeightCanvas(512,17,34,.52), normalStrength:.72, rough:.94, roughVar:.04, ao:.12 }),
       dirt: await HD.surface(scene,{ name:'dirt', file:'dirt_path.png',
         gradeOpts:{ sat:.72, bright:1.10, contrast:1.02, tintR:1.05, tintG:.98, tintB:.86 },
         paint:cv=>HD.paintDirtDetail(cv,31), normalStrength:3.0, rough:.94, roughVar:.08, ao:.62 }),
@@ -414,41 +412,76 @@
         paint:cv=>HD.paintStoneDetail(cv,53), normalStrength:3.4, rough:.82, roughVar:.14, ao:.68 })
     };
 
+    // The corrected Tripo grass tile has real baked AO and roughness 0.88.
+    // Import it once, clone it for grass cells, and merge the clones. This is
+    // intentionally behind ?procedural=1 so the old generated slab remains an
+    // immediate A/B/rollback path while the asset is being locked down.
+    const useGrassGLB=!new URLSearchParams(location.search).has('procedural');
+    let grassProto=null, grassRoot=null;
+    if(useGrassGLB){
+      try{
+        const result=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/tiles/', 'grass_v7_orm.glb', scene);
+        grassRoot=result.meshes.find(m=>m.getTotalVertices?.()>0) || result.meshes[0];
+        if(grassRoot){
+          grassProto=grassRoot;
+          grassProto.name='hd_grass_proto'; grassProto.isVisible=false; grassProto.setEnabled(false);
+          window.GEEBR_LOOK?.applyClayLookToMeshes(result.meshes,scene,{detail:.11,detailScale:5});
+        }
+      }catch(err){ console.warn('grass GLB unavailable; using procedural slab',err); }
+    }
+    if(!grassProto){
+      mats.grass=await HD.surface(scene,{ name:'grass', flatColor:'#71883a',
+        normalSrc:HD.macroHeightCanvas(512,17,34,.52), normalStrength:.72, rough:.94, roughVar:.04, ao:.12 });
+    }
+
     const groups = { grass:[], dirt:[], stone:[] };
+    let yawSeed=0x5eed1234;
+    const yawRnd=()=>{ yawSeed=(yawSeed*1664525+1013904223)>>>0; return yawSeed/4294967296; };
     for(let tx=-WORLD.halfW; tx<WORLD.halfW; tx++){
       for(let tz=-WORLD.halfH; tz<WORLD.halfH; tz++){
         const cx=tx+.5, cz=tz+.5;
         const kind = API.proceduralTerrainAt(cx,cz);
         const key = groups[kind] ? kind : 'grass';
-        const u0=(tx+WORLD.halfW)/REPEAT, u1=(tx+1+WORLD.halfW)/REPEAT;
-        const v0=(tz+WORLD.halfH)/REPEAT, v1=(tz+1+WORLD.halfH)/REPEAT;
-        const top=rect(u0,v0,u1,v1);
-        const side=rect(u0,0,u1,.55);
-        const fu=[side,side,side,side,top,side];
         const n=noise(tx*3.1+5,tz*2.7-3);
         const h=.42+n*.025;
-        const t=.94+noise(tx*11.3+1,tz*13.7+9)*.13;
-        const warm=.97+noise(tx*5.9,tz*3.3)*.07;
-        const topC=new BABYLON.Color4(t*warm,t,t*(2-warm),1);
-        const sideC=key==='grass'
-          ? new BABYLON.Color4(.27*t,.30*t,.12*t,1)
-          : new BABYLON.Color4(topC.r*.40,topC.g*.37,topC.b*.33,1);
-        const botC=new BABYLON.Color4(.10,.09,.07,1);
-        const fc=[sideC,sideC,sideC,sideC,topC,botC];
-        const box=key==='grass'
-          ? roundedTile('hd_tile',1-GAP,1-GAP,h,.075,scene,topC,sideC)
-          : BABYLON.MeshBuilder.CreateBox('hd_tile',{
-              width:1-GAP, height:h, depth:1-GAP, faceUV:fu, faceColors:fc,
-              wrap:true, topBaseAt:0, bottomBaseAt:0, size:1
-            },scene);
         const lift=(noise(tx*7.7,tz*5.3)-.5)*.018;
-        box.position.set(cx,-h/2+lift,cz);
+        let box;
+        if(key==='grass' && grassProto){
+          box=grassProto.clone('hd_grass_tile');
+          box.setEnabled(true); box.isVisible=true; box.isPickable=false;
+          // Tripo's source axes/extents are discovered at runtime below; the
+          // preview established that the tile footprint is unit-scale.
+          box.rotation.y=Math.floor(yawRnd()*4)*Math.PI/2;
+          box.position.set(cx,lift,cz);
+        } else {
+          const u0=(tx+WORLD.halfW)/REPEAT, u1=(tx+1+WORLD.halfW)/REPEAT;
+          const v0=(tz+WORLD.halfH)/REPEAT, v1=(tz+1+WORLD.halfH)/REPEAT;
+          const top=rect(u0,v0,u1,v1), side=rect(u0,0,u1,.55);
+          const t=.94+noise(tx*11.3+1,tz*13.7+9)*.13;
+          const warm=.97+noise(tx*5.9,tz*3.3)*.07;
+          const topC=new BABYLON.Color4(t*warm,t,t*(2-warm),1);
+          const sideC=key==='grass' ? new BABYLON.Color4(.27*t,.30*t,.12*t,1) : new BABYLON.Color4(topC.r*.40,topC.g*.37,topC.b*.33,1);
+          box=key==='grass'
+            ? roundedTile('hd_tile',1-GAP,1-GAP,h,.075,scene,topC,sideC)
+            : BABYLON.MeshBuilder.CreateBox('hd_tile',{ width:1-GAP,height:h,depth:1-GAP,
+                faceUV:[side,side,side,side,top,side],faceColors:[sideC,sideC,sideC,sideC,topC,new BABYLON.Color4(.10,.09,.07,1)],wrap:true },scene);
+          box.position.set(cx,-h/2+lift,cz);
+        }
         groups[key].push(box);
       }
     }
     const out={};
-    for(const k of Object.keys(groups)) out[k]=merge(groups[k],'hd_island_'+k,mats[k]);
+    for(const k of Object.keys(groups)){
+      if(!groups[k].length) continue;
+      // GLB clones already carry the corrected material; other groups receive
+      // their generated PBR surface during merge.
+      out[k]=merge(groups[k],'hd_island_'+k,k==='grass'&&grassProto?null:mats[k]);
+      if(out[k] && k==='grass' && grassProto) out[k].material=grassProto.material;
+    }
+    const usedGrassGLB=!!grassProto;
+    grassProto?.dispose();
     API.state.hdMaterials=Object.assign(API.state.hdMaterials||{},mats);
+    API.state.usingGrassGLB=usedGrassGLB;
     return out;
   }
 

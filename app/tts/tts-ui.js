@@ -21,7 +21,9 @@
     // user has successfully loaded Pocket-TTS, restore its worker eagerly on
     // future visits just like the local brain. Model loading does not create or
     // resume an AudioContext, so autoplay policy remains separate.
-    if(tts.wasLoaded() || localStorage.getItem('geebrTtsEnabled')==='1'){
+    if(window.GEEBR_ART_MODE){
+      $('ttsStatus').textContent='Pocket-TTS disabled (art review mode)';
+    } else if(tts.wasLoaded() || localStorage.getItem('geebrTtsEnabled')==='1'){
       $('ttsStatus').textContent='Auto-loading cached Pocket-TTS…';
       tts.load().catch(err=>{
         $('ttsStatus').textContent='Pocket-TTS auto-load failed: '+err.message;

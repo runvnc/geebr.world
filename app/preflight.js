@@ -1,6 +1,19 @@
 (() => {
   'use strict';
 
+  // ---------------------------------------------------------------------
+  // DEV FLAGS (query string). Neither is a supported user path.
+  //   ?webgl=1  force the WebGL2 engine (headless swiftshader advertises
+  //             WebGPU then loses the device, so WebGPU-only gating makes the
+  //             app impossible to screenshot for art review)
+  //   ?art=1    ART REVIEW MODE: skip the ~3 GB LiteRT model download/load and
+  //             the Pocket-TTS worker, so the scene renders in seconds
+  // ---------------------------------------------------------------------
+  const _q = new URLSearchParams(location.search);
+  window.GEEBR_ART_MODE = _q.has('art');
+  window.GEEBR_FORCE_WEBGL = _q.has('webgl');
+  if (window.GEEBR_ART_MODE) console.warn('GEEBR: art review mode - LLM and TTS disabled');
+
   const scripts = [
     ['https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako_deflate.min.js'],
     ['https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js'],
@@ -17,6 +30,7 @@
     ['https://cdn.babylonjs.com/havok/HavokPhysics_umd.js'],
     ['tts/pocket-tts-manager.js'],
     ['tts/tts-ui.js'],
+    ['look.js'],
     ['terrain-hd.js'],
     ['app.js'],
     ['llm_js/world-integration.js', 'module'],
@@ -56,7 +70,8 @@
   }
 
   async function start() {
-    if (!('gpu' in navigator) || !navigator.gpu) {
+    const devWebGL = new URLSearchParams(location.search).has('webgl');
+    if (!devWebGL && (!('gpu' in navigator) || !navigator.gpu)) {
       showCompatibility(
         'WebGPU is not available in this browser.',
         'The WebGPU browser API was not found. No model or world files were loaded.'
@@ -65,21 +80,23 @@
     }
 
     let adapter;
-    try {
-      adapter = await navigator.gpu.requestAdapter();
-    } catch (error) {
-      showCompatibility(
-        'WebGPU could not start on this device.',
-        `The browser rejected the graphics adapter check: ${error?.message || 'unknown error'}`
-      );
-      return;
-    }
-    if (!adapter) {
-      showCompatibility(
-        'WebGPU is present, but no compatible graphics adapter is available.',
-        'WebGPU may be disabled, blocked, or unsupported by this browser/device combination.'
-      );
-      return;
+    if (!devWebGL) {
+      try {
+        adapter = await navigator.gpu.requestAdapter();
+      } catch (error) {
+        showCompatibility(
+          'WebGPU could not start on this device.',
+          `The browser rejected the graphics adapter check: ${error?.message || 'unknown error'}`
+        );
+        return;
+      }
+      if (!adapter) {
+        showCompatibility(
+          'WebGPU is present, but no compatible graphics adapter is available.',
+          'WebGPU may be disabled, blocked, or unsupported by this browser/device combination.'
+        );
+        return;
+      }
     }
 
     document.body.classList.remove('geebr-preflight-pending');

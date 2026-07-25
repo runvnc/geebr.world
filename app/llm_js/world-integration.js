@@ -255,7 +255,13 @@ async function main() {
   const loadBtn = el('loadBrains');
   if (loadBtn) loadBtn.textContent = 'load ' + modelLabel;
   let shouldLoad = cached;
-  if (!cached) {
+  if (window.GEEBR_ART_MODE) {
+    // Art review mode: never touch the multi-GB model, the renderer is what we
+    // are looking at. Buttons stay disabled.
+    shouldLoad = false;
+    setStatus('local brain disabled (art review mode)');
+    appendLog('art review mode: LLM load skipped');
+  } else if (!cached) {
     shouldLoad = await waitForDownloadConsent(modelLabel);
     if (!shouldLoad) {
       showDownloadDeclined();

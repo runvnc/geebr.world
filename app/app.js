@@ -5,6 +5,8 @@ const ASSET = './assets/textures/';
 const PROP_ASSET = './assets/models/props/';
 const CHAR_ASSET = './assets/models/characters/kaykit/';
 const ANIM_ASSET = './assets/models/animations/kaykit/';
+const TILE_ASSET = './assets/models/tiles/';
+const DETAIL_NORMAL = './assets/textures/detail_clay_n.png';
 const GEEBR_ASSET = './assets/models/characters/generated/';
 const WORLD = { size: 14, half: 7, w: 14, h: 12, halfW: 7, halfH: 6 };
 const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest'];
@@ -17,20 +19,39 @@ const state = {
 function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); try{ const muted=(window._geebrLogToastMuteUntil&&performance.now()<window._geebrLogToastMuteUntil)||s.startsWith('selected '); if(!muted) window.geebrToast?.(s,{type:'info'}); }catch{} }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
-async function createEngine(){ if(!navigator.gpu) throw new Error('WebGPU unavailable in this browser'); const engine = new BABYLON.WebGPUEngine(canvas,{antialias:true,adaptToDeviceRatio:true}); await engine.initAsync(); return engine; }
+// Dev escape hatch: ?webgl=1 forces the WebGL2 engine. Needed because headless
+// swiftshader advertises WebGPU but then loses the device, which makes the real
+// app impossible to screenshot for art review. Not a supported user path.
+async function createEngine(){
+  if(window.GEEBR_FORCE_WEBGL || new URLSearchParams(location.search).has('webgl')){
+    console.warn('createEngine: ?webgl=1 - using WebGL2 fallback (dev only)');
+    return new BABYLON.Engine(canvas,true,{preserveDrawingBuffer:true,stencil:true},true);
+  }
+  if(!navigator.gpu) throw new Error('WebGPU unavailable in this browser');
+  const engine = new BABYLON.WebGPUEngine(canvas,{antialias:true,adaptToDeviceRatio:true});
+  await engine.initAsync(); return engine;
+}
 function mat(scene,name,texture,opts={}){
-  const m=new BABYLON.StandardMaterial(name,scene);
+  const m=new BABYLON.PBRMaterial(name,scene);
   const tx=new BABYLON.Texture(ASSET+texture,scene,true,false,BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
   tx.wrapU=BABYLON.Texture.WRAP_ADDRESSMODE; tx.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE;
   tx.anisotropicFilteringLevel=8; tx.uScale=opts.uScale||1; tx.vScale=opts.vScale||1;
-  m.diffuseTexture=tx;
-  m.specularColor=opts.specular||new BABYLON.Color3(.018,.018,.016);
-  if(opts.diffuse) m.diffuseColor=opts.diffuse;
+  m.albedoTexture=tx;
+  m.metallic=0; m.roughness=opts.roughness??.88;
+  m.environmentIntensity=.55; m.specularIntensity=opts.specularIntensity??.18;
+  if(opts.diffuse) m.albedoColor=opts.diffuse;
   if(opts.emissive) m.emissiveColor=opts.emissive;
   if(opts.alpha!==undefined){ m.alpha=opts.alpha; tx.hasAlpha=true; }
-  return m;
+  return applyClayLook(m,scene,{detail:opts.detail??.11});
 }
-function colorMat(scene,name,color,emissive=null){ const m=new BABYLON.StandardMaterial(name,scene); m.diffuseColor=color; m.specularColor=new BABYLON.Color3(.035,.035,.035); if(emissive) m.emissiveColor=emissive; return m; }
+// The shared "painted clay diorama" look lives in look.js (window.GEEBR_LOOK)
+// so app.js and app/tilepreview.html cannot drift. See that file for the
+// measured reasons behind each value.
+const LOOK = () => window.GEEBR_LOOK;
+function applyClayLook(m,scene,opts){ return LOOK()?.applyClayLook(m,scene,opts) ?? m; }
+function applyClayLookToMeshes(meshes,scene,opts){ LOOK()?.applyClayLookToMeshes(meshes,scene,opts); }
+
+function colorMat(scene,name,color,emissive=null){ const m=new BABYLON.PBRMaterial(name,scene); m.albedoColor=color; m.metallic=0; m.roughness=.90; m.environmentIntensity=.55; m.specularIntensity=.16; if(emissive) m.emissiveColor=emissive; return applyClayLook(m,scene,{detail:.11}); }
 
 function makeWaterMaterial(scene){
   const m=mat(scene,'water_soft','water_painterly.png',{uScale:4.5,vScale:4.5,alpha:.72,specular:new BABYLON.Color3(.16,.24,.25),emissive:new BABYLON.Color3(.006,.022,.028)});
@@ -338,7 +359,8 @@ async function createKayKitGeebr(scene,id,pos,file,label){
   root.position.copyFrom(pos); root.scaling.setAll(.86);
   const importedRoot=res.meshes.find(m=>m.name==='__root__') || res.meshes[0];
   importedRoot.parent=root; importedRoot.position.set(0,0,0); importedRoot.rotationQuaternion=null; importedRoot.rotation.set(0,Math.PI,0);
-  for(const mesh of res.meshes){ mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh); if(mesh.material){ mesh.material.specularColor=new BABYLON.Color3(.025,.025,.022); } }
+  for(const mesh of res.meshes){ mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh); }
+  applyClayLookToMeshes(res.meshes,scene);
   const collider=BABYLON.MeshBuilder.CreateBox(id+'_collider',{width:.66,height:1.35,depth:.58},scene);
   collider.position.copyFrom(root.position); collider.position.y+=.68; collider.isVisible=false; collider.metadata={ownerId:id};
   const agg=addBody(collider,'dynamic','BOX',1.25,{friction:.92,restitution:.02});
@@ -362,7 +384,7 @@ async function createGeneratedGeebr(scene,id,pos){
   // Meshy exports this character facing local +Z; root yaw zero therefore faces north visually.
   importedRoot.rotationQuaternion=null; importedRoot.rotation.set(0,0,0);
   for(const mesh of idleRes.meshes){
-    mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh);
+    mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh); applyClayLook(mesh.material,scene);
     if(mesh.material){
       // Keep the clay matte, but avoid forcing it so rough that every highlight disappears.
       if('roughness' in mesh.material) mesh.material.roughness=.7;
@@ -422,7 +444,8 @@ async function tryLoadRiggedCharacter(scene){
     const result=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/characters/', 'geebr_humanoid.glb', scene);
     const root=new BABYLON.TransformNode('rigged_geebr_preview_root',scene);
     root.position.set(-.25,0.02,-1.25); root.scaling.setAll(.72);
-    for(const mesh of result.meshes){ mesh.parent=root; mesh.receiveShadows=true; addShadow(mesh); if(mesh.material && 'roughness' in mesh.material) mesh.material.roughness=Math.max(mesh.material.roughness||0,.72); }
+    for(const mesh of result.meshes){ mesh.parent=root; mesh.receiveShadows=true; addShadow(mesh); }
+    applyClayLookToMeshes(result.meshes,scene);
     if(result.animationGroups?.length){ result.animationGroups[0].start(true); }
     log('loaded rigged humanoid character: assets/models/characters/geebr_humanoid.glb');
     return root;
@@ -2153,7 +2176,7 @@ async function addTerrainPolish(scene){
 
 async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
   scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(1.6,.3,0),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.1; camera.maxZ=4000; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(1.6,.3,0),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;
@@ -2189,7 +2212,7 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   fill.intensity=.30; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
   state.sun=sun;
   state.shadow=new BABYLON.ShadowGenerator(2048,sun);
-  state.shadow.useBlurCloseExponentialShadowMap=true; state.shadow.blurKernel=26; state.shadow.darkness=.06; state.shadow.bias=.0014; state.shadow.normalBias=.010;
+  state.shadow.useBlurCloseExponentialShadowMap=true; state.shadow.blurKernel=26; state.shadow.darkness=.30; state.shadow.bias=.0014; state.shadow.normalBias=.010;
   state.shadow.depthScale=42;
   // Fit the shadow frustum tightly to the island so 2048 texels land where they matter.
   sun.autoCalcShadowZBounds=false; sun.shadowMinZ=2; sun.shadowMaxZ=48;
@@ -2198,10 +2221,10 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
   scene.environmentTexture=envTexture;
   scene.environmentIntensity=.38;
-  scene.imageProcessingConfiguration.contrast=1.34;
-  scene.imageProcessingConfiguration.exposure=1.34;
-  scene.imageProcessingConfiguration.toneMappingEnabled=true;
-  scene.imageProcessingConfiguration.toneMappingType=BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
+  // Tonemap + diorama grade (teal-lifted shadows, warm highlights). The old
+  // ACES at contrast/exposure 1.34 was crushing shadows and desaturating the
+  // olive greens relative to the concept art.
+  LOOK()?.applyTonemap(scene);
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
   try{
     const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);
@@ -2212,7 +2235,21 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
     rp.imageProcessing.vignetteBlendMode=BABYLON.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
     rp.samples=4;
    
+    // Tilt-shift depth of field. The old comment promised this but it was never
+    // enabled. Focus tracks the camera target so the island centre stays sharp.
+    rp.depthOfFieldEnabled=true;
+    rp.depthOfFieldBlurLevel=BABYLON.DepthOfFieldEffectBlurLevel.Low;
+    rp.depthOfField.focalLength=42;
+    rp.depthOfField.fStop=2.4;
+    scene.onBeforeRenderObservable.add(()=>{
+      // focusDistance is in millimetres
+      rp.depthOfField.focusDistance=BABYLON.Vector3.Distance(camera.position,camera.target)*1000;
+    });
     state.renderPipeline=rp;
+    // Ambient occlusion is what makes the reference read as sculpted clay
+    // rather than flat colour. Neither the imported GLBs (Tripo bakes a pure
+    // white AO channel) nor the procedural terrain carried any before this.
+    state.ssao=LOOK()?.setupSSAO(scene,camera,{radius:.9,strength:2.2,samples:16,maxZ:60});
     const gl=new BABYLON.GlowLayer('hd_glow',scene,{ mainTextureFixedSize:512, blurKernelSize:44 });
     gl.intensity=.38;
     state.glowLayer=gl;
@@ -2245,5 +2282,10 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
     const recorder=window.geebrFrameRecorder;
     if(recorder?.wantsFrame?.()) recorder.captureAfterRender(engine).catch(err=>recorder.fail?.(err));
   });
-  window.addEventListener('resize',()=>engine.resize()); log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
+  window.addEventListener('resize',()=>engine.resize());
+  // Deterministic render-harness readiness signal. Art review tools wait for
+  // this instead of guessing from mesh counts or sleeping for minutes.
+  window.GEEBR_SCENE_READY=true;
+  window.dispatchEvent(new CustomEvent('geebr-scene-ready',{detail:{meshes:scene.meshes.length,materials:scene.materials.length}}));
+  log('v14.5 loaded: fixed north-up perception UI + blank hidden cells + facing cone + LOS'); updatePerceptionUI(); }
 main().catch(err=>{ console.error(err); document.body.innerHTML='<pre style="color:white;padding:20px;white-space:pre-wrap">'+err.stack+'</pre>'; });
