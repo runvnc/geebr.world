@@ -8,6 +8,100 @@ unchanged asset pipeline, preserved verbatim in substance.
 
 ---
 
+## LATEST SESSION UPDATE — 2026-07-25 ~15:35 UTC
+
+This section supersedes stale status/priority/git statements later in the file.
+The deeper diagnosis and pipeline documentation remain valid.
+
+### Current committed state
+
+Two commits were created on `main`:
+
+- `cd7e8c2` — **upgrade clay rendering pipeline and integrate corrected grass tile**
+- `baba153` — **tune integrated terrain and deduplicate tile builder**
+
+Working tree was clean immediately after `baba153`. Previous statements saying
+“nothing committed” or HEAD `2280484` are obsolete.
+
+### What is now visibly integrated in the REAL app
+
+- `grass_v7_orm.glb` is now the default grass terrain, not merely an isolated
+  preview asset. `?procedural=1` restores the old procedural grass for A/B and
+  rollback.
+- The central `mat()` and `colorMat()` factories now create matte PBR materials
+  rather than StandardMaterials. Clay detail is applied at **0.11**.
+- Water is explicitly exempt from the generic clay treatment: low roughness,
+  stronger environment/specular response, and no clay detail normal.
+- SSAO is locked at strength **2.2**, radius **0.9**, samples **16**, maxZ **60**.
+- Neutral tonemap is currently exposure **1.28**, contrast **1.10**, with grade.
+- GLB grass tiles use deterministic random 90-degree yaw, no colour jitter,
+  scale `1.006` to close tiny seams, and a `+0.010` vertical lift.
+- `terrain-hd.js` duplicate cleanup is DONE: five `roundedTile()` definitions
+  were reduced to one canonical builder exported as `GeebrHD.roundedTile`; the
+  duplicate `let dp=0` was removed. Procedural fallback was tested after cleanup.
+
+### Visual verdict
+
+A proper 800x550 GLB-vs-`?procedural=1` comparison was completed. The GLB path is
+clearly the right direction: flatter, continuous, matte, desaturated olive, and
+closer to the reference. The procedural path is brighter but lime, pillowed, and
+visibly tiled. Current GLB render: `/tmp/fal3d/tuned_final.jpg` (ephemeral).
+Comparison: `/tmp/fal3d/glb_proc_cmp.jpg` (ephemeral).
+
+The current render is appreciably improved, but still somewhat uniformly olive
+and sparse. The next gain is scene-level colour hierarchy/richness, not returning
+to procedural grass.
+
+### Fast screenshot pipeline — use this, not old harness timing
+
+`handoff/tile_work/shot_fast.py` is the preferred harness. It uses
+`?art=1&webgl=1`, waits for explicit `window.GEEBR_SCENE_READY`, loads the app
+once, and captures the WebGL canvas directly. No mesh polling or minute-scale
+timeouts. Default normal-review size is **800x550**, JPEG quality 90.
+
+Measured 800x550 one-shot passes: approximately **18–24 seconds wall time**. The
+first 3-way 560x385 sweep completed in **26.8 seconds total**. `?art=1` was
+verified: meshes 49/50, pipelines `[drp,ssao]`, DOF true, and TTS status
+`Pocket-TTS disabled (art review mode)`. The LLM and TTS model loads are skipped.
+
+Current `shot_fast.py` intentionally has one `final` variant. Edit `VARIANTS`
+for A/B sweeps. Keep normal judgment shots at 800x550 or larger; use 640x440 only
+for rough parameter sweeps, then validate high-resolution. Full images are fine
+when needed—optimize context without making visual review unreliable.
+
+### Performance caveat
+
+Headless SwiftShader reports only ~0.3–0.5 fps with post-processing, though an
+800x550 review shot still completes in ~20 seconds. The grass integration imports
+one GLB, clones all grass cells, then merges them into one rendered mesh. This is
+a temporary functional integration, not the final production thin-instance
+implementation. Convert repeated grass tiles to thin instances or another
+efficient production path after visual placement/scale is locked. Do not judge
+real GPU runtime from SwiftShader fps alone.
+
+### Immediate next work, in order
+
+1. Add scene richness and colour hierarchy against the now-correct base:
+   separate chunky grass-blade clusters and daisies, with varying density and
+   thin instances. No per-instance colour jitter.
+2. Improve path/grass transitions and create the cliff/edge tile.
+3. Convert the completed 2D concepts for rocks/tree/house/barrel/crate through
+   Tripo -> `bake.py` -> mandatory `orm.py`.
+4. Replace the temporary merged grass-clone implementation with thin instances.
+5. Consider baked vertex AO only if SSAO + ORM AO still leave specific cavities
+   weak. It is no longer the immediate priority.
+6. Continue using `shot_fast.py` and batch related changes before rendering.
+
+### Important visual constraints still locked
+
+- Grass is smooth matte painted clay/felt, not fuzzy or photoreal.
+- Tops are flat with tight bevels and crisp edges; seams are thin and dark.
+- Grassiness comes from separate props on top.
+- Never return to procedural grass as the final direction.
+- No per-instance colour tint jitter and no more grass slab variants.
+
+---
+
 ## 0. STOP — read this before doing anything
 
 ### 0.1 Context budget kills sessions
