@@ -17,6 +17,7 @@
     ['https://cdn.babylonjs.com/havok/HavokPhysics_umd.js'],
     ['tts/pocket-tts-manager.js'],
     ['tts/tts-ui.js'],
+    ['terrain-hd.js'],
     ['app.js'],
     ['llm_js/world-integration.js', 'module'],
   ];

@@ -6,7 +6,7 @@ const PROP_ASSET = './assets/models/props/';
 const CHAR_ASSET = './assets/models/characters/kaykit/';
 const ANIM_ASSET = './assets/models/animations/kaykit/';
 const GEEBR_ASSET = './assets/models/characters/generated/';
-const WORLD = { size: 32, half: 16 };
+const WORLD = { size: 14, half: 7, w: 14, h: 12, halfW: 7, halfH: 6 };
 const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
@@ -52,7 +52,7 @@ function setupMouseWheelZoom(camera){
       f.y=0.6;
       camera.setTarget(BABYLON.Vector3.Lerp(camera.target,f,ev.deltaY>0?.18:.42));
     }
-    camera.radius=clamp(camera.radius*factor,10,28);
+    camera.radius=clamp(camera.radius*factor,7,60);
   },{passive:false});
 }
 function hashNoise(x,z){
@@ -365,10 +365,14 @@ async function createGeneratedGeebr(scene,id,pos){
     mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh);
     if(mesh.material){
       // Keep the clay matte, but avoid forcing it so rough that every highlight disappears.
-      if('roughness' in mesh.material) mesh.material.roughness=.62;
+      if('roughness' in mesh.material) mesh.material.roughness=.7;
       if('metallic' in mesh.material) mesh.material.metallic=0;
-      if('environmentIntensity' in mesh.material) mesh.material.environmentIntensity=.72;
-      if('directIntensity' in mesh.material) mesh.material.directIntensity=1.18;
+      if('environmentIntensity' in mesh.material) mesh.material.environmentIntensity=.35;
+      if('directIntensity' in mesh.material) mesh.material.directIntensity=1.0;
+      // Clamp any baked emissive (the cyan ear-arcs glow like neon under night lighting)
+      if('emissiveColor' in mesh.material && mesh.material.emissiveColor){ const e=mesh.material.emissiveColor; e.scaleToRef(0.12,e); }
+      // Tint the pale mint clay toward goblin green to match the mockup
+      if('albedoColor' in mesh.material && mesh.material.albedoColor){ const a=mesh.material.albedoColor; a.set(a.r*.72,a.g*.95,a.b*.68); }
       mesh.material.backFaceCulling=false;
     }
   }
@@ -394,9 +398,9 @@ async function createGeneratedGeebr(scene,id,pos){
   agg?.body?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
   // Small character-local lights preserve facial/belly modeling at any camera angle.
   const portraitKey=new BABYLON.PointLight(id+'_portrait_key',new BABYLON.Vector3(-1.45,2.65,-2.35),scene);
-  portraitKey.parent=root; portraitKey.diffuse=new BABYLON.Color3(1,.88,.72); portraitKey.intensity=.82; portraitKey.range=4.7;
+  portraitKey.parent=root; portraitKey.diffuse=new BABYLON.Color3(1,.88,.72); portraitKey.intensity=.5; portraitKey.range=4.7;
   const portraitRim=new BABYLON.PointLight(id+'_portrait_rim',new BABYLON.Vector3(1.6,2.35,1.45),scene);
-  portraitRim.parent=root; portraitRim.diffuse=new BABYLON.Color3(.48,.70,1); portraitRim.intensity=.46; portraitRim.range=4.0;
+  portraitRim.parent=root; portraitRim.diffuse=new BABYLON.Color3(.48,.70,1); portraitRim.intensity=.3; portraitRim.range=4.0;
   const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true); state.geebrs.push(geebr); debugRigAnims(geebr); return geebr;
 }
@@ -1060,22 +1064,20 @@ function tileAtGrid(x,z){
   return bd<=1.02 ? best : null;
 }
 function proceduralTerrainAt(x,z){
-  // Keep perception synchronized with the continuous terrain drawn by
-  // makePathRibbon(), makeStoneQuarrySurface(), and makeBetterWater().
-  // Later meshes visually cover earlier ones, so water/quarry take precedence.
-  const inWater=x>=6.19 && x<=15.91 && z>=3.09 && z<=15.01;
-  if(inWater) return 'water';
-  const inQuarry=x>=2.4 && x<=15.4 && z>=-15.4 && z<=-5.4;
+  // Small voxel island: grass + winding dirt path + stone quarry corner.
+  // Everything beyond the island rim is open sea.
+  if(Math.abs(x)>WORLD.halfW || Math.abs(z)>WORLD.halfH) return 'water';
+  const inQuarry=x>=4.2 && z<=-3.6;
   if(inQuarry) return 'stone';
-  const pathCenter=Math.sin(x*.28)*.48 + Math.sin(x*.77+1.8)*.18;
-  const pathWidth=1.25 + smoothNoise(x*.35,9)*.42;
-  if(x>=-13.2 && x<=13.2 && Math.abs(z-pathCenter)<=pathWidth) return 'dirt';
+  const pathCenter=Math.sin(x*.55)*1.1 + Math.sin(x*1.3+1.2)*.35;
+  const pathWidth=.42 + smoothNoise(x*.5,9)*.22;
+  if(Math.abs(z-pathCenter)<=pathWidth) return 'dirt';
   return 'grass';
 }
 function baseGlyphForTile(x,z){
   const t=tileAtGrid(x,z); const m=meta(t);
   const mat=m?.tileMaterial || (t?.name||'').replace('tile_','') || proceduralTerrainAt(x,z);
-  if(Math.abs(x)>WORLD.half || Math.abs(z)>WORLD.half) return '?';
+  if(Math.abs(x)>WORLD.halfW || Math.abs(z)>WORLD.halfH) return '?';
   if(mat==='water') return '~';
   if(mat==='dirt') return ':';
   if(mat==='stone') return '^';
@@ -1918,52 +1920,240 @@ function makeIslandCliff(scene){
   const merged=BABYLON.Mesh.MergeMeshes(rim,true,true,undefined,false,true);
   if(merged){ merged.name='cliff_rim_merged'; merged.isPickable=false; }
 }
-function addTerrainPolish(scene){
-  // Mute underlying cube grid so it remains useful for click/pick/collision but stops visually fighting the terrain.
-  const ghostMats={};
-  function ghost(name,color){ const m=terrainMat(scene,'v12_'+name+'_ghost',color,.006,null,.10); ghostMats[name]=m; return m; }
-  ghost('grass',new BABYLON.Color3(.16,.24,.12)); ghost('dirt',new BABYLON.Color3(.30,.20,.11)); ghost('stone',new BABYLON.Color3(.25,.25,.23)); ghost('water',new BABYLON.Color3(.04,.10,.12));
-  for(const mesh of scene.meshes){
-    if(mesh.name.startsWith('tile_grass')) mesh.material=ghostMats.grass;
-    else if(mesh.name.startsWith('tile_dirt')) mesh.material=ghostMats.dirt;
-    else if(mesh.name.startsWith('tile_stone')) mesh.material=ghostMats.stone;
-    else if(mesh.name.startsWith('tile_water')) mesh.material=ghostMats.water;
-    if(mesh.name.startsWith('tile_')) { mesh.visibility=.18; mesh.isPickable=true; }
+function voxelTileColors(matName,x,z){
+  const n=hashNoise(x*3.7+11,z*5.1-7), n2=hashNoise(x*9.3-4,z*7.9+21);
+  const top=new BABYLON.Color4(1,1,1,1), side=new BABYLON.Color4(1,1,1,1), bottom=new BABYLON.Color4(.05,.045,.04,1);
+  if(matName==='dirt'){ top.set(.42+n*.08,.30+n*.06,.17+n*.04,1); side.set(.30+n*.05,.21+n*.04,.12+n*.03,1); }
+  else if(matName==='stone'){ const g=.34+n*.11; top.set(g,g*1.02,g*1.05,1); side.set(.24+n*.06,.24+n*.06,.26+n*.06,1); }
+  else { top.set(.20+n*.09+n2*.04,.46+n*.10,.15+n*.05,1); side.set(.30+n*.06,.22+n*.045,.14+n*.03,1); }
+  if(n2>.93 && matName==='grass'){ top.r=Math.min(1,top.r+.07); top.g=Math.min(1,top.g+.09); }
+  return {top,side,bottom};
+}
+function makeMicroNoiseTexture(scene){
+  // Packed 1024 canvas: top-left grass, top-right dirt, bottom-left stone, bottom-right strata bump.
+  const S=1024, H=512, cv=document.createElement('canvas'); cv.width=cv.height=S;
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle='#8a8a8a'; ctx.fillRect(0,0,H,H);
+  for(let i=0;i<26000;i++){ const x=Math.random()*H,y=Math.random()*H,r=Math.random()*1.4+.3; const v=118+Math.floor(Math.random()*40);
+    ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  ctx.strokeStyle='rgba(160,160,160,0.5)'; ctx.lineWidth=1;
+  for(let i=0;i<700;i++){ const x=Math.random()*H,y=Math.random()*H,l=3+Math.random()*7,a=-Math.PI/2+(Math.random()-.5)*.9;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+Math.cos(a)*l,y+Math.sin(a)*l); ctx.stroke(); }
+  ctx.fillStyle='#8a8a8a'; ctx.fillRect(H,0,H,H);
+  for(let i=0;i<9000;i++){ const x=H+Math.random()*H,y=Math.random()*H,r=Math.random()*2.2+.5; const v=112+Math.floor(Math.random()*52);
+    ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  for(let i=0;i<260;i++){ const x=H+Math.random()*H,y=Math.random()*H,r=2+Math.random()*6; const v=96+Math.floor(Math.random()*70);
+    ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  ctx.fillStyle='#8a8a8a'; ctx.fillRect(0,H,H,H);
+  for(let i=0;i<7000;i++){ const x=Math.random()*H,y=H+Math.random()*H,r=Math.random()*1.8+.4; const v=116+Math.floor(Math.random()*42);
+    ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  for(let i=0;i<180;i++){ const x=Math.random()*H,y=H+Math.random()*H,r=4+Math.random()*11; const v=104+Math.floor(Math.random()*62);
+    ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.beginPath();
+    for(let k=0;k<5;k++){ const a=k/5*Math.PI*2+i; const px=x+Math.cos(a)*r*(0.7+((i*k)%3)*.15), py=y+Math.sin(a)*r*(0.7+((i+k)%3)*.15); k?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+    ctx.closePath(); ctx.fill(); }
+  ctx.fillStyle='#8a8a8a'; ctx.fillRect(H,H,H,H);
+  for(let y=0;y<H;y+=4){ const v=108+Math.floor(Math.random()*44); ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.fillRect(H,H+y,H,2+Math.random()*4); }
+  for(let i=0;i<3800;i++){ const x=H+Math.random()*H,y=H+Math.random()*H,r=Math.random()*1.6+.3; const v=110+Math.floor(Math.random()*46);
+    ctx.fillStyle='rgb('+v+','+v+','+v+')'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill(); }
+  const tex=new BABYLON.DynamicTexture('micro_noise',cv,scene,true); tex.update();
+  tex.wrapU=tex.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE;
+  tex.anisotropicFilteringLevel=4;
+  return tex;
+}
+function makeVoxelIsland(scene){
+  const tiles=[];
+  const uvRect={ grass:[0,.5,.5,1], dirt:[.5,.5,1,1], stone:[0,0,.5,.5], strata:[.5,0,1,.5] };
+  const rect=r=>new BABYLON.Vector4(r[0],r[1],r[2],r[3]);
+  for(let tx=-WORLD.halfW;tx<WORLD.halfW;tx++) for(let tz=-WORLD.halfH;tz<WORLD.halfH;tz++){
+    const cx=tx+.5, cz=tz+.5;
+    const matName=proceduralTerrainAt(cx,cz);
+    const edgeDist=Math.min(tx+WORLD.halfW, WORLD.halfW-1-tx, tz+WORLD.halfH, WORLD.halfH-1-tz);
+    const topY=edgeDist===0?-.16:(edgeDist===1?-.06:0);
+    const topR=uvRect[matName]||uvRect.grass;
+    const strataR=uvRect.strata;
+    const fu=[ rect(strataR), rect(strataR), rect(strataR), rect(strataR), rect(topR), rect(strataR) ];
+    const c=voxelTileColors(matName,tx,tz);
+    const box=BABYLON.MeshBuilder.CreateBox('voxel_tile',{width:.965,height:.62,depth:.965,faceUV:fu,faceColors:[c.side,c.side,c.side,c.side,c.top,c.bottom]},scene);
+    box.position.set(cx,topY-.31,cz);
+    tiles.push(box);
+    if(edgeDist<=1){
+      const sideR=uvRect.stone;
+      const n1=hashNoise(tx,tz*3), n2=hashNoise(tx*2,tz), n3=hashNoise(tx*5,tz*7), n4=hashNoise(tx*9,tz);
+      const dirtC=new BABYLON.Color4(.34+n1*.07,.25+n2*.05,.16,1);
+      const rockC=new BABYLON.Color4(.24+n3*.06,.24+n3*.06,.27+n4*.05,1);
+      const layerCols=[dirtC,dirtC,rockC,rockC];
+      for(let d=1;d<=4;d++){
+        const lc=layerCols[d-1];
+        const fu2=[ rect(strataR), rect(strataR), rect(strataR), rect(strataR), rect(sideR), rect(strataR) ];
+        const b2=BABYLON.MeshBuilder.CreateBox('voxel_under',{width:.965,height:.62,depth:.965,faceUV:fu2,faceColors:[lc,lc,lc,lc,lc,lc]},scene);
+        b2.position.set(cx,topY-.31-.62*d,cz);
+        tiles.push(b2);
+      }
+    }
   }
-  const grass=BABYLON.MeshBuilder.CreateGround('continuous_safe_grass',{width:31.8,height:31.8,subdivisions:8},scene);
-  grass.position.set(0,.018,0);
-  const groundM=new BABYLON.StandardMaterial('v12_ground_baked',scene);
-  groundM.diffuseTexture=makeGroundTexture(scene); groundM.specularColor=new BABYLON.Color3(.012,.014,.010);
-  grass.material=groundM; grass.receiveShadows=true; grass.isPickable=false;
-  // Add static ground physics body so props don't fall through
-  const groundBody=new BABYLON.PhysicsAggregate(grass,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
-  groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
-  makeIslandCliff(scene);
-  makePathRibbon(scene);
-  makeStoneQuarrySurface(scene);
-  makeBetterWater(scene);
-  makeShoreRocks(scene);
-  const grassGroups=[[],[]];
-  for(let i=0;i<620;i++){
-    const x=-15.4+Math.random()*30.8, z=-15.4+Math.random()*30.8;
-    const pathCenter=Math.sin(x*.28)*.48 + Math.sin(x*.77+1.8)*.18;
-    if((Math.abs(z-pathCenter)<1.55 && x>-13.5 && x<13.5) || (x>5.8&&z>2.8) || (x>2&&z<-5)) continue;
-    const h=.09+Math.random()*.18, d=.035+Math.random()*.055;
-    const blade=BABYLON.MeshBuilder.CreateCylinder('grass_tuft',{height:h,diameterTop:.004,diameterBottom:d,tessellation:4},scene);
-    blade.position.set(x,.055+h*.35,z); blade.rotation.set((Math.random()-.5)*.22,Math.random()*Math.PI,(Math.random()-.5)*.22);
-    const group=Math.random()<.65?0:1; blade.material=group?state.materials.grassBlade2:state.materials.grassBlade; blade.isPickable=false;
-    grassGroups[group].push(blade);
+  const m=new BABYLON.StandardMaterial('voxel_mat',scene);
+  const detail=makeMicroNoiseTexture(scene);
+  m.diffuseTexture=detail; m.bumpTexture=detail; m.bumpTexture.level=.5;
+  m.diffuseColor=new BABYLON.Color3(1,1,1); m.specularColor=new BABYLON.Color3(.012,.012,.010); m.useVertexColor=true;
+  const merged=BABYLON.Mesh.MergeMeshes(tiles,true,true,undefined,false,false);
+  merged.name='voxel_island';
+  if(merged && merged.getVerticesData(BABYLON.VertexBuffer.ColorKind)){
+    merged.material=m; merged.receiveShadows=true; merged.isPickable=false; merged.freezeWorldMatrix();
+    return merged;
   }
-  grassGroups.forEach((meshes,i)=>{
-    if(!meshes.length) return;
-    const merged=BABYLON.Mesh.MergeMeshes(meshes,true,true,undefined,false,true);
-    if(merged){ merged.name='grass_tufts_merged_'+i; merged.isPickable=false; addShadow(merged); }
+  console.warn('voxel merge dropped vertex colors; falling back to unmerged tiles');
+  if(merged) merged.dispose();
+  for(const t of tiles){ t.receiveShadows=true; t.isPickable=false; t.material=m; }
+  return tiles[0];
+}
+function makeIslandBase(scene){
+  // Deep keel far below the voxel cliff so the island reads as a floating block from low angles.
+  const rockM=colorMat(scene,'island_base_rock',new BABYLON.Color3(.17,.16,.15));
+  console.log('GEEBR REV strata-voxel-cliff-1');
+  const keel=BABYLON.MeshBuilder.CreateBox('island_keel',{width:WORLD.w-3.6,height:2.2,depth:WORLD.h-3.6},scene);
+  keel.position.set(0,-3.9,0); keel.material=rockM; keel.isPickable=false;
+}
+function makeSea(scene){
+  const seaM=new BABYLON.StandardMaterial('sea_mat',scene);
+  seaM.diffuseColor=new BABYLON.Color3(.05,.13,.20); seaM.emissiveColor=new BABYLON.Color3(.012,.032,.055);
+  seaM.specularColor=new BABYLON.Color3(.10,.16,.20); seaM.specularPower=128; seaM.alpha=.96;
+  const sea=BABYLON.MeshBuilder.CreateGround('sea',{width:90,height:90,subdivisions:48},scene);
+  sea.position.y=-.42; sea.material=seaM; sea.isPickable=false;
+  const pos=sea.getVerticesData(BABYLON.VertexBuffer.PositionKind); const base=pos.slice();
+  scene.onBeforeRenderObservable.add(()=>{
+    const t=performance.now()*.001;
+    for(let i=0;i<pos.length;i+=3){ const x=base[i],z=base[i+2]; pos[i+1]=Math.sin(x*.9+t*.8)*.028+Math.sin(z*1.3-t*.6)*.018; }
+    sea.updateVerticesData(BABYLON.VertexBuffer.PositionKind,pos,false,false);
+  });
+  const padM=colorMat(scene,'lily_pad',new BABYLON.Color3(.13,.30,.17));
+  for(let i=0;i<10;i++){
+    const ang=Math.random()*Math.PI*2, r=Math.min(WORLD.halfW,WORLD.halfH)+.8+Math.random()*2.4;
+    const pad=BABYLON.MeshBuilder.CreateDisc('lily_pad',{radius:.14+Math.random()*.12,tessellation:9},scene);
+    pad.rotation.x=Math.PI/2; pad.position.set(Math.cos(ang)*r*1.15,-.40,Math.sin(ang)*r);
+    pad.material=padM; pad.isPickable=false;
+  }
+  for(let i=0;i<5;i++){
+    const ringM=new BABYLON.StandardMaterial('ripple_mat_'+i,scene);
+    ringM.emissiveColor=new BABYLON.Color3(.22,.42,.52); ringM.diffuseColor=new BABYLON.Color3(0,0,0);
+    ringM.alpha=.3; ringM.disableLighting=true;
+    const ring=BABYLON.MeshBuilder.CreateTorus('ripple',{diameter:1,thickness:.022,tessellation:40},scene);
+    ring.rotation.x=Math.PI/2;
+    const ang=i*1.35+.6, r=8+((i*1.7)%3);
+    ring.position.set(Math.cos(ang)*r,-.405,Math.sin(ang)*r*.8);
+    ring.material=ringM; ring.isPickable=false;
+    let s=.4+i*.55; const speed=.10+i*.02;
+    scene.onBeforeRenderObservable.add(()=>{ s+=speed*.016; if(s>3.2)s=.4; ring.scaling.set(s,s,1); ringM.alpha=.30*(1-s/3.4); });
+  }
+  return sea;
+}
+function makeSkyDome(scene){
+  const S=512, cv=document.createElement('canvas'); cv.width=64; cv.height=S;
+  const ctx=cv.getContext('2d');
+  const g=ctx.createLinearGradient(0,0,0,S);
+  g.addColorStop(0,'#173b47'); g.addColorStop(.35,'#12303f'); g.addColorStop(.62,'#0a1626'); g.addColorStop(1,'#05080f');
+  ctx.fillStyle=g; ctx.fillRect(0,0,64,S);
+  for(let i=0;i<110;i++){ const x=Math.random()*64, y=S*.42+Math.random()*S*.58, a=.25+Math.random()*.6;
+    ctx.fillStyle='rgba(255,255,255,'+a.toFixed(2)+')'; ctx.fillRect(x,y,1.1,1.1); }
+  const tex=new BABYLON.DynamicTexture('sky_grad',cv,scene,false); tex.update();
+  const m=new BABYLON.StandardMaterial('sky_mat',scene);
+  m.emissiveTexture=tex; m.diffuseColor=new BABYLON.Color3(0,0,0); m.disableLighting=true; m.backFaceCulling=false;
+  const dome=BABYLON.MeshBuilder.CreateSphere('sky_dome',{diameter:260,segments:12,sideOrientation:BABYLON.Mesh.BACKSIDE},scene);
+  dome.material=m; dome.isPickable=false; dome.infiniteDistance=true;
+  return dome;
+}
+function makePine(scene,x,z,s=1){
+  const mats=scene._pineMats||(scene._pineMats={
+    trunk:colorMat(scene,'pine_trunk',new BABYLON.Color3(.20,.13,.09)),
+    leaf:colorMat(scene,'pine_leaf',new BABYLON.Color3(.10,.26,.20)),
+    leaf2:colorMat(scene,'pine_leaf2',new BABYLON.Color3(.13,.32,.22))});
+  const trunk=BABYLON.MeshBuilder.CreateCylinder('pine_trunk',{height:.34*s,diameter:.11*s,tessellation:6},scene);
+  trunk.position.set(x,.17*s,z); trunk.material=mats.trunk; trunk.isPickable=false; addShadow(trunk);
+  const tiers=[[.34,.62,.42],[.26,.5,.72],[.16,.4,1.0]];
+  for(let i=0;i<3;i++){ const r=tiers[i][0],h=tiers[i][1],yc=tiers[i][2];
+    const cone=BABYLON.MeshBuilder.CreateCylinder('pine_tier',{diameterTop:0,diameterBottom:r*2*s,height:h*s,tessellation:7},scene);
+    cone.position.set(x,yc*s,z); cone.material=i%2?mats.leaf2:mats.leaf; cone.isPickable=false; addShadow(cone); }
+}
+function scatterRimDecor(scene){
+  const spots=[[-6.2,-4.6],[-5.8,3.9],[-3.1,-5.2],[2.8,-5.3],[5.9,-3.4],[6.2,2.4],[3.4,5.1],[-1.2,5.4],[-6.3,.6],[.8,-5.5],[5.4,4.9],[-4.4,5.0]];
+  for(const sp of spots){ const x=sp[0],z=sp[1]; if(proceduralTerrainAt(x,z)!=='grass') continue; makePine(scene,x,z,.85+hashNoise(x,z)*.5); }
+  const rockM=colorMat(scene,'rim_rock',new BABYLON.Color3(.30,.32,.36));
+  for(let i=0;i<16;i++){ const x=-6.5+((i*2.77)%13), z=-5.5+((i*3.91)%11);
+    if(proceduralTerrainAt(x,z)!=='grass') continue;
+    const r=BABYLON.MeshBuilder.CreatePolyhedron('rim_rock',{type:2,size:.10+hashNoise(i,3)*.16},scene);
+    r.position.set(x,.05,z); r.rotation.set(i*.9,i*1.7,i*.4); r.material=rockM; r.isPickable=false; }
+  const fm1=colorMat(scene,'flower_white',new BABYLON.Color3(.75,.78,.72),new BABYLON.Color3(.20,.22,.20));
+  const fm2=colorMat(scene,'flower_pink',new BABYLON.Color3(.62,.42,.52),new BABYLON.Color3(.16,.08,.12));
+  for(let i=0;i<26;i++){ const x=-6.4+((i*1.93)%12.8), z=-5.3+((i*2.51)%10.6);
+    if(proceduralTerrainAt(x,z)!=='grass') continue;
+    const f=BABYLON.MeshBuilder.CreateSphere('night_flower',{diameter:.05+hashNoise(i,9)*.03,segments:5},scene);
+    f.position.set(x,.06,z); f.material=i%3?fm1:fm2; f.isPickable=false; }
+}
+function makeCampfire(scene,x=1.8,z=2.6){
+  const logM=colorMat(scene,'fire_log',new BABYLON.Color3(.23,.14,.08));
+  for(let i=0;i<4;i++){ const lg=BABYLON.MeshBuilder.CreateCylinder('fire_log',{height:.42,diameter:.075,tessellation:6},scene);
+    lg.rotation.z=Math.PI/2; lg.rotation.y=i*Math.PI/4+.3; lg.position.set(x,.045,z); lg.material=logM; lg.isPickable=false; addShadow(lg); }
+  const stoneM=colorMat(scene,'fire_stone',new BABYLON.Color3(.20,.17,.14));
+  for(let i=0;i<8;i++){ const a=i/8*Math.PI*2; const st=BABYLON.MeshBuilder.CreatePolyhedron('fire_ring_stone',{type:1,size:.055},scene);
+    st.position.set(x+Math.cos(a)*.30,.035,z+Math.sin(a)*.30); st.rotation.set(i,i*2,i*3); st.material=stoneM; st.isPickable=false; }
+  const flameM=colorMat(scene,'flame',new BABYLON.Color3(1,.52,.16),new BABYLON.Color3(.85,.30,.05));
+  const flame=BABYLON.MeshBuilder.CreateCylinder('campfire_flame',{diameterTop:0,diameterBottom:.20,height:.38,tessellation:7},scene);
+  flame.position.set(x,.24,z); flame.material=flameM; flame.isPickable=false;
+  const light=new BABYLON.PointLight('campfire_light',new BABYLON.Vector3(x,.8,z),scene);
+  light.diffuse=new BABYLON.Color3(1,.55,.20); light.intensity=.55; light.range=5;
+  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=.52+Math.sin(t*3.1)*.08; });
+}
+function makeSelectionRing(scene){
+  const m=new BABYLON.StandardMaterial('sel_ring_mat',scene);
+  m.emissiveColor=new BABYLON.Color3(.22,1.05,.92); m.diffuseColor=new BABYLON.Color3(0,0,0); m.disableLighting=true; m.alpha=.85;
+  const ring=BABYLON.MeshBuilder.CreateTorus('selection_ring',{diameter:.98,thickness:.038,tessellation:56},scene);
+  ring.rotation.x=Math.PI/2; ring.material=m; ring.isPickable=false; ring.isVisible=false;
+  // soft radial pool of light inside the ring
+  const S=256, cv=document.createElement('canvas'); cv.width=cv.height=S;
+  const cx=cv.getContext('2d');
+  const rg=cx.createRadialGradient(S/2,S/2,2,S/2,S/2,S/2);
+  rg.addColorStop(0,'rgba(120,255,236,0.26)');
+  rg.addColorStop(.62,'rgba(80,230,215,0.10)');
+  rg.addColorStop(1,'rgba(80,230,215,0)');
+  cx.fillStyle=rg; cx.fillRect(0,0,S,S);
+  const tex=new BABYLON.DynamicTexture('sel_glow_tex',cv,scene,true); tex.update(); tex.hasAlpha=true;
+  const gm=new BABYLON.StandardMaterial('sel_glow_mat',scene);
+  gm.emissiveTexture=tex; gm.opacityTexture=tex; gm.diffuseColor=new BABYLON.Color3(0,0,0);
+  gm.disableLighting=true; gm.backFaceCulling=false; gm.alpha=.9;
+  const disc=BABYLON.MeshBuilder.CreateGround('selection_glow',{width:1.5,height:1.5},scene);
+  disc.material=gm; disc.isPickable=false; disc.isVisible=false; disc.alphaIndex=4;
+  scene.onBeforeRenderObservable.add(()=>{
+    const g=state.selected;
+    if(!g||!g.root){ ring.isVisible=false; disc.isVisible=false; return; }
+    ring.isVisible=true; disc.isVisible=true;
+    const p=g.root.position; ring.position.set(p.x,.075,p.z); disc.position.set(p.x,.055,p.z);
+    const t=performance.now()*.004;
+    const sc=1+Math.sin(t)*.05; ring.scaling.set(sc,sc,1);
+    gm.alpha=.72+Math.sin(t*.8)*.18;
   });
 }
+async function addTerrainPolish(scene){
+  if(window.GeebrHD?.buildIsland){
+    try{
+      await window.GeebrHD.buildIsland(scene,{ WORLD, state, hashNoise, smoothNoise, proceduralTerrainAt, addShadow });
+    }catch(err){
+      console.error('HD diorama failed, falling back to legacy terrain',err);
+      makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene); scatterRimDecor(scene);
+    }
+  } else {
+    makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene); scatterRimDecor(scene);
+  }
+  makeCampfire(scene,1.8,2.6);
+  makeSelectionRing(scene);
+  // Invisible physics ground so props and geebrs rest on the island surface.
+  const ground=BABYLON.MeshBuilder.CreateGround('physics_ground',{width:WORLD.w,height:WORLD.h},scene);
+  ground.position.y=-.005; ground.isVisible=false; ground.isPickable=false;
+  const groundBody=new BABYLON.PhysicsAggregate(ground,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
+  groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+}
 
-async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.035,.055,.062,1);
-  scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.02; scene.fogColor=new BABYLON.Color3(.045,.075,.085); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,1.05,18,new BABYLON.Vector3(0,.6,0),scene); state.camera=camera; camera.fov=.30; camera.lowerRadiusLimit=10; camera.upperRadiusLimit=28; camera.panningSensibility=60; camera.minZ=.1; camera.maxZ=4000; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
+  scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(1.6,.3,0),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.1; camera.maxZ=4000; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;
@@ -1986,24 +2176,46 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   });
   canvas.addEventListener('contextmenu',e=>{ e.preventDefault(); const pick=scene.pick(scene.pointerX,scene.pointerY); if(pick?.hit && pick.pickedPoint){ const tx=Math.round(pick.pickedPoint.x), tz=Math.round(pick.pickedPoint.z); let info=`tile (${tx},${tz})`; const m=pick.pickedMesh; const mm=meta(m); if(mm?.type && mm.type!=='tile') info+=` - ${mm.type} (${mm.state||'intact'})`; const owner=m?.metadata?.ownerId; if(owner){ const g=state.geebrs.find(x=>x.id===owner); if(g) info+=` - ${g.id} (${g.anim||'idle'})`; } log(info); } });
   canvas.addEventListener('pointermove',e=>{ if(e.buttons&2){ e.preventDefault(); const dx=e.movementX*0.02, dy=e.movementY*0.02; const right=camera.getDirection(BABYLON.Vector3.Right()); const up=camera.getDirection(BABYLON.Vector3.Up()); const newTarget=camera.target.add(right.scale(dx)).subtract(up.scale(dy)); newTarget.y=0.6; camera.target.copyFrom(newTarget); state.zoomFocus=camera.target.clone(); } });
-  const hemi=new BABYLON.HemisphericLight('soft_overall',new BABYLON.Vector3(.2,1,.1),scene); hemi.intensity=.40; hemi.diffuse=new BABYLON.Color3(.62,.72,.78); hemi.groundColor=new BABYLON.Color3(.14,.13,.10); const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.42,-.92,.55),scene); sun.position=new BABYLON.Vector3(8,14,-9); sun.intensity=1.38; sun.diffuse=new BABYLON.Color3(1,.88,.70); const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-8,4,6),scene); fill.intensity=.24; fill.diffuse=new BABYLON.Color3(.50,.67,1); fill.range=18; state.shadow=new BABYLON.ShadowGenerator(2048,sun); state.shadow.useBlurExponentialShadowMap=true; state.shadow.blurKernel=18;
+  // Diorama lighting: cool moonlit sky dome + a warm angled key so the island
+  // reads as a lit model on a dark table, plus a teal rim to separate the
+  // silhouette from the water.
+  const hemi=new BABYLON.HemisphericLight('sky_dome_light',new BABYLON.Vector3(.15,1,.05),scene);
+  hemi.intensity=.42; hemi.diffuse=new BABYLON.Color3(.38,.52,.74); hemi.groundColor=new BABYLON.Color3(.06,.09,.08); hemi.specular=new BABYLON.Color3(.05,.08,.11);
+  const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.48,-.86,.62),scene);
+  sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=3.1; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38);
+  const rim=new BABYLON.DirectionalLight('teal_rim',new BABYLON.Vector3(.62,-.34,-.68),scene);
+  rim.intensity=.42; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
+  const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-9,5,7),scene);
+  fill.intensity=.30; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
+  state.sun=sun;
+  state.shadow=new BABYLON.ShadowGenerator(2048,sun);
+  state.shadow.useBlurCloseExponentialShadowMap=true; state.shadow.blurKernel=26; state.shadow.darkness=.06; state.shadow.bias=.0014; state.shadow.normalBias=.010;
+  state.shadow.depthScale=42;
+  // Fit the shadow frustum tightly to the island so 2048 texels land where they matter.
+  sun.autoCalcShadowZBounds=false; sun.shadowMinZ=2; sun.shadowMaxZ=48;
+  sun.orthoLeft=-16; sun.orthoRight=16; sun.orthoTop=16; sun.orthoBottom=-16;
   // Neutral environment reflections give PBR clay broad shape cues without making it glossy.
   const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
   scene.environmentTexture=envTexture;
-  scene.environmentIntensity=.42;
-  try{ state.glow=new BABYLON.GlowLayer('soft_glow',scene,{mainTextureSamples:2}); state.glow.intensity=.6; }catch(e){ console.warn('glow layer unavailable',e); }
-  scene.imageProcessingConfiguration.contrast=1.2;
-  scene.imageProcessingConfiguration.exposure=1.12;
+  scene.environmentIntensity=.38;
+  scene.imageProcessingConfiguration.contrast=1.34;
+  scene.imageProcessingConfiguration.exposure=1.34;
+  scene.imageProcessingConfiguration.toneMappingEnabled=true;
+  scene.imageProcessingConfiguration.toneMappingType=BABYLON.ImageProcessingConfiguration.TONEMAPPING_ACES;
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
   try{
     const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);
     rp.fxaaEnabled=true;
-    rp.bloomEnabled=true; rp.bloomThreshold=.74; rp.bloomWeight=.24; rp.bloomScale=.5;
-    rp.vignetteEnabled=true; rp.vignetteWeight=1.5; rp.vignetteStretch=.6;
-    rp.sharpenEnabled=true; rp.sharpen.edgeAmount=.22;
-    rp.depthOfFieldEnabled=true; rp.depthOfField.focalLength=85; rp.depthOfField.fStop=5.2; rp.depthOfField.focusDistance=camera.radius*1000;
+    rp.bloomEnabled=true; rp.bloomThreshold=.82; rp.bloomWeight=.26; rp.bloomScale=.6; rp.bloomKernel=48;
+    rp.vignetteEnabled=true; rp.vignetteWeight=1.05; rp.vignetteStretch=.42; rp.vignetteColor=new BABYLON.Color4(0,.02,.05,0);
+    rp.sharpenEnabled=true; rp.sharpen.edgeAmount=.28; rp.sharpen.colorAmount=1;
+    rp.imageProcessing.vignetteBlendMode=BABYLON.ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+    rp.samples=4;
+   
     state.renderPipeline=rp;
-    scene.onBeforeRenderObservable.add(()=>{ if(rp.depthOfFieldEnabled) rp.depthOfField.focusDistance=camera.radius*1000; });
+    const gl=new BABYLON.GlowLayer('hd_glow',scene,{ mainTextureFixedSize:512, blurKernelSize:44 });
+    gl.intensity=.38;
+    state.glowLayer=gl;
   }catch(e){ console.warn('render pipeline unavailable, continuing without post fx',e); }
   state.materials={
     grass:mat(scene,'grass','grass_meadow.png',{uScale:1,vScale:1}), dirt:mat(scene,'dirt','dirt_loam.png',{uScale:1,vScale:1}), stone:mat(scene,'stone','stone_soft.png',{uScale:1,vScale:1}),
@@ -2013,11 +2225,11 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   };
   // Demo-first blank world: retain the terrain as a canvas, but do not populate
   // the old RPG cast, buildings, border walls, or random props on first load.
-  addTerrainPolish(scene);
+  await addTerrainPolish(scene);
   // The visible continuous terrain is intentionally non-pickable; preserve a
   // simple invisible pick plane now that buildWorld() no longer creates tile meshes.
-  const spawnPickPlane=BABYLON.MeshBuilder.CreateGround('spawn_pick_plane',{width:32,height:32,subdivisions:1},scene);
-  spawnPickPlane.position.y=.025; spawnPickPlane.visibility=0; spawnPickPlane.isPickable=true;
+  const spawnPickPlane=BABYLON.MeshBuilder.CreateGround('spawn_pick_plane',{width:WORLD.w,height:WORLD.h,subdivisions:1},scene);
+  spawnPickPlane.position.y=.025; spawnPickPlane.isPickable=true; const _spm=new BABYLON.StandardMaterial('spawn_pick_mat',scene); _spm.alpha=0; _spm.disableLighting=true; spawnPickPlane.material=_spm;
   scene.onPointerObservable.add(pi=>{ if(pi.type!==BABYLON.PointerEventTypes.POINTERPICK || !pi.pickInfo?.hit) return; const m=pi.pickInfo.pickedMesh; const owner=m?.metadata?.ownerId; const g=state.geebrs.find(x=>owner===x.id || m.name.startsWith(x.id+'_')); if(g){ state.zoomFocus=new BABYLON.Vector3(g.root.position.x,0.6,g.root.position.z); return selectGeebr(g); } const mm=meta(m); const target=logicalTarget(m); if(pi.pickInfo.pickedPoint) state.zoomFocus=new BABYLON.Vector3(pi.pickInfo.pickedPoint.x,0.6,pi.pickInfo.pickedPoint.z); if(mm?.interactive){ state.target=target; const tp=target.getAbsolutePosition?.()||pi.pickInfo.pickedPoint; state.zoomFocus=new BABYLON.Vector3(tp.x,0.6,tp.z); log('target: '+(mm.type||target.name)+' / '+(mm.state||'intact')); updatePerceptionUI(); } });
   setupUI(); installWorldAPI();
   const restored=await loadWorldState();
