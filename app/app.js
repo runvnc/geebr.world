@@ -445,7 +445,7 @@ async function tryLoadRiggedCharacter(scene){
   try{
     const result=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/characters/', 'geebr_humanoid.glb', scene);
     const root=new BABYLON.TransformNode('rigged_geebr_preview_root',scene);
-    root.position.set(-.25,0.02,-1.25); root.scaling.setAll(.72);
+    root.position.set(-.25,(state.terrainTopY??0)+0.02,-1.25); root.scaling.setAll(.72);
     for(const mesh of result.meshes){ mesh.parent=root; mesh.receiveShadows=true; addShadow(mesh); }
     applyClayLookToMeshes(result.meshes,scene);
     if(result.animationGroups?.length){ result.animationGroups[0].start(true); }
@@ -530,9 +530,9 @@ function forceBodyTransform(mesh,pos){
 function setGeebrLogicalPosition(g,pos){
   if(!g) return;
   g.logicalPos = new BABYLON.Vector3(pos.x, 0, pos.z);
-  if(g.root){ g.root.position.x=g.logicalPos.x; g.root.position.z=g.logicalPos.z; g.root.position.y=0; }
+  if(g.root){ g.root.position.x=g.logicalPos.x; g.root.position.z=g.logicalPos.z; g.root.position.y=state.terrainTopY??0; }
   if(g.collider){
-    const cpos=new BABYLON.Vector3(g.logicalPos.x,.74,g.logicalPos.z);
+    const cpos=new BABYLON.Vector3(g.logicalPos.x,(state.terrainTopY??0)+.74,g.logicalPos.z);
     forceBodyTransform(g.collider,cpos);
     g.collider.physicsBody?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
     zeroMeshMotion(g.collider);
@@ -1022,7 +1022,7 @@ function touch(g,targetId=''){
 function push(g,sign=1){ const t=nearestTarget(g); if(!t) return say(g,'nothing to shove'); const from=sign>0?g.root.position:t.position.add(g.root.position.subtract(t.position).scale(2)); impulse(t,from,sign>0?4.8:2.2,.18); const m=meta(t); if(m?.type==='barrel') { m.state='rolling'; emitBadge(t,'roll'); } if(m?.type==='mushroom') emitBadge(t,'boing'); damage(t,.25,'push'); g.anim='push'; playRig(g,'push',false); say(g,sign>0?'helpfully pushing the wrong thing':'pulling with moral uncertainty'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); },540); }
 function carry(g){ const t=nearestTarget(g,1.8); if(!t) return say(g,'arms found no object'); const m=meta(t); if(!m || ['wall','bakery','crystal'].includes(m.type)) return say(g,'too spiritually heavy'); if(state.held.get(g.id)) drop(g,false); state.held.set(g.id,t); playRig(g,'carry',true); t.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.ANIMATED); if(m.type==='note'){ const txt=(m.noteText||noteTextFromHtml(m.noteHtml||''))||'blank'; say(g,'the note says: '+txt); } else { say(g,'I am responsible for this now'); } }
 function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); h.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC); h.position=g.root.position.add(g.dir.scale(.95)); h.position.y=.65; if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
-function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); state.props.push(hole); say(g,'hole installed'); } }
+function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),(state.terrainTopY??0)+.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); state.props.push(hole); say(g,'hole installed'); } }
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 
 function note(g,html='<p>empty note</p>'){
@@ -1089,14 +1089,11 @@ function tileAtGrid(x,z){
   return bd<=1.02 ? best : null;
 }
 function proceduralTerrainAt(x,z){
-  // Small voxel island: grass + winding dirt path + stone quarry corner.
-  // Everything beyond the island rim is open sea.
+  // The visible plateau is continuous grass. The old dirt path was represented
+  // by full tile cells, but non-grass cells used a different slab height and
+  // produced deep trench-like cuts through the island. Paths can return later
+  // as thin surface dressing; they must never remove the grass foundation.
   if(Math.abs(x)>WORLD.halfW || Math.abs(z)>WORLD.halfH) return 'water';
-  const inQuarry=x>=4.2 && z<=-3.6;
-  if(inQuarry) return 'stone';
-  const pathCenter=Math.sin(x*.55)*1.1 + Math.sin(x*1.3+1.2)*.35;
-  const pathWidth=.42 + smoothNoise(x*.5,9)*.22;
-  if(Math.abs(z-pathCenter)<=pathWidth) return 'dirt';
   return 'grass';
 }
 function baseGlyphForTile(x,z){
@@ -1800,7 +1797,7 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
+function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
@@ -2131,7 +2128,7 @@ function makeSelectionRing(scene){
   const m=new BABYLON.StandardMaterial('sel_ring_mat',scene);
   m.emissiveColor=new BABYLON.Color3(.22,1.05,.92); m.diffuseColor=new BABYLON.Color3(0,0,0); m.disableLighting=true; m.alpha=.85;
   const ring=BABYLON.MeshBuilder.CreateTorus('selection_ring',{diameter:.98,thickness:.038,tessellation:56},scene);
-  ring.rotation.x=Math.PI/2; ring.material=m; ring.isPickable=false; ring.isVisible=false;
+  ring.rotation.set(0,0,0); ring.material=m; ring.isPickable=false; ring.isVisible=false;
   // soft radial pool of light inside the ring
   const S=256, cv=document.createElement('canvas'); cv.width=cv.height=S;
   const cx=cv.getContext('2d');
@@ -2150,7 +2147,7 @@ function makeSelectionRing(scene){
     const g=state.selected;
     if(!g||!g.root){ ring.isVisible=false; disc.isVisible=false; return; }
     ring.isVisible=true; disc.isVisible=true;
-    const p=g.root.position; ring.position.set(p.x,.075,p.z); disc.position.set(p.x,.055,p.z);
+    const p=g.root.position; const groundY=state.terrainTopY??0; ring.position.set(p.x,groundY+.035,p.z); disc.position.set(p.x,groundY+.018,p.z);
     const t=performance.now()*.004;
     const sc=1+Math.sin(t)*.05; ring.scaling.set(sc,sc,1);
     gm.alpha=.72+Math.sin(t*.8)*.18;
@@ -2171,7 +2168,7 @@ async function addTerrainPolish(scene){
   makeSelectionRing(scene);
   // Invisible physics ground so props and geebrs rest on the island surface.
   const ground=BABYLON.MeshBuilder.CreateGround('physics_ground',{width:WORLD.w,height:WORLD.h},scene);
-  ground.position.y=-.005; ground.isVisible=false; ground.isPickable=false;
+  ground.position.y=(state.terrainTopY??0)-.005; ground.isVisible=false; ground.isPickable=false;
   const groundBody=new BABYLON.PhysicsAggregate(ground,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
   groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
 }
@@ -2265,6 +2262,15 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   // Demo-first blank world: retain the terrain as a canvas, but do not populate
   // the old RPG cast, buildings, border walls, or random props on first load.
   await addTerrainPolish(scene);
+  // Imported grass slabs have their visible top around y=.30. Gameplay and
+  // legacy scenery were authored for y=0, which buried characters, fences,
+  // tents and loose props halfway into the new terrain. Lift only those scene
+  // objects; HD terrain/scenery already owns its correct elevation.
+  const TERRAIN_CONTENT_LIFT=state.terrainTopY??0;
+  const terrainOwned=m=>m.name.startsWith('hd_') || m.name==='hd_sky' || m.name==='spawn_pick_plane';
+  for(const m of scene.meshes){
+    if(!terrainOwned(m) && !m.parent && m.position.y>-0.15) m.position.y+=TERRAIN_CONTENT_LIFT;
+  }
   // The visible continuous terrain is intentionally non-pickable; preserve a
   // simple invisible pick plane now that buildWorld() no longer creates tile meshes.
   const spawnPickPlane=BABYLON.MeshBuilder.CreateGround('spawn_pick_plane',{width:WORLD.w,height:WORLD.h,subdivisions:1},scene);

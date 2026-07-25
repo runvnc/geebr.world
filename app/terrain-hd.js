@@ -421,9 +421,11 @@
           box=grassProto.clone('hd_grass_tile');
           box.setEnabled(true); box.isVisible=true; box.isPickable=false;
           box.rotation.y=Math.floor(yawRnd()*4)*Math.PI/2;
+          box.scaling.x=(yawRnd()<.5?-1:1)*1.006;
+          box.scaling.z=(yawRnd()<.5?-1:1)*1.006;
           // The source footprint is 0.996 x 1.000. A tiny uniform expansion
           // closes sub-pixel gaps without returning to the old inset-tile hack.
-          box.scaling.setAll(1.006);
+          box.scaling.y=1.006;
           box.position.set(cx,lift+.010,cz);
         } else {
           const u0=(tx+WORLD.halfW)/REPEAT, u1=(tx+1+WORLD.halfW)/REPEAT;
@@ -454,6 +456,7 @@
     grassProto?.dispose();
     API.state.hdMaterials=Object.assign(API.state.hdMaterials||{},mats);
     API.state.usingGrassGLB=usedGrassGLB;
+    API.state.terrainTopY=.445;
     return out;
   }
 
@@ -491,21 +494,6 @@
     const keel=BABYLON.MeshBuilder.CreateCylinder('hd_keel',{ diameterTop:6.4, diameterBottom:1.1, height:2.9, tessellation:9 },scene);
     keel.position.set(0,-6.9,0); keel.scaling.z=1.15; rockParts.push(keel);
 
-    // jagged rim chunks hugging the lip
-    const N=96;
-    for(let i=0;i<N;i++){
-      const side=i%4;
-      const t=((i*2.837)%1);
-      const along=-1+t*2;
-      const x=(side<2)? along*(WORLD.halfW-.1) : (side===2?-WORLD.halfW+.12:WORLD.halfW-.12);
-      const z=(side<2)? (side===0?-WORLD.halfH+.12:WORLD.halfH-.12) : along*(WORLD.halfH-.1);
-      const sz=.16+noise(i*3.3,i*1.7)*.30;
-      const r=BABYLON.MeshBuilder.CreatePolyhedron('hd_rim_rock',{ type: i%3===0?2:1, size:sz },scene);
-      r.position.set(x+(noise(i,2)-.5)*.22, -.48-noise(i*5,9)*.72, z+(noise(i,4)-.5)*.22);
-      r.rotation.set(i*.71,i*1.29,i*.37);
-      r.scaling.set(1+noise(i,6)*.5,.7+noise(i,8)*.6,1+noise(i,10)*.5);
-      (i%4===0?dirtParts:rockParts).push(r);
-    }
     merge(rockParts,'hd_bedrock',strata,{shadows:false});
     merge(dirtParts,'hd_cliff_soil',dirtBand,{shadows:false});
   }
@@ -577,40 +565,66 @@
   }
 
 
-  function buildVegetation(scene){
+  async function importScatterAsset(scene,file,name){
+    const r=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', file, scene);
+    const mesh=r.meshes.find(m=>m.getTotalVertices?.()>0);
+    if(!mesh) throw new Error('no renderable mesh in '+file);
+    mesh.name=name; mesh.parent=null; mesh.setEnabled(true); mesh.isVisible=true; mesh.isPickable=false;
+    const bounds=mesh.getHierarchyBoundingVectors(true);
+    mesh.position.y-=bounds.min.y;
+    mesh.bakeCurrentTransformIntoVertices(); mesh.position.set(0,0,0);
+    window.GEEBR_LOOK?.applyClayLookToMeshes(r.meshes,scene,{detail:.11,detailScale:5});
+    return mesh;
+  }
+
+  async function buildVegetation(scene){
     const { WORLD } = API;
-    const tuftProto=crossedQuads(scene,'hd_tuft_proto',.30,.16,.08);
-    const daisyProto=crossedQuads(scene,'hd_daisy_proto',.105,.12,.06);
-    const tufts=[], daisies=[];
-    let placed=0;
-    for(let i=0;i<1800 && placed<300;i++){
-      const x=-WORLD.halfW+noise(i*1.37,i*.71)*WORLD.w;
-      const z=-WORLD.halfH+noise(i*2.11+3,i*1.93)*WORLD.h;
-      if(API.proceduralTerrainAt(x,z)!=='grass') continue;
-      const c=tuftProto.clone('hd_tuft');
-      const s=.45+noise(i,5)*.38;
-      c.position.set(x,0,z);
-      c.scaling.set(s,s*(.70+noise(i,7)*.4),s);
-      c.rotation.y=noise(i,9)*Math.PI;
-      tufts.push(c); placed++;
-    }
-    let dp=0;
-    for(let i=0;i<900 && dp<90;i++){
-      const x=-WORLD.halfW+noise(i*3.31+11,i*1.17)*WORLD.w;
-      const z=-WORLD.halfH+noise(i*1.71+7,i*2.53)*WORLD.h;
-      if(API.proceduralTerrainAt(x,z)!=='grass') continue;
-      const c=daisyProto.clone('hd_daisy');
-      const s=.6+noise(i,13)*.5;
-      c.position.set(x,0,z); c.scaling.setAll(s); c.rotation.y=noise(i,15)*Math.PI;
-      daisies.push(c); dp++;
+    let tuftProto,daisyProto;
+    try{
+      [tuftProto,daisyProto]=await Promise.all([
+        importScatterAsset(scene,'blade_cluster.glb','hd_blade_cluster_proto'),
+        importScatterAsset(scene,'daisy_clump.glb','hd_daisy_clump_proto')
+      ]);
+    }catch(e){ console.warn('generated vegetation unavailable',e); return; }
+    const tufts=[],daisies=[];
+    let seed=0x67a55eed;
+    const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
+    for(let tx=-WORLD.halfW;tx<WORLD.halfW;tx++) for(let tz=-WORLD.halfH;tz<WORLD.halfH;tz++){
+      const cx=tx+.5,cz=tz+.5;
+      if(API.proceduralTerrainAt(cx,cz)!=='grass') continue;
+      const density=noise(tx*2.17+31,tz*1.73-19);
+      let count=density<.34?0:density<.70?1:density<.90?2:3+Math.floor(rnd()*2);
+      if(Math.abs(cx)<1.25&&Math.abs(cz)<1.25) count=Math.min(count,1);
+      for(let j=0;j<count;j++){
+        const c=tuftProto.clone('hd_blade_cluster');
+        const scale=.50*(.90+rnd()*.20);
+        // Keep blade clusters upright: sideways/inverted modes read as
+        // trampled grass. Vary heading plus a gentle one-direction lean only.
+        const lean=(rnd()-.5)*.18;
+        c.scaling.setAll(scale);
+        c.rotationQuaternion=BABYLON.Quaternion.FromEulerAngles(lean,rnd()*Math.PI*2,0);
+        c.position.set(cx+(rnd()-.5)*.72,(API.state.terrainTopY??0)+.018,cz+(rnd()-.5)*.72); c.isPickable=false;
+        tufts.push(c);
+      }
+      if(density>.72&&rnd()<.48){
+        const c=daisyProto.clone('hd_daisy_clump');
+        const scale=.42*(.90+rnd()*.20);
+        const mode=Math.floor(rnd()*6);
+        const pitch=[0,Math.PI/2,-Math.PI/2,Math.PI,.36,-.36][mode];
+        const roll =[0,0,0,0,.45,-.45][mode];
+        c.scaling.setAll(scale);
+        c.rotationQuaternion=BABYLON.Quaternion.FromEulerAngles(pitch,rnd()*Math.PI*2,roll);
+        c.position.set(cx+(rnd()-.5)*.62,(API.state.terrainTopY??0)+.018,cz+(rnd()-.5)*.62); c.isPickable=false;
+        daisies.push(c);
+      }
     }
     tuftProto.dispose(); daisyProto.dispose();
-    const tuftM=alphaMat(scene,'hd_tuft_mat',tuftTexture(scene));
-    const daisyM=alphaMat(scene,'hd_daisy_mat',daisyTexture(scene),{emissive:.10});
-    const tm=merge(tufts,'hd_grass_tufts',tuftM,{shadows:false});
-    if(tm){ tm.alphaIndex=1; }
-    const dm=merge(daisies,'hd_daisies',daisyM,{shadows:false});
-    if(dm){ dm.alphaIndex=2; }
+    // Keep transformed clones separate. Mesh.MergeMeshes was flattening the
+    // imported GLB clones without preserving their authored rotations, making
+    // every flower and blade cluster visibly identical.
+    for(const c of tufts){ c.receiveShadows=true; c.name='hd_generated_blade_cluster'; }
+    for(const c of daisies){ c.receiveShadows=true; c.name='hd_generated_daisy_clump'; }
+    API.state.generatedVegetation={tufts:tufts.length,daisies:daisies.length};
   }
 
   /* ---------- 4. trees, bushes, boulders ----------------------------- */
@@ -800,7 +814,7 @@
     buildSky(scene);
     await buildIslandTop(scene);
     await buildBedrock(scene);
-    buildVegetation(scene);
+    await buildVegetation(scene);
     buildFlora(scene);
     buildWater(scene);
     if(window.GeebrHD.buildScenery){
@@ -922,12 +936,21 @@
     });
 
     const postM=darkWood;
-    const p1=(posts.length===1?posts[0]:BABYLON.Mesh.MergeMeshes(posts,true,true,undefined,false,false));
+    // This scenery was authored against the old y=0 plateau. The imported GLB
+    // grass surface is higher, so lift the complete scenery pass by the measured
+    // terrain top. Previously these meshes were excluded by the generic
+    // `hd_` ownership rule and remained buried.
+    const topY=api.state.terrainTopY??0;
+    const lift=m=>{ if(m) m.position.y+=topY; return m; };
+    const p1=lift(posts.length===1?posts[0]:BABYLON.Mesh.MergeMeshes(posts,true,true,undefined,false,false));
     if(p1){ p1.name='hd_posts'; p1.material=postM; p1.isPickable=false; p1.receiveShadows=true; api.addShadow(p1); }
-    const r1=(rails.length===1?rails[0]:BABYLON.Mesh.MergeMeshes(rails,true,true,undefined,false,false));
+    const r1=lift(rails.length===1?rails[0]:BABYLON.Mesh.MergeMeshes(rails,true,true,undefined,false,false));
     if(r1){ r1.name='hd_rails'; r1.material=wood; r1.isPickable=false; r1.receiveShadows=true; api.addShadow(r1); }
-    const k1=(planks.length===1?planks[0]:BABYLON.Mesh.MergeMeshes(planks,true,true,undefined,false,false));
+    const k1=lift(planks.length===1?planks[0]:BABYLON.Mesh.MergeMeshes(planks,true,true,undefined,false,false));
     if(k1){ k1.name='hd_planks'; k1.material=wood; k1.isPickable=false; k1.receiveShadows=true; api.addShadow(k1); }
+    if(tentCloth) tentCloth.position.y+=topY;
+    for(const m of [cage,bulb]) m.position.y+=topY;
+    lamp.position.y+=topY;
   }
 
   window.GeebrHD.buildScenery=buildScenery;

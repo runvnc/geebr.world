@@ -28,7 +28,7 @@
   const DEFAULTS = {
     detailNormalUrl: './assets/textures/detail_clay_n.png',
     rough: 0.88,        // matte clay target; only used when there is no ORM tex
-    detail: 0.15,       // detail-normal bump level; >0.3 reads as crusty sand
+    detail: 0.11,       // locked subtle clay tooth; >0.3 reads as crusty sand
     detailScale: 5,     // detail map UV tiling per unit tile
     envIntensity: 0.55
   };
@@ -85,8 +85,8 @@
   function applyTonemap(scene, o) {
     o = o || {};
     const ip = scene.imageProcessingConfiguration;
-    ip.exposure = o.exposure !== undefined ? o.exposure : 1.18;
-    ip.contrast = o.contrast !== undefined ? o.contrast : 1.12;
+    ip.exposure = o.exposure !== undefined ? o.exposure : 1.28;
+    ip.contrast = o.contrast !== undefined ? o.contrast : 1.10;
     const mode = o.tonemap || 'neutral';
     if (mode === 'none') {
       ip.toneMappingEnabled = false;
