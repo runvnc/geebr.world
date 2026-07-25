@@ -1,0 +1,80 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>tile preview</title>
+<style>html,body{margin:0;height:100%;background:#10151c;overflow:hidden}canvas{width:100%;height:100%;display:block}
+#hud{position:fixed;left:8px;top:8px;color:#9fb;font:12px monospace;white-space:pre;z-index:5}</style>
+</head><body>
+<canvas id="c"></canvas><div id="hud"></div>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+<script>
+const qs = new URLSearchParams(location.search);
+const FILE = qs.get('f') || 'grass_trellis.glb';
+const N = parseInt(qs.get('n') || '4');
+const RAD = parseFloat(qs.get('r') || '6');
+const BETA = parseFloat(qs.get('b') || '0.95');
+const ALPHA = parseFloat(qs.get('a') || '-0.785');
+const YAW = qs.get('yaw') !== '0';
+const SEED = parseInt(qs.get('seed') || '12345');
+const ENVI = parseFloat(qs.get('envi') || '1.0');
+const HEMI = parseFloat(qs.get('hemi') || '0.6');
+const DIRI = parseFloat(qs.get('diri') || '2.0');
+const UNLIT = qs.get('unlit') === '1';
+const EXPOSURE = parseFloat(qs.get('exp') || '1.0');
+window.__ready = false;
+(async () => {
+  const canvas = document.getElementById('c');
+  const engine = new BABYLON.Engine(canvas, true, {preserveDrawingBuffer:true});
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.05,0.07,0.10,1);
+  scene.environmentTexture = new BABYLON.CubeTexture('https://assets.babylonjs.com/environments/environmentSpecular.env', scene);
+  scene.environmentIntensity = ENVI;
+  const cam = new BABYLON.ArcRotateCamera('cam', ALPHA, BETA, RAD, BABYLON.Vector3.Zero(), scene);
+  cam.attachControl(canvas, true);
+  cam.wheelPrecision = 20;
+  cam.lowerRadiusLimit = 0.5;
+  const hemi = new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0.2,1,0.1), scene);
+  hemi.intensity = HEMI; hemi.groundColor = new BABYLON.Color3(0.18,0.20,0.24);
+  const dir = new BABYLON.DirectionalLight('d', new BABYLON.Vector3(-0.5,-1,0.35), scene);
+  dir.intensity = DIRI; dir.position = new BABYLON.Vector3(6,12,-5);
+
+  const container = await BABYLON.SceneLoader.LoadAssetContainerAsync('./assets/models/tiles/', FILE, scene);
+  // measure raw bounds from container meshes
+  const tmp = container.instantiateModelsToScene(n=>n, false);
+  const probe = new BABYLON.TransformNode('probe', scene);
+  tmp.rootNodes.forEach(r=>r.parent = probe);
+  probe.computeWorldMatrix(true);
+  let min = new BABYLON.Vector3(1e9,1e9,1e9), max = new BABYLON.Vector3(-1e9,-1e9,-1e9);
+  probe.getChildMeshes().forEach(m=>{ m.computeWorldMatrix(true); const b = m.getBoundingInfo().boundingBox;
+    min = BABYLON.Vector3.Minimize(min, b.minimumWorld); max = BABYLON.Vector3.Maximize(max, b.maximumWorld); });
+  const ext = max.subtract(min);
+  window.__bounds = { min: min.asArray(), max: max.asArray(), ext: ext.asArray(),
+    meshes: probe.getChildMeshes().length, verts: probe.getChildMeshes().reduce((a,m)=>a+m.getTotalVertices(),0) };
+  document.getElementById('hud').textContent = FILE + '\next ' + ext.asArray().map(v=>v.toFixed(3)).join(', ')
+    + '\nverts ' + window.__bounds.verts;
+  probe.dispose();
+  tmp.dispose();
+
+  const s = 1/Math.max(ext.x, ext.z);
+  const cx = (min.x+max.x)/2, cz = (min.z+max.z)/2;
+  // deterministic per-cell PRNG so screenshots are reproducible
+  let _seed = SEED >>> 0;
+  const rnd = () => { _seed = (_seed * 1664525 + 1013904223) >>> 0; return _seed / 4294967296; };
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const inst = container.instantiateModelsToScene(n=>n+'_'+i+'_'+j, false);
+    // pivot sits at the CENTRE of the grid cell so yaw spins the tile in place
+    const pivot = new BABYLON.TransformNode('p'+i+'_'+j, scene);
+    pivot.position = new BABYLON.Vector3(i-(N-1)/2, 0, j-(N-1)/2);
+    if (YAW) pivot.rotation.y = Math.floor(rnd()*4) * Math.PI/2;
+    const holder = new BABYLON.TransformNode('t'+i+'_'+j, scene);
+    holder.parent = pivot;
+    inst.rootNodes.forEach(r=>r.parent = holder);
+    holder.scaling = new BABYLON.Vector3(s,s,s);
+    holder.position = new BABYLON.Vector3(-cx*s, -max.y*s, -cz*s);
+  }
+  if (UNLIT) scene.materials.forEach(m=>{ m.unlit = true; });
+  if (EXPOSURE !== 1.0) { scene.imageProcessingConfiguration.exposure = EXPOSURE; }
+  engine.runRenderLoop(()=>scene.render());
+  scene.executeWhenReady(()=>{ setTimeout(()=>{ window.__ready = true; }, 1500); });
+})();
+</script>
+</body></html>
