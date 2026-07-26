@@ -456,46 +456,250 @@
     grassProto?.dispose();
     API.state.hdMaterials=Object.assign(API.state.hdMaterials||{},mats);
     API.state.usingGrassGLB=usedGrassGLB;
+    if(out.grass?.material) API.state.hdMaterials.grassGLB=out.grass.material;
     API.state.terrainTopY=.445;
     return out;
   }
 
-  /* ---------- 2. bedrock / cliff strata ------------------------------ */
-  async function buildBedrock(scene){
-    const { WORLD } = API;
-    const strata = await HD.surface(scene,{ name:'strata', file:'stone_soft.png',
-      gradeOpts:{ sat:.42, bright:.72, contrast:1.28, tintR:1.04, tintG:.99, tintB:.94 },
-      paint:cv=>HD.paintStrataDetail(cv,71), normalStrength:3.6, rough:.90, roughVar:.10, ao:.72 });
-    const dirtBand = await HD.surface(scene,{ name:'cliffdirt', file:'dirt_loam.png',
-      gradeOpts:{ sat:.60, bright:.62, contrast:1.14, tintR:1.02, tintG:.92, tintB:.80 },
-      paint:cv=>HD.paintDirtDetail(cv,97), normalStrength:3.2, rough:.94, roughVar:.08, ao:.66 });
-
-    const dirtParts=[], rockParts=[];
-    // thin soil lip right under the grass, then chunky rock layers stepping inward
-    const lip=BABYLON.MeshBuilder.CreateBox('hd_cliff_lip',{ width:WORLD.w-.16, height:.42, depth:WORLD.h-.16,
-      faceUV:[rect(0,0,3.2,.32),rect(0,0,3.2,.32),rect(0,0,2.8,.32),rect(0,0,2.8,.32),rect(0,0,1,1),rect(0,0,1,1)] },scene);
-    lip.position.set(0,-.78,0); dirtParts.push(lip);
-
-    const layers=[
-      { w:WORLD.w-.55, h:1.15, y:-1.55, u:2.6, v:.55 },
-      { w:WORLD.w-1.5, h:1.35, y:-2.72, u:2.3, v:.62 },
-      { w:WORLD.w-3.1, h:1.30, y:-3.95, u:2.0, v:.58 },
-      { w:WORLD.w-5.4, h:1.10, y:-5.05, u:1.7, v:.50 }
-    ];
-    for(const L of layers){
-      const d=WORLD.h-(WORLD.w-L.w);
-      const fu=[rect(0,0,L.u,L.v),rect(0,0,L.u,L.v),rect(0,0,L.u*.85,L.v),rect(0,0,L.u*.85,L.v),rect(0,0,2,2),rect(0,0,2,2)];
-      const b=BABYLON.MeshBuilder.CreateBox('hd_strata',{ width:L.w, height:L.h, depth:Math.max(2,d), faceUV:fu },scene);
-      b.position.set(0,L.y,0);
-      b.rotation.y=(noise(L.y*3,7)-.5)*.05;
-      rockParts.push(b);
+  /* ---------- 2. coherent carved cliff perimeter ---------------------- */
+  // Discard every triangle above a local-space height so an accent contributes
+  // only its rock buttress. The alternative (sinking the piece) can never work:
+  // the cap is the TOP of the asset and the piece projects PAST the wall, so any
+  // visible green reads as a second grass ledge.
+  // side>0 keeps geometry BELOW limitY, side<0 keeps geometry ABOVE it.
+  // Measured: the Tripo cliff assets carry their grass cap at the BOTTOM of
+  // local space, not the top, so cutting the top left the green behind.
+  function trimSlab(mesh,limitY,side){
+    const pos=mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    const idx=mesh.getIndices();
+    if(!pos||!idx) return 0;
+    const keep=[];
+    for(let i=0;i<idx.length;i+=3){
+      const a=idx[i],b=idx[i+1],c=idx[i+2];
+      const ya=pos[a*3+1],yb=pos[b*3+1],yc=pos[c*3+1];
+      const ok = side>0 ? Math.max(ya,yb,yc)<=limitY : Math.min(ya,yb,yc)>=limitY;
+      if(ok) keep.push(a,b,c);
     }
-    // tapered keel so the island reads as a floating chunk from low angles
-    const keel=BABYLON.MeshBuilder.CreateCylinder('hd_keel',{ diameterTop:6.4, diameterBottom:1.1, height:2.9, tessellation:9 },scene);
-    keel.position.set(0,-6.9,0); keel.scaling.z=1.15; rockParts.push(keel);
+    const dropped=(idx.length-keep.length)/3;
+    mesh.setIndices(keep);
+    mesh.refreshBoundingInfo();
+    return dropped;
+  }
 
-    merge(rockParts,'hd_bedrock',strata,{shadows:false});
-    merge(dirtParts,'hd_cliff_soil',dirtBand,{shadows:false});
+  async function importCliffAsset(scene,file,name,trimFraction=0,trimSide=1){
+    const r=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/tiles/', file, scene);
+    const mesh=r.meshes.find(m=>m.getTotalVertices?.()>0);
+    if(!mesh) throw new Error('no renderable mesh in '+file);
+    mesh.name=name; mesh.parent=null; mesh.setEnabled(true); mesh.isVisible=false; mesh.isPickable=false;
+    const b=mesh.getHierarchyBoundingVectors(true), ext=b.max.subtract(b.min);
+    // Centre the footprint in x/z but keep the base at y=0, so rotation.y spins
+    // about the piece rather than a corner and placement maths stays readable.
+    mesh.position.set(-(b.min.x+b.max.x)*.5,-b.min.y,-(b.min.z+b.max.z)*.5);
+    const scale=1/Math.max(ext.x,ext.z);
+    mesh.scaling.setAll(scale); mesh.bakeCurrentTransformIntoVertices(); mesh.position.set(0,0,0);
+    const assetHeight=ext.y*scale;
+    mesh.metadata=Object.assign(mesh.metadata||{},{assetHeight});
+    if(trimFraction>0){
+      // Cut the grass end off and drop the remainder back to y=0 so callers can
+      // place the piece by its base like any other block.
+      const limit=trimSide>0 ? assetHeight*(1-trimFraction) : assetHeight*trimFraction;
+      trimSlab(mesh,limit,trimSide);
+      const bb=mesh.getBoundingInfo().boundingBox;
+      mesh.position.y=-bb.minimum.y;
+      mesh.bakeCurrentTransformIntoVertices();
+      mesh.position.set(0,0,0);
+      mesh.refreshBoundingInfo();
+      mesh.metadata.trimmedHeight=mesh.getBoundingInfo().boundingBox.maximum.y;
+    }
+    window.GEEBR_LOOK?.applyClayLookToMeshes(r.meshes,scene,{detail:.11,detailScale:5});
+    return mesh;
+  }
+
+  // World units per masonry texture repeat. Boxes carry real face UVs so the
+  // graded stone albedo / generated normal / ORM maps actually resolve; the old
+  // roundedTile() path emitted no UVs at all and read as flat brown slabs.
+  const STONE_UV = 1.6;
+
+  function stoneBox(scene,name,w,h,d,x,y,z,mat,tone,ry=0){
+    const uw=w/STONE_UV, uh=h/STONE_UV, ud=d/STONE_UV;
+    const fz=rect(0,0,uw,uh), fx=rect(0,0,ud,uh), fy=rect(0,0,uw,ud);
+    const c=new BABYLON.Color4(tone,tone,tone,1);
+    const m=BABYLON.MeshBuilder.CreateBox(name,{ width:w, height:h, depth:d,
+      faceUV:[fz,fz,fx,fx,fy,fy], faceColors:[c,c,c,c,c,c], wrap:true },scene);
+    m.position.set(x,y,z);
+    if(ry) m.rotation.y=ry;
+    m.material=mat; m.isPickable=false; m.receiveShadows=true;
+    return m;
+  }
+
+  async function buildBedrock(scene){
+    const { WORLD }=API;
+    // Cut-stone blocks, not sediment banding. One texture repeat per ~0.8 units
+    // so a single block face shows two or three stones plus mortar.
+    const stone=await HD.surface(scene,{ name:'cliff_masonry', file:'stone_blocks.png',
+      gradeOpts:{ sat:.36, bright:1.04, contrast:1.20, tintR:.96, tintG:1.00, tintB:1.05 },
+      paint:cv=>HD.paintStoneDetail(cv,71), normalStrength:3.2, rough:.90, roughVar:.10, ao:.72 });
+    stone.environmentIntensity=.62;
+    // Grass caps on the step-down blocks reuse the island grass look rather than
+    // introducing a second green.
+    const capMat=API.state.hdMaterials?.grassGLB||null;
+
+    const top=API.state.terrainTopY??.445;
+    const capBottom=top-.87;      // measured grass slab underside
+    const SEA=-3.05;
+    const TERRACE_TOP=capBottom+.10;
+    const BOT=SEA-.55;
+
+    const blocks=[], shore=[], caps=[];
+    let seed=0xbed40c;
+    const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
+
+    // Blocks read light on top, mid on the lit faces, dark where they recess.
+    const tone=()=>{ const r=rnd(); return r<.20?.52+rnd()*.10 : r<.72?.70+rnd()*.12 : .86+rnd()*.10; };
+
+    const COURSES=[
+      // top, height, base outward offset relative to the plateau edge
+      { y0:TERRACE_TOP,      h:.78, off:-.10 },
+      { y0:TERRACE_TOP-.70,  h:.86, off:-.30 },
+      { y0:TERRACE_TOP-1.48, h:.94, off:-.16 },
+      { y0:TERRACE_TOP-2.34, h:BOT===null?1:0, off:-.34 }   // h filled below
+    ];
+    COURSES[3].h=COURSES[3].y0-BOT;
+
+    const addRun=(axis,side)=>{
+      const half   = axis==='x' ? WORLD.halfW : WORLD.halfH;
+      const outHalf= axis==='x' ? WORLD.halfH : WORLD.halfW;
+      // place() hides the axis swap: everything below is (along, outward, ...).
+      const place=(list,name,along,outward,w,h,d,cy,t,mat)=>{
+        const x=axis==='x'?along:side*outward, z=axis==='x'?side*outward:along;
+        const m=stoneBox(scene,name,axis==='x'?w:d,h,axis==='x'?d:w,x,cy,z,mat||stone,t);
+        list.push(m);
+        return m;
+      };
+
+      // One block column per unit cell along the side.
+      const n=Math.round(half*2);
+      for(let i=0;i<n;i++){
+        const along=-half+.5+i;
+        // Skip the last half cell at each end; corners are built separately.
+        const nearCorner = i===0 || i===n-1;
+
+        COURSES.forEach((c,ci)=>{
+          // Split some courses into two narrower blocks so the seam pattern is
+          // not one block per cell everywhere.
+          const split = !nearCorner && ci>0 && rnd()<.34;
+          const parts = split ? 2 : 1;
+          for(let k=0;k<parts;k++){
+            const w=(1.0/parts)*(.90+rnd()*.14);
+            const d=.62+rnd()*.30;
+            const jitter=(rnd()-.5)*.26;
+            const outward=outHalf+c.off+jitter-d*.5;
+            const a=along+(parts===2?(k?.26:-.26):0)+(rnd()-.5)*.06;
+            // Overlap each course into the one above so no gap can open.
+            const h=c.h+.10;
+            place(blocks,'hd_cliff_block',a,outward,w,h,d,c.y0-h*.5+.10,tone());
+          }
+        });
+
+        // Occasional grass-capped step block: the reference steps the plateau
+        // down at the edge rather than dropping straight to bare stone.
+        if(!nearCorner && rnd()<.20){
+          const d=.72+rnd()*.16, w=.88+rnd()*.10;
+          const outward=outHalf+.16-d*.5;
+          const h=.42;
+          const y=capBottom+.30;
+          const b=place(caps,'hd_cliff_step_cap',along+(rnd()-.5)*.12,outward,w,h,d,y-h*.5,.88,capMat);
+          if(!capMat) b.material=stone;
+        }
+
+        // Sparse boulder perched on the terrace shoulder.
+        if(!nearCorner && rnd()<.18){
+          const s=.30+rnd()*.22;
+          const outward=outHalf+.24-s*.5;
+          place(shore,'hd_shore_rock',along+(rnd()-.5)*.3,outward,s,s*(.7+rnd()*.5),s,
+            TERRACE_TOP-1.40+rnd()*.5,tone(),null);
+        }
+      }
+    };
+    addRun('x',-1); addRun('x',1); addRun('z',-1); addRun('z',1);
+
+    // Corner stacks: blocks turned 45 degrees so the two runs meet on a cut
+    // corner instead of forming a square tower.
+    for(const sx of [-1,1]) for(const sz of [-1,1]){
+      COURSES.forEach((c,ci)=>{
+        const s=1.15-ci*.06+rnd()*.14;
+        const inset=.42+ci*.06+rnd()*.12;
+        const h=c.h+.10;
+        blocks.push(stoneBox(scene,'hd_cliff_corner_block',s,h,s,
+          sx*(WORLD.halfW-inset),c.y0-h*.5+.10,sz*(WORLD.halfH-inset),stone,tone(),Math.PI/4));
+      });
+    }
+
+    // Solid inner core. Reaches under the innermost possible block face so the
+    // jittered terrace can never be seen through.
+    blocks.push(stoneBox(scene,'hd_cliff_core',WORLD.w-.55,TERRACE_TOP-BOT,WORLD.h-.55,
+      0,(TERRACE_TOP+BOT)*.5,0,stone,.58));
+
+    // Shallow-water stones so the shoreline is not a clean rectangle meeting a
+    // flat plane.
+    for(let i=0;i<22;i++){
+      const axis=i%2?'x':'z';
+      const side=(i>>1)%2?1:-1;
+      const half   = axis==='x' ? WORLD.halfW : WORLD.halfH;
+      const outHalf= axis==='x' ? WORLD.halfH : WORLD.halfW;
+      const along=(rnd()*2-1)*(half-.4);
+      const outward=outHalf+.05+rnd()*.70;
+      const s=.22+rnd()*.42;
+      const x=axis==='x'?along:side*outward, z=axis==='x'?side*outward:along;
+      shore.push(stoneBox(scene,'hd_shore_rock',s,s*(.7+rnd()*.7),s*(.7+rnd()*.5),
+        x,SEA+.02+rnd()*.20,z,stone,tone(),rnd()*Math.PI));
+    }
+
+    let a,b;
+    try{
+      // The generated grass cap is trimmed away entirely; only the rock body of
+      // the asset is wanted, otherwise it reads as a second grass ledge.
+      // cliff_rock_*.glb are the restone.py recolours of cliff_straight_*.glb.
+      // The originals could not be used at all: their 4096 albedo measured 95%
+      // green over the WHOLE texture (Tripo textured the entire asset as moss),
+      // so no geometric trim could remove the green - it was never a rock skin.
+      // Geometry is untouched and still reference-derived; only albedo changed.
+      [a,b]=await Promise.all([
+        importCliffAsset(scene,'cliff_rock_a.glb','hd_cliff_variant_a_proto'),
+        importCliffAsset(scene,'cliff_rock_b.glb','hd_cliff_variant_b_proto')
+      ]);
+      const accents=[];
+      // Six accents on a 52-cell perimeter: irregular silhouette breaks without
+      // tiling an ornament per cell.
+      const sites=[
+        ['x',-1,-2.9], ['x',-1, 1.7], ['x', 1,-0.6],
+        ['z',-1, 2.2], ['z', 1,-1.4], ['x', 1, 3.6]
+      ];
+      sites.forEach((site,i)=>{
+        const [axis,side,along]=site;
+        const proto=i%2?a:b, c=proto.clone('hd_cliff_buttress_accent');
+        c.setEnabled(true); c.isVisible=true; c.isPickable=false;
+        const h=proto.metadata?.trimmedHeight??proto.metadata?.assetHeight??.75;
+        const sxz=1.0+rnd()*.28, sy=(1.25+rnd()*.45)/Math.max(.2,h);
+        c.scaling.set((i%3===0?-1:1)*sxz,sy,sxz);
+        c.rotation.y=axis==='x' ? (side<0?0:Math.PI) : (side<0?-Math.PI/2:Math.PI/2);
+        const outHalf=axis==='x'?WORLD.halfH:WORLD.halfW;
+        const outward=outHalf+.30-sxz*.5;
+        const x=axis==='x'?along:side*outward, z=axis==='x'?side*outward:along;
+        c.position.set(x,TERRACE_TOP-2.30,z);
+        c.receiveShadows=true; accents.push(c);
+      });
+      a.dispose(); b.dispose();
+      API.state.generatedCliffSegments=accents.length;
+    }catch(e){ console.warn('generated cliff accents unavailable',e); a?.dispose(); b?.dispose(); }
+
+    const wall=merge(blocks,'hd_cliff_wall',stone);
+    const rocks=merge(shore,'hd_shore_rocks',stone);
+    const stepCaps=caps.length?merge(caps,'hd_cliff_step_caps',caps[0].material):null;
+    API.state.hdMaterials=Object.assign(API.state.hdMaterials||{},{cliff:stone});
+    API.state.cliffFaceParts=blocks.length+shore.length+caps.length;
+    API.state.cliffBottomY=BOT;
+    return { wall, rocks, stepCaps };
   }
 
   /* ---------- 3. vegetation ------------------------------------------ */
@@ -721,8 +925,10 @@
     sea.material=m;
     const pos=sea.getVerticesData(BABYLON.VertexBuffer.PositionKind), base=pos.slice();
     const nrm=sea.getVerticesData(BABYLON.VertexBuffer.NormalKind);
-    scene.onBeforeRenderObservable.add(()=>{
-      const t=performance.now()*.001;
+    // 4,225 CPU vertex writes plus a full normal recompute per frame. Fine when
+    // a human is watching the waves, pure waste for a screenshot, so still mode
+    // evaluates it once and unhooks.
+    const waveStep=(t)=>{
       for(let i=0;i<pos.length;i+=3){
         const x=base[i], z=base[i+2];
         pos[i+1]=Math.sin(x*.55+t*.75)*.045+Math.sin(z*.83-t*.58)*.032+Math.sin((x+z)*1.4+t*1.2)*.012;
@@ -730,7 +936,9 @@
       sea.updateVerticesData(BABYLON.VertexBuffer.PositionKind,pos,false,false);
       BABYLON.VertexData.ComputeNormals(pos,sea.getIndices(),nrm);
       sea.updateVerticesData(BABYLON.VertexBuffer.NormalKind,nrm,false,false);
-    });
+    };
+    if(window.GEEBR_STILL_MODE) waveStep(0);
+    else scene.onBeforeRenderObservable.add(()=>waveStep(performance.now()*.001));
 
     // foam collar hugging the island so the silhouette pops off the dark water
     const S=512, cv=HD.canvasOf(S,S), ctx=cv.getContext('2d');
@@ -758,7 +966,8 @@
     mk(WORLD.h-4.6,bw, (WORLD.halfW-2.3)+bw*.3,0,Math.PI/2);
     const foam=merge(strips,'hd_foam_collar',foamM,{shadows:false});
     if(foam) foam.alphaIndex=6;
-    scene.onBeforeRenderObservable.add(()=>{
+    if(window.GEEBR_STILL_MODE){ foamM.alpha=.46; }
+    else scene.onBeforeRenderObservable.add(()=>{
       const t=performance.now()*.001;
       foamTx.uOffset=(t*.05)%1; foamTx.vOffset=Math.sin(t*.4)*.04;
       foamM.alpha=.42+Math.sin(t*1.1)*.10;
@@ -773,7 +982,9 @@
       const a=i*1.21+.4, r=10+((i*2.3)%6);
       ring.position.set(Math.cos(a)*r,SEA_Y+.03,Math.sin(a)*r*.85);
       let sc=.4+i*.5; const sp=.10+i*.015;
-      scene.onBeforeRenderObservable.add(()=>{ sc+=sp*.016; if(sc>3.6) sc=.4; ring.scaling.set(sc,sc,1); rm.alpha=.30*(1-sc/3.8); });
+      ring.scaling.set(sc,sc,1); rm.alpha=.30*(1-sc/3.8);
+      if(!window.GEEBR_STILL_MODE)
+        scene.onBeforeRenderObservable.add(()=>{ sc+=sp*.016; if(sc>3.6) sc=.4; ring.scaling.set(sc,sc,1); rm.alpha=.30*(1-sc/3.8); });
     }
     return sea;
   }
@@ -930,7 +1141,7 @@
     bulb.position.set(tentX+.92,1.10,tentZ+.75); bulb.material=glow; bulb.isPickable=false;
     const lamp=new BABYLON.PointLight('hd_lantern_light',new BABYLON.Vector3(tentX+.92,1.10,tentZ+.75),scene);
     lamp.diffuse=C3(1,.72,.34); lamp.intensity=1.35; lamp.range=6.2;
-    scene.onBeforeRenderObservable.add(()=>{
+    if(!window.GEEBR_STILL_MODE) scene.onBeforeRenderObservable.add(()=>{
       const t=performance.now()*.0022;
       lamp.intensity=1.28+Math.sin(t*2.3)*.10+Math.sin(t*5.7)*.05;
     });
