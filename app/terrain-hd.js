@@ -673,9 +673,20 @@
   function boulder(scene,name,r,x,y,z,mat,tone,rnd){
     const m=BABYLON.MeshBuilder.CreateIcoSphere(name,{ radius:r, subdivisions:2, flat:true },scene);
     const p=m.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    // flat:true DUPLICATES vertices per face, so each corner appears five or six
+    // times. The displacement must therefore be a function of the ORIGINAL
+    // position, not of the array index: jittering the array directly moves each
+    // copy of a corner somewhere different and tears the solid into shards.
+    const seen=new Map();
+    const disp=(vx,vy,vz)=>{
+      const key=Math.round(vx*1e4)+'|'+Math.round(vy*1e4)+'|'+Math.round(vz*1e4);
+      let d=seen.get(key);
+      if(!d){ d=[.82+rnd()*.30, .60+rnd()*.30]; seen.set(key,d); }
+      return d;
+    };
     for(let i=0;i<p.length;i+=3){
-      const k=.80+rnd()*.34;
-      p[i]*=k; p[i+1]*=k*(.62+rnd()*.30); p[i+2]*=k;
+      const d=disp(p[i],p[i+1],p[i+2]);
+      p[i]*=d[0]; p[i+1]*=d[0]*d[1]; p[i+2]*=d[0];
     }
     m.updateVerticesData(BABYLON.VertexBuffer.PositionKind,p);
     const cols=new Float32Array((p.length/3)*4);
