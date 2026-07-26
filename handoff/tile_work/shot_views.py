@@ -139,7 +139,7 @@ async def main():
                         print('tree target', json.dumps(info), flush=True)
                         if not info:
                             continue
-                        a, b, r, t = -1.15, 1.12, 3.4, info['pos']
+                        a, b, r, t = -0.95, 1.02, 5.2, info['pos']
                     elif name == 'rock':
                         info = await page.evaluate(FINDROCK)
                         print('rock target', json.dumps(info), flush=True)

@@ -1111,14 +1111,25 @@
     // straight through the hollow tree and out the backface-culled far side.
     // The master has a PINCH, not a hole - what shows in the pinch is the next
     // tier's own slope.
+    // ...but the tuck ALONE made the tree read as one smooth cone with faint
+    // banding instead of a stack of skirts: a slope sweeping from .42 of the rim
+    // above all the way out to its own rim is nearly collinear with the next one
+    // down, so the SILHOUETTE never stepped. The master steps at every rim
+    // because a tier's visible top is a SHOULDER just outside and just below the
+    // rim above it, which also hides that rim's edge. Three rings per tier:
+    //   tuck     - hidden inside the tier above; closes the solid
+    //   shoulder - the visible top, just outside/below the rim above
+    //   rim      - its own, widest, scalloped
+    // SHOULDER_R is measured, not guessed: on the master, tier 2's silhouette
+    // pinches to half-width 22px directly under a rim of 25.5px and then flares
+    // to 36.5px, so the shoulder is .86 of the rim above and that rim DOES
+    // overhang it slightly - the overhang is the pinch, not a defect. Pushing
+    // the shoulder out past 1.0 to "hide a flange" was wrong and turned every
+    // skirt into a thin near-vertical blade, because it left almost no radial
+    // span between shoulder and rim to flare across.
     const TUCK_Y = .42, TUCK_R = .42;
-    // The top TUCK_Y/(1+TUCK_Y) of each slope is buried inside the tier above,
-    // so the shadow band must be positioned within the VISIBLE span rather than
-    // the whole slope, or it swallows everything that shows. HIDDEN is that
-    // buried fraction; SHADE_VIS is how much of what remains is dark.
-    const HIDDEN = TUCK_Y/(1+TUCK_Y);
-    const SHADE_VIS = .40;
-    const UPPER = HIDDEN+(1-HIDDEN)*SHADE_VIS;
+    const SHOULDER_R = .86, SHOULDER_Y = .13;
+    const SHADE_VIS = .46;
     function pine(x,z,s,seed){
       const P=[],C=[],I=[],U=[];
       // UVs are NOT optional even though the leaf material is a flat colour:
@@ -1153,6 +1164,8 @@
         // radius: that is the pinch measured between every pair of tiers.
         const yt=apex ? yb+1.55*PITCH : rimY(k-1)+TUCK_Y*PITCH;
         const rt=apex ? 0 : rimR(k-1)*TUCK_R;
+        const ys=apex ? yt : rimY(k-1)-SHOULDER_Y*PITCH;
+        const rs=apex ? 0 : rimR(k-1)*SHOULDER_R;
         const yaw=lean+k*.38;                         // slight twist per tier
         for(let i=0;i<TIER_N;i++){
           const a0=yaw+i*Math.PI*2/TIER_N, a1=a0+Math.PI*2/TIER_N;
@@ -1168,6 +1181,8 @@
           const w0=wob(i), w1=wob(i+1);
           const t0=[Math.cos(a0)*rt*w0, yt, Math.sin(a0)*rt*w0];
           const t1=[Math.cos(a1)*rt*w1, yt, Math.sin(a1)*rt*w1];
+          const s0=[Math.cos(a0)*rs*w0, ys, Math.sin(a0)*rs*w0];
+          const s1=[Math.cos(a1)*rs*w1, ys, Math.sin(a1)*rs*w1];
           const b0=[Math.cos(a0)*rb*w0, yb, Math.sin(a0)*rb*w0];
           const b1=[Math.cos(a1)*rb*w1, yb, Math.sin(a1)*rb*w1];
           const face=Math.max(0,Math.cos(am)*SUNX+Math.sin(am)*SUNZ);
@@ -1175,9 +1190,29 @@
           const lit=leafTone(litK);
           // The apex has nothing above it, so it gets no shadow band.
           const dark=leafTone((apex ? litK*.86 : .41*(.86+.38*face))*vary);
-          const m0=lerp(t0,b0,UPPER), m1=lerp(t1,b1,UPPER);
-          if(rt>0){ tri(t0,t1,m1,dark); tri(t0,m1,m0,dark); }
-          else { tri(t0,t1,m1,dark); }   // apex: t0 and t1 coincide
+          const bm=lerp(b0,b1,.5);
+          const tuckC=.17+noise(seed,k*23+i)*.13;
+          if(apex){
+            // t0 and t1 COINCIDE at the point of the cone, so the old
+            // tri(t0,t1,m1) was a DEGENERATE ZERO-AREA triangle and the whole
+            // upper part of every apex tier had no geometry at all. That is why
+            // every tree in the scene rendered with a chopped flat top. A fan
+            // from the point out over the two scallop segments covers it.
+            // The scallop is a fraction of the corner-to-top span, and on the
+            // apex that span is the whole 1.55*PITCH cone rather than a short
+            // skirt slope, so the same tuckC cut two deep triangular notches
+            // either side of the point. Scale it down to match.
+            const p0=lerp(b0,t0,tuckC*.30), p1=lerp(b1,t1,tuckC*.30);
+            tri(t0,p1,bm,lit); tri(t0,bm,p0,lit);
+            continue;
+          }
+          // Hidden strip, tuck ring down to the shoulder: never seen, but it has
+          // to exist or the tier is an open annulus (defect 9.4b).
+          tri(t0,t1,s1,dark); tri(t0,s1,s0,dark);
+          // The shadow band IS the shoulder-to-rim strip - which is also the
+          // honest answer, since that is the strip the rim above overhangs.
+          const m0=lerp(s0,b0,SHADE_VIS), m1=lerp(s1,b1,SHADE_VIS);
+          tri(s0,s1,m1,dark); tri(s0,m1,m0,dark);
           // Scalloped lower edge. The facet MIDDLE hangs lowest and the two
           // CORNERS are tucked back up the slope, like a drooping bough. The
           // first attempt did the reverse - midpoint up, corners left at full
@@ -1186,9 +1221,7 @@
           // stay in the facet plane, so the facet is still flat.
           // Gentle. At .62-.82 the corners came almost up to the mid ring, so
           // each facet detached into a hanging flap with a dagger at its middle.
-          const tuckC=.17+noise(seed,k*23+i)*.13;
           const c0=lerp(b0,m0,tuckC), c1=lerp(b1,m1,tuckC);
-          const bm=lerp(b0,b1,.5);
           tri(m0,m1,c1,lit); tri(m0,c1,bm,lit); tri(m0,bm,c0,lit);
           // Underside of the lowest skirt only: closes the solid and is what
           // the shadow map casts from.
