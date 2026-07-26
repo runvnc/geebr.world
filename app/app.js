@@ -2173,8 +2173,8 @@ async function addTerrainPolish(scene){
   groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
 }
 
-async function main(){ const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
-  scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk));
+async function main(){ window.GEEBR_STATE=state; const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
+  scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk)); if(window.GEEBR_STILL_MODE){ try{ scene.getPhysicsEngine()?.setTimeStep(0); console.warn('GEEBR: still mode - physics frozen'); }catch(e){} }
   const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(1.6,.3,0),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
@@ -2202,11 +2202,11 @@ async function main(){ const engine=await createEngine(); state.engine=engine; c
   // reads as a lit model on a dark table, plus a teal rim to separate the
   // silhouette from the water.
   const hemi=new BABYLON.HemisphericLight('sky_dome_light',new BABYLON.Vector3(.15,1,.05),scene);
-  hemi.intensity=.42; hemi.diffuse=new BABYLON.Color3(.38,.52,.74); hemi.groundColor=new BABYLON.Color3(.06,.09,.08); hemi.specular=new BABYLON.Color3(.05,.08,.11);
+  hemi.intensity=.72; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
   const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.48,-.86,.62),scene);
   sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=3.1; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38);
   const rim=new BABYLON.DirectionalLight('teal_rim',new BABYLON.Vector3(.62,-.34,-.68),scene);
-  rim.intensity=.42; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
+  rim.intensity=.62; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
   const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-9,5,7),scene);
   fill.intensity=.30; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
   state.sun=sun;

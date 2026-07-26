@@ -12,6 +12,9 @@
   const _q = new URLSearchParams(location.search);
   window.GEEBR_ART_MODE = _q.has('art');
   window.GEEBR_FORCE_WEBGL = _q.has('webgl');
+  // Still mode: no physics stepping, no per-frame CPU vertex animation.
+  // Implied by art review mode; ?still=1 enables it on its own.
+  window.GEEBR_STILL_MODE = _q.has('still') || window.GEEBR_ART_MODE;
   if (window.GEEBR_ART_MODE) console.warn('GEEBR: art review mode - LLM and TTS disabled');
 
   const scripts = [
