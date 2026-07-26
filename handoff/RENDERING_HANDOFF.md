@@ -96,10 +96,14 @@ placement or trim can hide it. See CLIFF_EDGE_HANDOFF section 4.2 and
 
 ## 7. Next asset replacements after cliff lock
 
+The **tree is done** (session 5d, procedural by explicit exception — see
+CLIFF_EDGE_HANDOFF sections 8.2 and 9). The "do not replace reference-derived art
+with hand-authored procedural substitutes" rule in section 2 still applies to
+everything below.
+
 Convert and replace procedural counterparts rather than layering duplicates:
 
-1. tree
-2. `rock_boulder3`
+1. `rock_boulder3` — should replace the procedural `boulder()` icospheres
 3. crate
 4. additional rock clusters/slabs as needed
 5. house/barrel later

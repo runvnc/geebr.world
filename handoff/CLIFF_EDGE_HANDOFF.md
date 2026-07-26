@@ -389,3 +389,145 @@ spread is the whole game for this asset. But remember 7.1: compare LIKE REGIONS,
 not whole-frame percentiles.
 
 Useful views: `iso` and `far` show the tree line, `close` for one tree.
+
+---
+
+## 9. Session 5d — boulder confirmed, TREE BUILT
+
+**HEAD `f4f0fd8`.** Both open items from section 8 are closed.
+
+### 9.1 Boulders — confirmed fixed
+
+`/tmp/rockshot.py` could not be used: Playwright dropped its driver connection
+three times in a row on that script, and separately the harness it used was
+looking for a MESH called `hd_edge_stone`, which no longer exists — `merge()`
+collapses all 26 boulders plus every tread perch into ONE mesh named
+`hd_edge_stones` (6,624 verts), whose bounding-box centre is the middle of the
+island. It framed the geebr's feet.
+
+The `rock` view is now folded into `shot_views.py` and finds the boulder by
+**vertex**, not by mesh: plateau boulders are the only edge-stone geometry above
+`y 0.55` (they sit at `TOP_Y + r*0.42`, and every coursed cube and tread perch is
+below the grass top). Rendered at radius 1.15: **the hull is closed and correctly
+faceted, no gaps, no shards.** `patch_boulder.py` worked. `/tmp/rockshot.py` can
+be deleted.
+
+> General lesson: any harness that locates something by mesh name has to account
+> for the merge groups. After `merge()` there are only about a dozen meshes in
+> the whole diorama.
+
+### 9.2 The master tree, measured — SECTION 8.3 WAS WRONG ON TWO COUNTS
+
+Measured off the silhouette of two trees standing against the navy sky (big tree
+apex `x=838`, isolated right-hand tree apex `x=953`), tracking the left edge row
+by row. Section 8.3 was written by eye and got two things backwards:
+
+| property | 8.3 said | measured |
+|---|---|---|
+| tiers | 5 to 6 | **4** (apex cone + 3 skirts) |
+| height : base width | 2.5 : 1 | **~1.35 : 1** (118px tall by 117px wide at a ~35° tilt) |
+
+The master tree is **squat**, not tall and narrow. Everything else in 8.3 held up.
+
+The useful numbers:
+
+```
+rim rows          163, 190, 217, 244     pitch 27px, CONSTANT
+rim half-widths   25.5, 36.5, 47, 58     linear, .44 -> 1.00 of base
+top ring of tier  r = .86 * rim above     and it starts just below that rim
+apex tier height  1.55 * pitch            uniformly light, nothing shades it
+```
+
+Colour, per region (this is what the build was tuned against):
+
+| region | rgb | lum |
+|---|---|---|
+| tier lit side | 65/74/25 | .258 |
+| tier shade side | 30/47/25 | .154 |
+| gap under tier 1 | 28/40/14 | .131 |
+| gap under tier 2 | 17/27/7 | .085 |
+| under lowest skirt | 10/9/1 | .077 |
+| whole canopy | 42/54/21 | .183, sat .630 |
+| plateau grass, for scale | 78/88/56 | .320 |
+
+The canopy is **much darker than the grass and much less blue** (blue 21 against
+56). That contrast is most of why the master's tree line reads.
+
+### 9.3 What the dark underside actually is
+
+Not the flat underside of the skirt — that is never visible from this camera. It
+is the **upper part of the next tier's own slope**, sitting in the overhang shadow
+of the skirt above it. No shadow map resolves a 0.05-unit overhang at diorama
+scale, so it is painted: each facet is split into two **coplanar** rows, the upper
+one dark and the lower one lit. The facet stays geometrically flat and the band
+reads as shadow. This is the same per-face tone trick as `depthTone()` on the
+cliff cubes (7.2), and it is the single reason the tree reads at all.
+
+### 9.4 Four things that were wrong on the first attempt
+
+All four were found by rendering, not by reasoning. Worth reading before touching
+the tree again.
+
+1. **`MergeMeshes` needs identical attribute sets.** A hand-built `VertexData`
+   with positions/indices/colors but no **UVs** cannot merge with the
+   `CreateSphere` bush lobes and `CreateCylinder` trunks in the same group; the
+   whole diorama threw and fell back to legacy terrain. Same trap as root cause
+   3.1, from the other direction. Normals must also be set
+   **unconditionally** — setting them only on the winding-reversal branch left
+   the mesh with no normal attribute and failed the same way.
+2. **Tiers must OVERLAP, not merely pinch.** Placing each cone's top ring just
+   below and just inside the rim above it left an open annulus at every junction,
+   and the camera looked straight through the hollow tree and out the
+   backface-culled far side. The top ring now tucks `.42 * PITCH` ABOVE that rim
+   at `.42` of its radius. Consequence: the top 30% of every slope is buried, so
+   the shadow band has to be positioned within the **visible** span (`HIDDEN`,
+   `SHADE_VIS`) or it swallows the whole tier.
+3. **The scallop has to hang the facet's MIDDLE lowest and tuck its CORNERS.**
+   The first version did the reverse — midpoint pulled up, corners left at full
+   reach — so adjacent facets met at a sharp radial spine and every rim grew long
+   sideways daggers. Also `tuckC` must be gentle (`.17-.30`); at `.62-.82` each
+   facet detached into a hanging flap with a dagger at its middle.
+4. **Per-facet rim wobble must be indexed by CORNER and must wrap.** With `w0 =
+   noise(i)` and `w1 = noise(i+1)`, facet `TIER_N-1`'s second corner used index 8
+   while facet 0's first corner used index 0 — one mismatched seam per tier,
+   showing as a thin sliver of one facet poking out past its neighbour. `wob(j)`
+   now takes `j % TIER_N`.
+
+### 9.5 Where it landed
+
+| metric | master | ours (lit tree) |
+|---|---|---|
+| luminance | .183 | .172 |
+| rgb | 42/54/21 | 37/52/22 |
+| saturation | .630 | .591 |
+| p10 / p90 | .093 / .275 | .113 / .236 |
+
+Within about 7% on everything. The residual is that the master is a diffusion
+render with punchier local contrast than a real-time PBR pass; per 7.1, pushing
+further risks shifting the whole canopy off-hue to buy a percentile. **Treat this
+as converged.** A tree facing away from the key light measures .137 rather than
+.172 — that is correct behaviour, not an error, so always measure a LIT tree.
+
+Parameters worth knowing, all in `pine()` in `buildFlora()`:
+
+```
+TIER_N 8      facets per tier, reads octagonal
+TIERS 4       apex cone + 3 skirts
+TUCK_Y .42    how far the top ring tucks above the rim above it
+TUCK_R .42    and how far inside it
+SHADE_VIS .40 fraction of the VISIBLE slope that is dark
+PITCH .60*R   rim spacing; .47 matched raw pixels but ignored camera tilt
+tuckC .17-.30 corner tuck for the scallop
+```
+
+### 9.6 Next
+
+`rock_boulder3` (v3 is the approved concept, and it should replace the procedural
+`boulder()` icospheres), then `crate`, `rock_cluster`, `rock_slab`, `house`,
+`barrel`. **The procedural waiver in 8.2 was for the tree only** — those all have
+real surface detail and go through Tripo, `bake.py`, `orm.py`, and an albedo hue
+check.
+
+Two cosmetic things noticed in the `far` view and deliberately left alone: a
+couple of perimeter trees intersect the fence, and the middle distance is
+sparser than the master's tree line.
