@@ -1,7 +1,8 @@
 """Multi-view real-app screenshot harness. GPU-accelerated, self-cleaning.
 
 Usage: python3 shot_views.py PREFIX [W H] [views] [ids]
-  views = comma list from: iso, edge, corner, water, top, close, profile, far
+  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree
+              ('rock' auto-frames the nearest plateau boulder at radius 1.7)
 
 CPU SAFETY (read this before changing the launch args):
   * SwiftShader renders on all 12 CPU cores and previously pinned the box.
@@ -73,6 +74,43 @@ m.material=mt;}}
 return s.meshes.length}"""
 
 
+# 'rock' view: locate the plateau boulder nearest the island centre and frame it.
+FINDROCK = '''()=>{const s=S();
+const m=s.meshes.find(x=>x.name==='hd_edge_stones');
+if(!m) return null;
+m.computeWorldMatrix(true);
+const w=m.getWorldMatrix();
+const p=m.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+// The plateau boulders are the only edge-stone geometry ABOVE the grass top
+// (they sit at TOP_Y + r*0.42); every coursed cube and tread perch is below it.
+// The merge collapsed them into one mesh, so pick a vertex instead of a mesh.
+let best=null,bd=1e9;
+for(let i=0;i<p.length;i+=3){
+  const v=BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(p[i],p[i+1],p[i+2]),w);
+  if(v.y<0.55) continue;
+  const d=Math.abs(v.x)+Math.abs(v.z);
+  if(d<bd){bd=d;best=v;}
+}
+if(!best) return null;
+return {verts:p.length/3,pos:[+best.x.toFixed(2),+(best.y-0.12).toFixed(2),+best.z.toFixed(2)]}}'''
+
+
+# 'tree' view: frame the tallest canopy vertex, i.e. one whole tree in profile.
+FINDTREE = '''()=>{const s=S();
+const m=s.meshes.find(x=>x.name==='hd_leaves_a');
+if(!m) return null;
+m.computeWorldMatrix(true);
+const w=m.getWorldMatrix();
+const p=m.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+let best=null;
+for(let i=0;i<p.length;i+=3){
+  const v=BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(p[i],p[i+1],p[i+2]),w);
+  if(!best||v.y>best.y) best=v;
+}
+return {verts:p.length/3,apex:+best.y.toFixed(2),
+        pos:[+best.x.toFixed(2),+(best.y*0.55).toFixed(2),+best.z.toFixed(2)]}}'''
+
+
 def sweep():
     """Kill any chrome left over from an earlier aborted run."""
     subprocess.run(['pkill', '-9', '-f', 'use-angle=gl-egl'],
@@ -96,7 +134,20 @@ async def main():
 
             async def sweep_views(suffix=''):
                 for name in WANT:
-                    a, b, r, t = VIEWS[name]
+                    if name == 'tree':
+                        info = await page.evaluate(FINDTREE)
+                        print('tree target', json.dumps(info), flush=True)
+                        if not info:
+                            continue
+                        a, b, r, t = -1.15, 1.12, 3.4, info['pos']
+                    elif name == 'rock':
+                        info = await page.evaluate(FINDROCK)
+                        print('rock target', json.dumps(info), flush=True)
+                        if not info:
+                            continue
+                        a, b, r, t = -0.9, 1.02, 1.15, info['pos']
+                    else:
+                        a, b, r, t = VIEWS[name]
                     t0 = time.perf_counter()
                     await page.evaluate(AIM, [a, b, r, list(t)])
                     await page.wait_for_timeout(120)
