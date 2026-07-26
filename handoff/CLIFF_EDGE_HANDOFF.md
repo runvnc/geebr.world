@@ -1,277 +1,222 @@
 # geebr.world — Island Edge / Cliff Handoff
 
-**Updated:** 2026-07-25 (session 4)
-**Repo:** `/files/geebr.world` · branch `main` · **nothing committed this session, git HEAD still `a3cb475`**
+**Updated:** 2026-07-25 (session 5)
+**Repo:** `/files/geebr.world` · branch `main` · HEAD `12585b6`
 **Master visual target:** `/xfiles/localmr/static/imgs/gpt_image_7fRofQ_FKB_m9w_0.png`
 **Best edge reference crop:** `handoff/tile_work/ref_cliff_perimeter.png`, right half
+**Side by side (ref | current):** `handoff/tile_work/goal_vs_current.jpg`
 
-This document supersedes sections 5 and 6 of `RENDERING_HANDOFF.md` for the cliff
-work specifically. Everything else in `RENDERING_HANDOFF.md` (art direction,
-asset pipeline, look.js, vegetation) still stands.
+This document supersedes sections 4 to 6 of `RENDERING_HANDOFF.md` for the cliff
+work specifically. Everything else there (art direction, asset pipeline,
+`look.js`, vegetation) still stands.
 
 ---
 
-## 0. Read this first: two environment fixes that matter more than the art
+## 0. Environment facts that matter more than the art
 
 ### 0.1 CPU meltdown — fixed, do not regress it
 
-The previous harness launched Chromium with `--use-angle=swiftshader`, which
-rasterises on all 12 CPU cores. Worse, when a harness timed out the browser tree
-was **orphaned** — 46 chrome processes were found still burning CPU for minutes
-afterwards. This nearly froze the machine and had already forced two hard reboots
-in earlier sessions.
+An older harness launched Chromium with `--use-angle=swiftshader`, which
+rasterises on all 12 CPU cores, and when it timed out it orphaned 46 chrome
+processes that kept burning CPU for minutes. This forced two hard reboots.
 
 Both causes are fixed in `handoff/tile_work/shot_views.py`:
 
-- **Real GPU.** `--use-angle=gl-egl --use-gl=angle --enable-gpu` binds the actual
-  RTX 2060 *even headless* (DISPLAY=:0 is present). Verified in the probe output:
-  `renderer: ANGLE (NVIDIA Corporation, NVIDIA GeForce RTX 2060/PCIe/SSE2)`.
-- **Guaranteed teardown.** `sweep()` runs `pkill -9 -f use-angle=gl-egl` before
-  the run and again in a `finally`, plus `browser.close()` under a timeout.
+- `--use-angle=gl-egl --use-gl=angle --enable-gpu` binds the real RTX 2060 even
+  headless (DISPLAY=:0 is present). The probe line must say NVIDIA.
+- `sweep()` runs `pkill -9 -f use-angle=gl-egl` before the run and in a
+  `finally`, plus `browser.close()` under a timeout.
 
-**Result: a full three-view render went from ~90 s to ~7 s total, 0.15 s/shot.**
-Never put swiftshader back. If you write a new harness, copy the launch args and
-the sweep from `shot_views.py`.
+A three-view render is about 7 s total, 0.15 s per shot. Never put swiftshader
+back. `shot_fast.py`, `shot_app.py`, `ab_app.py` and `probe.py` still contain it
+and are superseded.
 
-### 0.2 Still mode — new, keeps CPU work out of screenshots
+### 0.2 Still mode
 
-New flag `window.GEEBR_STILL_MODE` in `app/preflight.js`, implied by `?art=1`,
-also settable alone with `?still=1`:
+`window.GEEBR_STILL_MODE` in `app/preflight.js`, implied by `?art=1`, also
+`?still=1`: physics step 0, the sea's 4,225-vertex CPU rewrite runs once instead
+of per frame, foam/ripple/lantern observables not registered. `?art=1` also
+skips the 3 GB LiteRT model and Pocket-TTS. Always review with
+`?art=1&webgl=1`.
 
-- physics time step forced to `0` (Havok stops solving)
-- the sea's per-frame **4,225-vertex CPU rewrite plus full normal recompute** now
-  runs exactly once instead of every frame — this was the single largest
-  per-frame CPU cost in the app
-- foam scroll, ripple rings and lantern flicker observables are not registered
-
-Probe confirms `still: true` and `obs: 4`.
-
-`?art=1` still does what it always did: skips the ~3 GB LiteRT LLM download and
-the Pocket-TTS autoload. **Always use `?art=1&webgl=1` for review renders.**
-
-### 0.3 Current harness commands
+### 0.3 Commands
 
 ```bash
-# server (leave running)
-python3 -m http.server 8791 --directory /files/geebr.world/app
+python3 -m http.server 8791 --directory /files/geebr.world/app   # leave running
 
 cd /files/geebr.world/handoff/tile_work
-
-# renders: PREFIX W H views [ids]
 timeout 100 python3 -u shot_views.py /tmp/g 640 440 edge,corner,iso
-# views: iso edge corner water top close profile far
-# add trailing 'ids' for a flat-colour ID pass (composition legibility)
-
-# geometry facts with NO screenshot cost (~7s, no image tokens)
-timeout 90 python3 -u measure.py all
-timeout 90 python3 -u measure.py hd_cliff_wall hd_island_grass
-
-# build a <45KB composite before examine_image (context killer otherwise)
-python3 mk.py /tmp/sheet.jpg 430 300 - a.jpg b.jpg c.jpg
+# views: iso edge corner water top close profile far; trailing 'ids' = flat ID pass
+timeout 90  python3 -u measure.py all          # bounds only, no screenshots
+python3 mk.py /tmp/sheet.jpg 400 275 - a.jpg b.jpg   # <45KB composite
 ```
-
-`measure.py` is the important new tool. Prefer measuring numbers over looking at
-pictures; it is free and it is how both real bugs below were found.
 
 ---
 
-## 1. THE GOAL, described precisely
+## 1. THE METHOD THAT ACTUALLY WORKED — read this before touching the art
 
-From the right half of `ref_cliff_perimeter.png` (this is the authority; look at
-it before writing any code):
+Four previous shapes were built and rejected by eye, each taking a whole pass.
+What finally converged was **measuring the render against the reference crop
+with numpy and fixing whichever number was furthest off.** Two lines of code:
 
-1. **The edge is SHALLOW.** Only roughly **1.5 to 2 tile heights** of stone are
-   visible between the grass and the water/shadow. It is not a cliff face, it is
-   a thick stone hem.
-2. **It is made of DISCRETE CUBES the same size as the grass tiles.** Every one
-   shows a **visible top face**, which is what makes them read as cubes rather
-   than as a wall. Each is ringed by a thin dark seam.
-3. **Grass and stone INTERLEAVE.** The plateau does not stop at a line. Some edge
-   cubes are **grass-topped and sit one step lower and further out** than the
-   main plateau; others are bare stone. The green cascades *down over* the edge
-   in one or two tile steps before the stone takes over.
-4. **Vegetation grows out of the joints** between the edge cubes, including on
-   the stepped-down grass caps. It does not stop at the plateau boundary either.
-5. **Value is mid, not dark.** The stone is a **mid blue-grey with a warm/olive
-   cast**, clearly lighter than the water and only moderately darker than the
-   grass. Individual blocks are separable by eye.
-6. Occasional single boulders sit on the steps and in the shallow water, and the
-   waterline is irregular.
-
-## 2. WHERE WE ARE NOW
-
-Rendered state (`/tmp/gc8_*.jpg` from this session):
-
-- The perimeter is a **terrace of individual jittered cubes**, 4 courses, built
-  per unit cell, with 45-degree rotated corner stacks and a solid inner core. No
-  voids, no one-ornament-per-cell repetition, no double grass ledge.
-- Stone material is `stone_blocks.png` graded plus `paintStoneDetail`, with
-  **real face UVs** so the masonry actually resolves.
-
-Honest gap against the goal:
-
-| goal | now |
-|---|---|
-| ~1.6 units of stone visible | **2.7 units, 4 courses, far too tall** |
-| cubes with visible top faces | blocks nearly coplanar, almost no top faces |
-| grass steps down over the edge | plateau is a flat green lid stopping at a line |
-| vegetation on the edge | none past the plateau boundary |
-| mid blue-grey stone | **near-black, the lower half of frame is a dead mass** |
-| interleaved grass and stone | strict separation |
-
-So the *structure* is now right in kind (cubes, not a swept wall) and wrong in
-*proportion, value and interleaving*.
-
-## 3. PATH FROM HERE TO THERE
-
-Do these in order. Batch several before rendering.
-
-### Step 1 — Collapse the height (biggest single win)
-
-In `buildBedrock()` in `app/terrain-hd.js`: reduce `COURSES` from 4 to **2**, and
-raise `BOT` so only ~1.6 units of stone sit above the sea. Either raise `SEA_Y`
-in `buildWater()` from `-3.05` toward `-1.9`, or lift the whole terrace. Current
-`TERRACE_TOP` is `capBottom+.10` which is about `-0.325`; target bottom about
-`-1.9`. Everything below the water plane is invisible anyway (camera
-`lowerBetaLimit` `.22`, `upperBetaLimit` `1.42`), so geometry down to `-3.6` is
-pure waste.
-
-### Step 2 — Make them read as cubes
-
-Give each block a larger **outward jitter (about 0.35)** and a **vertical jitter
-(about 0.18)** so top faces are exposed to the camera. Right now jitter is 0.26
-horizontal and zero vertical, so each course top is hidden by the block above.
-Cube proportions should be near 1:1:1 at about 0.8 units.
-
-### Step 3 — Cascade the grass over the edge (the thing that most sells the ref)
-
-This is a change to `buildIslandTop()`, not just the cliff. Add a ring of
-**grass-tile clones one step down and out** from the plateau on a sparse subset
-of perimeter cells (about 35 percent), reusing the `grass_v7_orm.glb` clone path
-and the existing D4 transform logic. Stone then starts *below those*. The
-existing `hd_cliff_step_cap` blocks in `buildBedrock()` were a first stab at this
-but they are boxes rather than real grass tiles and only one was generated;
-replace them.
-
-### Step 4 — Lift the stone value
-
-Screen value of the wall is currently about 0.15; target 0.55 to 0.65. Three
-levers, use all three modestly rather than one hard:
-
-- vertex `tone()` in `buildBedrock()` (currently .52 to .96)
-- the `grade()` `bright` / `tintR` on the `cliff_masonry` surface
-- hemispheric light, **already raised .42 to .72 this session** along with teal
-  rim .42 to .62, because every cliff face is vertical while the key light points
-  mostly down (`-.48,-.86,.62`) so the key barely touches them. Measured effect
-  was only about +5 mean levels, so the remaining work is in albedo and vertex
-  tone, not in lights.
-
-### Step 5 — Vegetation onto the edge
-
-In `buildVegetation()`, allow blade clusters and daisies on the new stepped grass
-caps and in the seams between the top course of cubes.
-
-### Step 6 — Waterline
-
-Sparse boulders already exist (`hd_shore_rock`, 22 of them). Once the height is
-reduced they will sit correctly relative to the sea. Also fix the blown-out white
-specular hotspot visible in the `profile` view on `hd_sea_mat` (roughness `.14`
-with `metallic .16` is too sharp).
-
-### Step 7 — Lock, then commit
-
-Render `edge,corner,iso` plus `close`, compare to `ref_cliff_perimeter.png`, then
-commit. Only after placement is locked should you consider thin instances for the
-~314 cliff parts; they are currently merged into one mesh, so this is not urgent.
-
----
-
-## 4. HARD-WON FACTS — do not rediscover these
-
-### 4.1 `HD.roundedTile()` emits NO UVs
-
-It writes positions, indices, colors and normals only. Every previous cliff box
-used it, so all masonry albedo/normal/ORM maps collapsed to a single texel and
-the whole lower island rendered as flat brown slabs. **This was the root cause of
-the "giant smooth rectangular cake" complaint**, not the geometry.
-
-New `stoneBox()` uses `MeshBuilder.CreateBox` with `faceUV` scaled by
-`STONE_UV = 1.6` world units per repeat, plus `faceColors` for value tone.
-
-### 4.2 The Tripo cliff GLBs were 95 percent GREEN across the entire albedo
-
-Measured with `glb.py`: `cliff_straight_a.glb` image 0 is 4096x4096 and **95
-percent of its pixels are green**. Tripo textured the whole asset as moss. That
-is why every attempt to sink or trim the piece still produced a green blob on the
-wall: **there was never any rock-coloured region to keep.** Two geometric trim
-attempts (top 30/45/58 percent, then bottom 42 percent) all failed for this
-reason. Do not try trimming again.
-
-Fix shipped: **`handoff/tile_work/restone.py`** rebuilds the albedo from its
-luminance (which carries all the sculpted detail) into desaturated blue-grey,
-percentile-normalised to avoid crushed blacks, keeping a trace of the original
-chroma. Output `assets/models/tiles/cliff_rock_a.glb` and `cliff_rock_b.glb`,
-verified **0.0 percent green, mean rgb 119/128/131**. ORM and normal untouched.
-`terrain-hd.js` now imports the `cliff_rock_*` files.
-
-**Lesson for every future asset: measure the albedo hue distribution right after
-Tripo, before building anything around it.**
-
-### 4.3 glTF roughness trap (still true)
-
-glTF *multiplies* `roughnessFactor` by the ORM green channel, so once a
-metallicRoughness texture exists you can only make a material smoother from the
-material side, never rougher. Matte correction belongs in `orm.py`.
-
-### 4.4 Measured geometry (for placement maths)
-
-```
-grass slab      y -0.422 .. 0.442,  x +-7.001, z +-6.003   (terrainTopY = 0.445)
-grass underside y -0.422  -> capBottom = top-0.87 = -0.425
-sea plane       y -3.05  (alpha .985, hides everything below)
-WORLD           { w:14, h:12, halfW:7, halfH:6 }
-camera          beta .22..1.42, radius 7..60 -> underside never visible
+```python
+a = np.asarray(Image.open(shot).convert('RGB')).astype(float)/255
+lum = a @ [.299,.587,.114]
+mx, mn = a.max(2), a.min(2); sat = (mx-mn)/(mx+1e-6)
+stone = (sat < .20) & (lum > .15)
+green = (a[:,:,1] > a[:,:,0]+.02) & (a[:,:,1] > a[:,:,2]+.02)
+print(lum[stone].mean(), a[stone].mean(0)*255, sat[stone].mean(),
+      green.mean(), np.percentile(lum,10), np.percentile(lum,90))
 ```
 
-### 4.5 Misc
+Run it on `/tmp/x_edge.jpg` and on `ref_cliff_perimeter.png` cropped to
+`(w//2, 0, w, .62h)`, and compare. Every real fix this session came from a
+number, and two of them were things the eye had misattributed for two sessions.
 
-- `app.js` `const state` is top-level classic script, not `window.state`. This
-  session added `window.GEEBR_STATE=state` at the top of `main()` for the
-  harness; `measure.py` reads `terrainTopY` from it.
+Current standing (reference | ours):
+
+| metric | ref | ours |
+|---|---|---|
+| stone mean luminance | .259 | .263 |
+| stone rgb | 64/67/65 | 63/70/62 |
+| stone saturation | .177 | .116 |
+| green fraction of frame | .409 | .365 |
+| 10th percentile luminance | .049 | .094 |
+| 90th percentile luminance | .351 | .318 |
+
+Value and hue are matched. The remaining gap is **contrast range**: our darks
+bottom out around .09 where the reference reaches .05, which is what still
+makes the stone read slightly like poured concrete rather than quarried rock.
+
+## 2. WHAT THE EDGE IS NOW
+
+`buildBedrock()` in `app/terrain-hd.js`, driven by a new shared `edgeProfile()`.
+
+- **`edgeProfile()`** is one deterministic description of the perimeter,
+  consumed by `buildIslandTop()` (grass cascade), `buildBedrock()` (stone) and
+  `buildVegetation()` (plants). Interleaving the three was impossible while each
+  builder invented its own perimeter, which is why earlier attempts had strict
+  grass/stone separation.
+- **Two stone cubes per grass tile across**, occasionally merged into one
+  full-tile cube. Three courses of about 0.46, cubes wider than tall.
+- **Grass cascade:** 58% of perimeter cells drop a real `grass_v7_orm.glb`
+  clone one step down and out, a third of those a second step. They merge into
+  `hd_island_grass` and share its material.
+- **Vegetation** follows onto those steps, onto the stone treads, and spills
+  over the plateau lip.
+- **Rounded boulders** (`boulder()`, jittered flat-shaded icosphere) on the
+  plateau and in the shallows. Cubes were tried here and just looked like wall
+  fragments.
+- **Sea raised to −1.42** (was −3.05). The camera can never see below the
+  waterline (`beta` .22 to 1.42), so hem depth is free; raising the sea is the
+  cheapest way to control how much stone shows.
+- The imported `cliff_rock_*.glb` accents were **removed from the runtime** —
+  sized for the old tall wall, they dwarfed the half-tile cubes.
+
+Key constants, all near the top of part 2 of `terrain-hd.js`:
+
+```
+TOP_Y      .445    grass slab top (also state.terrainTopY)
+CAP_BOTTOM -.425   grass slab underside
+SEA_LEVEL  -1.42
+GRASS_LIP   .26    visible green on the vertical face before stone starts
+STONE_UV    3.4    world units per stone texture repeat
+COURSE      .46    stone course height
+```
+
+## 3. THE FIVE ROOT CAUSES FOUND SO FAR — do not rediscover these
+
+### 3.1 `HD.roundedTile()` emits NO UVs
+
+Positions, indices, colors, normals only. Every pre-session-4 cliff box used it,
+so all masonry maps collapsed to one texel. That, not the geometry, was the
+original "giant smooth rectangular cake". `stoneBox()` uses `CreateBox` with
+real `faceUV`.
+
+### 3.2 The Tripo cliff GLBs were 95% GREEN across the whole 4096 albedo
+
+Tripo textured the entire asset as moss, so no trim or placement could ever hide
+it; three trim attempts failed for this reason. `restone.py` rebuilt the albedo
+from luminance into desaturated blue-grey (0.0% green, mean 119/128/131).
+**Measure albedo hue distribution immediately after Tripo for every asset.**
+
+### 3.3 `stone_blocks.png` is a printed brick grid
+
+It is a 512px grid of small square tiles. Every cube face therefore wore
+brickwork, and a row of cubes wearing brickwork reads as one masonry wall no
+matter how the geometry is staggered. This is why sessions 4 and 5 kept
+improving silhouette without fixing the "retaining wall" look. The edge now uses
+`stone_soft.png` (blotchy, no grid) plus a new `paintStoneChips()` detail pass.
+**`stone_blocks.png` is fine for a floor and wrong for a cube.**
+
+### 3.4 The dominant surface at the edge was the GRASS TILE's own side
+
+The `grass_v7` slab is 0.87 units tall and only its top is green, so the plateau
+presents a 0.87-unit dark green brick wall and the stone used to start
+*underneath* it. Measured: that band was 58/66/56 while our stone was 79/77/61 —
+two different rocks in the same frame. Fixed by raising the top course to
+`TOP_Y - GRASS_LIP`, so stone stands in front of the slab side and only a thin
+green lip shows, as in the reference. Rescaling the tile asset instead would
+break the terrain grid, physics heights and every prop placement.
+
+### 3.5 A big emissive lift kills the darks
+
+Every cliff face is vertical while the key light points down (−.48,−.86,.62), so
+lights barely reach them; raising hemi .42→.72 moved the mean by about 5 levels.
+An emissive copy of the albedo does lift the mean, but it is a **floor**: at
+.155 nothing in the frame could go below .12 and every seam sat at mid grey. The
+working combination is a small emissive (.026) plus `environmentIntensity` 1.05
+plus strong baked AO (.72) plus a wide per-face tone spread.
+
+### 3.6 Column spread versus course spread
+
+Outward variation **between columns** makes pillars and canyons. Outward
+variation **between courses within a column** makes a grid. Earlier the first
+was ±.25 and the second ±.05, which is exactly the recipe for pillars; they are
+now .10 and ±.15.
+
+### 3.7 glTF roughness trap (unchanged)
+
+glTF multiplies `roughnessFactor` by the ORM green channel, so once a
+metallicRoughness texture exists a material can only be made smoother. Matte
+correction belongs in `orm.py`.
+
+## 4. WHAT IS LEFT
+
+In priority order. All small.
+
+1. **Deepen the darks** to reach the reference's .05 floor: SSAO strength on the
+   cliff, or a dark vertex tone on the bottom face and on the recessed courses.
+   This is the single remaining measured gap.
+2. **Stone saturation .116 → ~.16.** Raise `sat` in the `cliff_masonry` grade
+   slightly; the reference rock keeps a visible olive cast.
+3. **Corner stacks** are still two big 45-degree cubes and now look coarse next
+   to the half-tile grid. Rebuild them from the same `cols` machinery.
+4. **A raised cluster.** The reference has one spot where stone cubes stack
+   *above* the plateau. Nothing does that yet.
+5. **Thin instances** for the roughly 400 cliff parts. They merge into one mesh
+   so this is performance housekeeping, not urgent.
+6. `hd_sea_mat` was fixed (roughness .14→.34, metallic .16→.06, env .75→.42) but
+   the foam collar, now moved out to the real waterline, could use another look.
+
+## 5. Misc
+
+- `app.js` `const state` is a top-level classic script, not `window.state`;
+  `window.GEEBR_STATE=state` is set at the top of `main()` for the harness.
 - `apply_udiff` is unreliable on long `app.js` lines. Use Python string replace
-  with `assert count==1`. All patch scripts are saved: `patch_cliff.py`,
-  `patch_cliff2.py`, `patch_cliff3.py`, `patch_still.py`, plus the older
-  `patch_app.py`, `patch2.py`, `patch3.py`, `patch_artmode.py`.
+  with `assert count==1`. This session's patches are `patch_cliff4.py` through
+  `patch_cliff15.py`, applied in order against `a73b7a5`.
 - No `node`; use `/files/home/runvnc/.deno/bin/deno check --no-lock`.
 - Missing tools: blender, manifold3d, mapbox_earcut, pygltflib, pyembree, node.
+- Validation: `deno check --no-lock app/terrain-hd.js app/app.js app/preflight.js
+  app/look.js` and `git diff --check`.
 
----
-
-## 5. Uncommitted state (git HEAD is still `a3cb475`)
-
-Modified: `app/terrain-hd.js` (cliff rebuilt three times, still-mode hooks),
-`app/app.js` (still mode, `GEEBR_STATE`, hemi/rim light lift),
-`app/preflight.js` (`GEEBR_STILL_MODE`).
-
-New assets: `assets/models/tiles/cliff_rock_a.glb`, `cliff_rock_b.glb`, plus the
-staged originals `cliff_straight_a.glb`, `cliff_straight_b.glb`.
-
-New tools: `handoff/tile_work/shot_views.py`, `measure.py`, `restone.py`,
-`patch_cliff*.py`, `patch_still.py`.
-
-Validation currently passing:
-
-```bash
-/files/home/runvnc/.deno/bin/deno check --no-lock app/terrain-hd.js app/app.js app/preflight.js app/look.js
-git diff --check
-```
-
-## 6. Still 2D-only, after the cliff locks
+## 6. Still 2D-only, after the edge locks
 
 `tree`, `rock_boulder3` (v3 is the good one), `crate`, `rock_cluster`,
-`rock_slab`, `house`, `barrel`. Concepts are in `handoff/tile_work/` and
-`sheet_final.png`. Conversion is mechanical: `tripo_one.py`, then `bake.py 0.60`,
-then `orm.py`, then **check albedo hue (see 4.2)**, then integrate.
+`rock_slab`, `house`, `barrel`. Concepts in `handoff/tile_work/` and
+`sheet_final.png`. Conversion is mechanical: `tripo_one.py`, `bake.py 0.60`,
+`orm.py`, **check albedo hue (3.2)**, integrate.
 
 Explicitly rejected by the user: per-instance colour tint jitter, extra ordinary
 grass slab variants, regenerating the tile source image.
