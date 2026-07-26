@@ -656,8 +656,8 @@
   function stoneBox(scene,name,w,h,d,x,y,z,mat,tone,ry=0){
     const uw=w/STONE_UV, uh=h/STONE_UV, ud=d/STONE_UV;
     const fz=rect(0,0,uw,uh), fx=rect(0,0,ud,uh), fy=rect(0,0,uw,ud);
-    const g=v=>{ const t=Math.min(1.25,tone*v); return new BABYLON.Color4(t,t,t,1); };
-    const top=g(1.30), bot=g(.42), lit=g(1.0), shade=g(.72);
+    const g=v=>{ const t=Math.min(1.55,tone*v); return new BABYLON.Color4(t,t,t,1); };
+    const top=g(1.42), bot=g(.20), lit=g(1.04), shade=g(.60);
     const m=BABYLON.MeshBuilder.CreateBox(name,{ width:w, height:h, depth:d,
       faceUV:[fz,fz,fx,fx,fy,fy],
       faceColors:[lit,shade,lit,shade,top,bot], wrap:true },scene);
@@ -696,7 +696,7 @@
     // The reference cubes are unpatterned mottled rock; stone_soft.png has the
     // blotch without the grid.
     const stone=await HD.surface(scene,{ name:'cliff_masonry', file:'stone_soft.png',
-      gradeOpts:{ sat:.62, bright:1.00, contrast:1.14, tintR:.97, tintG:1.01, tintB:1.00 },
+      gradeOpts:{ sat:1.02, bright:1.24, contrast:1.26, tintR:1.00, tintG:1.00, tintB:1.01 },
       paint:cv=>HD.paintStoneChips(cv,71), normalStrength:1.9, rough:.90, roughVar:.10, ao:.72 });
     stone.environmentIntensity=1.05;
     // Every cliff face is vertical while the key light points down (-.48,-.86,
@@ -717,6 +717,13 @@
     // Mid values, separated block to block. The reference distinguishes cubes
     // by value, not by hue, and nothing in it is close to black.
     const tone=()=>{ const r=rnd(); return r<.26?.62+rnd()*.12 : r<.74?.80+rnd()*.11 : .96+rnd()*.08; };
+    // Depth grading. A uniformly random tone spreads the darks evenly over the
+    // whole hem, but the reference concentrates them low down and in recesses,
+    // which is where its near-black comes from. y is the block top.
+    const depthTone=(y,recess=0)=>{
+      const f=Math.min(1,Math.max(0,(TOP_Y-GRASS_LIP-y)/1.5));
+      return tone()*(1-f*.46)*(1-recess*.22);
+    };
 
     // Deepest inner face reached by any cube, so the core can be pulled back
     // behind them: a core flush with the plateau edge reads as a continuous
@@ -750,10 +757,14 @@
           // lands the same distance inside the plateau edge: that is what makes
           // the terrace void-proof however far a cube steps out.
           const d=out+1.06+rnd()*.16;
-          // Cube is narrower than its 0.5 slot, leaving a seam for SSAO.
-          const w=(col.wide?.90:.42)+rnd()*.05;
+          // Seam must be wide enough for SSAO to resolve at review distance;
+          // at 0.04 it was finer than the sample radius and contributed nothing.
+          const w=(col.wide?.84:.37)+rnd()*.04;
+          // Recessed courses take an extra tone cut: a block set back behind
+          // its neighbours is in their shadow and the render should say so.
+          const recess=Math.max(0,Math.min(1,(col.out-out)*2.2));
           put(blocks,'hd_cliff_block',c,col.along+(rnd()-.5)*.03,
-            outHalf+out,w,h,d,top,tone());
+            outHalf+out,w,h,d,top,depthTone(top,recess));
           top-=h; ci++;
         }
       }
@@ -781,15 +792,50 @@
 
     // Corner stacks turned 45 degrees so the two runs meet on a cut corner
     // rather than a square tower.
+    // Corner stacks. Built from the same half-tile cube grammar as the runs -
+    // two cubes per corner across the diagonal, coursed at COURSE - because the
+    // previous version was two big 45-degree blocks from the tall-wall era and
+    // read as a bastion pasted onto a fine grid.
     for(const sx of [-1,1]) for(const sz of [-1,1]){
-      let top=TOP_Y-GRASS_LIP-rnd()*.10;
-      for(let ci=0;ci<2;ci++){
-        const s=1.12-ci*.10+rnd()*.14;
-        const inset=.46+ci*.16+rnd()*.10;
-        const h=ci?top-BOT:.80+rnd()*.16;
-        blocks.push(stoneBox(scene,'hd_cliff_corner_block',s,h,s,
-          sx*(WORLD.halfW-inset),top-h*.5,sz*(WORLD.halfH-inset),stone,tone(),Math.PI/4));
-        top=top-h+.12;
+      for(let q=0;q<3;q++){
+        // q walks the corner: 0 along x, 2 along z, 1 the diagonal cap.
+        const diag=q===1;
+        const baseOut=.06+rnd()*.16;
+        let top=TOP_Y-GRASS_LIP-rnd()*.10, ci=0;
+        while(top>BOT+.10){
+          const last=(top-COURSE)<=BOT+.10;
+          const h=last?top-BOT:COURSE*(.92+rnd()*.16);
+          const out=Math.max(.01,baseOut-ci*.05+(rnd()-.5)*.22);
+          const s=(diag?.62:.48)+rnd()*.06;
+          const d=out+.92+rnd()*.16;
+          const ox=diag?out*.72:out, oz=diag?out*.72:out;
+          const x=sx*(WORLD.halfW+(q===0?ox:(diag?ox:-.24-rnd()*.10)));
+          const z=sz*(WORLD.halfH+(q===2?oz:(diag?oz:-.24-rnd()*.10)));
+          const m=stoneBox(scene,'hd_cliff_corner_block',
+            q===2?d:s,h,q===2?s:(diag?s:d),
+            x,top-h*.5,z,stone,depthTone(top),diag?Math.PI/4:0);
+          blocks.push(m);
+          top-=h; ci++;
+        }
+      }
+    }
+
+    // A cluster of cubes stacking ABOVE the plateau. The reference does this in
+    // one or two places and it is what stops the island reading as a flat lid.
+    for(const site of [[-1,'x',-1.6],[1,'z',2.4]]){
+      const [side,axis,along]=site;
+      const outHalf=axis==='x'?WORLD.halfH:WORLD.halfW;
+      let y=TOP_Y, n=3+Math.floor(rnd()*2);
+      for(let i=0;i<n;i++){
+        const s=.46-i*.04+rnd()*.06;
+        const h=COURSE*(.86+rnd()*.20);
+        const off=-.30+i*.10+(rnd()-.5)*.22;
+        const a=along+(rnd()-.5)*.5*i;
+        const outward=outHalf+off;
+        const x=axis==='x'?a:side*outward, z=axis==='x'?side*outward:a;
+        blocks.push(stoneBox(scene,'hd_cliff_stack',s,h,s,x,y+h*.5,z,
+          stone,tone()*(1.02-i*.03),rnd()*.5));
+        y+=h;
       }
     }
 
@@ -798,7 +844,7 @@
     // seams go dark and the cubes separate. Toned down for the same reason.
     const coreInX=Math.min(coreX,WORLD.halfW-.95), coreInZ=Math.min(coreZ,WORLD.halfH-.95);
     blocks.push(stoneBox(scene,'hd_cliff_core',coreInX*2,TERRACE_TOP-BOT,coreInZ*2,
-      0,(TERRACE_TOP+BOT)*.5,0,stone,.46));
+      0,(TERRACE_TOP+BOT)*.5,0,stone,.30));
 
     // Shallow-water stones so the shoreline is not a clean rectangle meeting a
     // flat plane.
@@ -973,7 +1019,7 @@
           t.rotationQuaternion=BABYLON.Quaternion.FromEulerAngles((rnd()-.5)*.22,rnd()*Math.PI*2,0);
           t.position.set(x,y,z); t.isPickable=false; tufts.push(t);
         }
-        if(rnd()<.34){
+        if(rnd()<.09){
           const outward=outHalf+off+(rnd()-.5)*.3;
           const along=c.along+(rnd()-.5)*.5;
           const d=daisyProto.clone('hd_daisy_clump');

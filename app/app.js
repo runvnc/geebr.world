@@ -2248,7 +2248,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     // Ambient occlusion is what makes the reference read as sculpted clay
     // rather than flat colour. Neither the imported GLBs (Tripo bakes a pure
     // white AO channel) nor the procedural terrain carried any before this.
-    state.ssao=LOOK()?.setupSSAO(scene,camera,{radius:.9,strength:2.2,samples:16,maxZ:60});
+    state.ssao=LOOK()?.setupSSAO(scene,camera,{radius:.62,strength:3.1,samples:20,maxZ:60});
     const gl=new BABYLON.GlowLayer('hd_glow',scene,{ mainTextureFixedSize:512, blurKernelSize:44 });
     gl.intensity=.38;
     state.glowLayer=gl;
