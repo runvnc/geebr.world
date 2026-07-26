@@ -220,3 +220,73 @@ In priority order. All small.
 
 Explicitly rejected by the user: per-instance colour tint jitter, extra ordinary
 grass slab variants, regenerating the tile source image.
+
+---
+
+## 7. Session 5b addendum — edge finished at `332221f`
+
+Items 1 to 4 of section 4 are **done**. Patches `patch_cliff16.py` through
+`patch_cliff19.py`.
+
+### 7.1 The p10 luminance target was a MEASUREMENT ARTIFACT — do not chase it
+
+Section 1 lists "deepen the darks to .05" as the one remaining measured gap.
+**That was wrong.** Breaking the darkest 10% of pixels down by image band from
+top to bottom:
+
+```
+band      1      2      3      4      5      6
+ref      .219   .035   .053   .104   .094   .099
+ours     .093   .129   .127   .117   .141   .000
+```
+
+Band 1 in the reference crop is shadowed island interior and dark water BEHIND
+the edge, not cliff. Across the actual cliff (bands 2 to 5) our stone already
+carries MORE dark pixels than the reference does, and our band 6 is open water
+with none. The two crops simply frame different amounts of dark background.
+
+A first attempt at closing the gap dropped stone luminance to .231, *below* the
+reference's .259, while p10 moved only .094 to .082 — i.e. the whole surface
+shifted down instead of the range widening, paying for shadow out of the
+midtones. **When comparing whole-frame percentiles against a reference crop,
+verify the dark pixels are in the same PART of the image first.** Per-region
+means (stone mask, green mask) are trustworthy; whole-frame percentiles are not.
+
+Final stone, and this is close enough that further tuning is noise:
+
+| | ref | ours |
+|---|---|---|
+| luminance | .259 | .248 |
+| rgb | 64/67/65 | 60/66/58 |
+| saturation | .177 | .131 |
+
+### 7.2 What shipped
+
+- **Corner stacks** rebuilt from the same half-tile cube grammar as the runs
+  (three sub-stacks per corner, one on the diagonal at 45 degrees, coursed at
+  `COURSE`). The old two-big-blocks version was tall-wall-era and read as a
+  bastion pasted onto a fine grid.
+- **`hd_cliff_stack`**: cubes stacking ABOVE the plateau at two sites.
+  `hd_cliff_wall` now reaches y `1.785` against a plateau top of `0.445`. This is
+  what breaks the flat-lid silhouette in wide shots.
+- **`depthTone(y, recess)`** replaces flat random tone on the run blocks: darkens
+  by depth down the hem and by how far a course is set back behind its
+  neighbours. Face tones widened to top `1.42`, lit `1.04`, shade `.60`, bottom
+  `.20`, and the `g()` clamp raised `1.25` to `1.55` because it was clipping the
+  brighter tops back into a flat plateau.
+- **Seam width matters more than SSAO strength.** Cube width `.42` to `.37`
+  (`.90` to `.84` for the wide variant). The old `0.04` gaps were finer than the
+  SSAO sample radius at review distance, so geometry that fine cannot be
+  darkened by an occlusion pass however hard it is driven — raising strength
+  `2.2` to `3.1` alone bought almost nothing. SSAO is now `radius .62,
+  strength 3.1, samples 20` in `app.js`.
+- Stone grade `sat 1.02, bright 1.24, contrast 1.26`, neutral tint.
+- **Edge daisies cut `.34` to `.09`.** Three clusters per spot at `.34` turned
+  the whole rim yellow-speckled; the reference has a few WHITE daisies well
+  inside the plateau and only green blades on the edge cubes.
+
+### 7.3 Only remaining edge item
+
+Thin instances for the ~400 cliff parts. They merge into one mesh, so this is
+housekeeping, not a cost. **The edge is otherwise closed** — next work is the
+props in section 6, starting with the tree.
