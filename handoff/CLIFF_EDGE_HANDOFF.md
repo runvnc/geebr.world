@@ -531,3 +531,54 @@ check.
 Two cosmetic things noticed in the `far` view and deliberately left alone: a
 couple of perimeter trees intersect the fence, and the middle distance is
 sparser than the master's tree line.
+
+### 9.7 Second tree pass — the chopped tops, and three wrong turns
+
+The user's screenshot showed **every** tree in the scene with a chopped flat top
+and only faint banding down a smooth cone. Two real faults, plus three fixes that
+made it worse and were reverted. `patch_tree2.py`.
+
+**Fault 1, the chopped tops.** For the apex tier `rt=0`, so `t0` and `t1`
+**coincide at the point**, and the code emitted `tri(t0,t1,m1)` — a degenerate
+zero-area triangle. The entire upper `SHADE_VIS` fraction of every apex cone had
+no geometry at all. Now a two-triangle fan from the point out over the scallop.
+
+**Fault 2, the silhouette did not step.** With only the tuck ring, a tier's
+visible slope swept from `.42` of the rim above all the way out to its own rim,
+which is nearly collinear with the next slope down — so the form read as one
+smooth cone with painted bands. Tiers now have **three** rings: `tuck` (hidden,
+closes the solid), `shoulder` (the visible top, at `.86` of the rim above and
+just below it), `rim` (its own, widest, scalloped). The shadow band is then
+exactly the shoulder-to-rim strip, which is also the honest answer — that is the
+strip the rim above overhangs.
+
+**Wrong turn A: undersides on every tier.** An underside fan reaches the FULL rim
+radius at rim height, but the tier below only reaches `.86` of it there, so on an
+upper tier the disc protrudes through its own outer surface as a horizontal
+flange; and because the scallop corners sit ABOVE the rim, a fan drawn to those
+corners tilts out through the cone as a flap. It looked far worse than the
+original fault. Only the lowest skirt gets an underside.
+
+**Wrong turn B: capping the apex, and two-sided leaves.** The open apex shell can
+be seen into from a low camera. Capping it flat produced a visible horizontal
+plate, because the winding fix-up tests ONE side facet and flips the whole index
+buffer — a downward cap and outward slopes can never both come out right that
+way. Setting `backFaceCulling=false` on the leaf materials then made the trees
+render as **solid black silhouettes**, since the inward-facing copy of every
+facet is lit from behind. Both reverted; the apex shell is left open and the
+camera never gets low enough for it to matter.
+
+**Wrong turn C: `SHOULDER_R` above 1.0.** Pushing the shoulder outside the rim
+above, to hide that rim's edge, left almost no radial span to flare across and
+turned every skirt into a thin near-vertical blade. The master's pinch measures
+22px directly under a 25.5px rim, i.e. the rim genuinely does overhang the
+shoulder — **the overhang is the pinch, not a defect.** Back to the measured
+`.86`.
+
+One detail worth keeping: the apex scallop needs its own scale (`tuckC * .30`).
+`tuckC` is a fraction of the corner-to-top span, and on the apex that span is the
+whole `1.55*PITCH` cone rather than a short skirt slope, so the unscaled value
+cut two deep notches either side of the point.
+
+After all of it (master | ours, lit tree): lum .183 | .166, rgb 42/54/21 |
+34/50/23, sat .630 | .570, p10/p90 .093/.275 | .095/.251.
