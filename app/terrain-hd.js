@@ -405,7 +405,7 @@
   // Raised from -3.05. The camera never sees below the waterline (beta .22 to
   // 1.42), so a deep wall was pure cost; a high sea is what makes the edge read
   // as a shallow hem rather than a cliff.
-  const SEA_LEVEL  = -1.90;
+  const SEA_LEVEL  = -1.42;
   // Visible green on the plateau's vertical face before the stone hem starts.
   // The grass slab is 0.87 tall and only its top is green, so without this the
   // edge is dominated by a 0.87-unit dark-green wall rather than by stone.
@@ -425,7 +425,7 @@
         const corner = i===0 || i===n-1;
         // 36% of the perimeter steps the plateau down and out one tile; a
         // sixth of those step again, so the green cascades instead of stopping.
-        const step = corner ? 0 : (rnd()<.36 ? (rnd()<.17?2:1) : 0);
+        const step = corner ? 0 : (rnd()<.58 ? (rnd()<.34?2:1) : 0);
         const stepOut = .30+rnd()*.16;
         const c={
           axis, side, corner, step,
@@ -441,8 +441,9 @@
         // proportion in the reference. One tile-wide block per cell always
         // reads as a wall panel however it is toned or staggered.
         c.cols=[];
-        for(let k=0;k<2;k++){
-          const along=c.along+(k?.25:-.25);
+        const wide=!corner && !step && rnd()<.26;   // one full-tile cube here
+        for(let k=0;k<(wide?1:2);k++){
+          const along=c.along+(wide?0:(k?.25:-.25));
           if(step){
             // Sit directly under the grass tile that stepped out here, so the
             // cascade has something to stand on.
@@ -450,15 +451,15 @@
             const off  = s2?c.stepOut2:c.stepOut;
             const drop = s2?c.stepDrop2:c.stepDrop;
             c.cols.push({ along, top: TOP_Y-drop-GRASS_LIP-rnd()*.10, out: off+.26+rnd()*.12,
-                          r:rnd(), r2:rnd() });
+                          r:rnd(), r2:rnd(), wide });
           } else {
             // Vertical jitter on the tread is what stops neighbouring cubes
             // from being coplanar and hiding each other's top faces.
             // Only a shallow vertical jitter: a deep one exposes the core
             // under the plateau. Depth variety comes from `out`.
-            c.cols.push({ along, top: TOP_Y-GRASS_LIP-rnd()*.16,
-                          out: (corner?.04:.02)+rnd()*(corner?.12:.50),
-                          r:rnd(), r2:rnd() });
+            c.cols.push({ along, top: TOP_Y-GRASS_LIP-rnd()*.09,
+                          out: (corner?.04:.03)+rnd()*(corner?.10:.20),
+                          r:rnd(), r2:rnd(), wide });
           }
         }
         // Kept for the vegetation pass, which seeds plants on the treads.
@@ -656,7 +657,7 @@
     const uw=w/STONE_UV, uh=h/STONE_UV, ud=d/STONE_UV;
     const fz=rect(0,0,uw,uh), fx=rect(0,0,ud,uh), fy=rect(0,0,uw,ud);
     const g=v=>{ const t=Math.min(1.25,tone*v); return new BABYLON.Color4(t,t,t,1); };
-    const top=g(1.24), bot=g(.62), lit=g(1.0), shade=g(.86);
+    const top=g(1.30), bot=g(.42), lit=g(1.0), shade=g(.72);
     const m=BABYLON.MeshBuilder.CreateBox(name,{ width:w, height:h, depth:d,
       faceUV:[fz,fz,fx,fx,fy,fy],
       faceColors:[lit,shade,lit,shade,top,bot], wrap:true },scene);
@@ -696,15 +697,15 @@
     // blotch without the grid.
     const stone=await HD.surface(scene,{ name:'cliff_masonry', file:'stone_soft.png',
       gradeOpts:{ sat:.62, bright:1.00, contrast:1.14, tintR:.97, tintG:1.01, tintB:1.00 },
-      paint:cv=>HD.paintStoneChips(cv,71), normalStrength:1.9, rough:.90, roughVar:.10, ao:.46 });
-    stone.environmentIntensity=.78;
+      paint:cv=>HD.paintStoneChips(cv,71), normalStrength:1.9, rough:.90, roughVar:.10, ao:.72 });
+    stone.environmentIntensity=1.05;
     // Every cliff face is vertical while the key light points down (-.48,-.86,
     // .62), so lights barely reach them: a large hemi lift measured only about
     // +5 levels. A low emissive copy of the albedo lifts the value into the
     // reference's mid blue-grey while keeping the masonry detail, which a flat
     // ambient term would wash out.
     stone.emissiveTexture=stone.albedoTexture;
-    stone.emissiveColor=new BABYLON.Color3(.074,.078,.078);
+    stone.emissiveColor=new BABYLON.Color3(.026,.028,.030);
 
     const E=edgeProfile();
     const TERRACE_TOP=CAP_BOTTOM+.30;
@@ -715,7 +716,7 @@
     const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
     // Mid values, separated block to block. The reference distinguishes cubes
     // by value, not by hue, and nothing in it is close to black.
-    const tone=()=>{ const r=rnd(); return r<.22?.72+rnd()*.08 : r<.74?.83+rnd()*.09 : .94+rnd()*.06; };
+    const tone=()=>{ const r=rnd(); return r<.26?.62+rnd()*.12 : r<.74?.80+rnd()*.11 : .96+rnd()*.08; };
 
     // Deepest inner face reached by any cube, so the core can be pulled back
     // behind them: a core flush with the plateau edge reads as a continuous
@@ -733,7 +734,7 @@
       list.push(m); return m;
     };
 
-    const COURSE=.53;    // three courses fill the ~1.58 unit hem
+    const COURSE=.46;    // cubes read wider than tall, as in the reference
     for(const c of E.cells){
       const outHalf = c.axis==='x' ? WORLD.halfH : WORLD.halfW;
       for(const col of c.cols){
@@ -743,14 +744,14 @@
           const h=last?top-BOT:COURSE*(.92+col.r*.16);
           // Batter: each course steps back slightly, with jitter, and the odd
           // one juts proud so the waterline is not a straight extrusion.
-          const jut=(ci>0 && ((ci*7+col.r2*11)%3)<1)?.10:0;
-          const out=Math.max(.01, col.out-ci*.07+jut+(rnd()-.5)*.10);
+          const jut=(ci>0 && ((ci*7+col.r2*11)%3)<1)?.20:0;
+          const out=Math.max(.01, col.out-ci*.05+jut+(rnd()-.5)*.30);
           // Depth derived from the outward offset, so the inner face always
           // lands the same distance inside the plateau edge: that is what makes
           // the terrace void-proof however far a cube steps out.
           const d=out+1.06+rnd()*.16;
           // Cube is narrower than its 0.5 slot, leaving a seam for SSAO.
-          const w=.42+rnd()*.05;
+          const w=(col.wide?.90:.42)+rnd()*.05;
           put(blocks,'hd_cliff_block',c,col.along+(rnd()-.5)*.03,
             outHalf+out,w,h,d,top,tone());
           top-=h; ci++;
@@ -958,7 +959,9 @@
         spots.push([c.stepOut,(API.state.terrainTopY??TOP_Y)-c.stepDrop+.018,2]);
         if(c.step===2) spots.push([c.stepOut2,(API.state.terrainTopY??TOP_Y)-c.stepDrop2+.018,1]);
       }
-      if(!c.corner && c.rD<.42) spots.push([c.ledges[0].out-.26,c.ledges[0].top+.02,1]);
+      if(!c.corner && c.rD<.72) spots.push([c.ledges[0].out-.24,c.ledges[0].top+.02,2]);
+      // Right on the plateau lip, spilling outward over the drop.
+      if(!c.corner && c.rC<.95) spots.push([-.14-c.rB*.26,(API.state.terrainTopY??TOP_Y)+.018,3]);
       for(const [off,y,count] of spots){
         for(let j=0;j<count;j++){
           const outward=outHalf+off+(rnd()-.5)*.34;
@@ -970,7 +973,7 @@
           t.rotationQuaternion=BABYLON.Quaternion.FromEulerAngles((rnd()-.5)*.22,rnd()*Math.PI*2,0);
           t.position.set(x,y,z); t.isPickable=false; tufts.push(t);
         }
-        if(rnd()<.22){
+        if(rnd()<.34){
           const outward=outHalf+off+(rnd()-.5)*.3;
           const along=c.along+(rnd()-.5)*.5;
           const d=daisyProto.clone('hd_daisy_clump');
