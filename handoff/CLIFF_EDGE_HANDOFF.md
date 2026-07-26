@@ -290,3 +290,102 @@ Final stone, and this is close enough that further tuning is noise:
 Thin instances for the ~400 cliff parts. They merge into one mesh, so this is
 housekeeping, not a cost. **The edge is otherwise closed** — next work is the
 props in section 6, starting with the tree.
+
+---
+
+## 8. Session 5c — boulder fix + START HERE FOR THE TREE
+
+**HEAD `71fe6b1`, pushed, tree clean.** The island EDGE IS DONE. The next piece
+of work is the TREE, and it has already been scoped — read 8.2 and 8.3 and start
+writing code, no investigation needed.
+
+### 8.1 Shattered boulders — FIXED, and the general rule behind it
+
+The user spotted the plateau rocks rendering as splayed shards with visible gaps
+and nonsensical shading, and asked whether the vertices had been reversed.
+
+They had not. `boulder()` (added in `patch_cliff8`) jittered **every vertex of
+the position array independently**, but `CreateIcoSphere({flat:true})`
+**DUPLICATES vertices per face** — that duplication is exactly how it produces
+flat shading, so each corner of the icosphere exists five or six times, once per
+adjoining face. Jittering them independently moved each copy of the same corner
+somewhere different and tore the faces apart from one another. The mesh simply
+stopped being a closed solid.
+
+Fixed in `patch_boulder.py`: the displacement is now derived from the ORIGINAL
+position through a quantized `Map` key, so every duplicate of a given corner
+gets the identical displacement and the hull stays watertight while still
+deforming.
+
+> **General rule, worth remembering for the tree:** never jitter the vertex array
+> of a flat-shaded mesh directly. Any deformation must be a pure function of the
+> original position so shared corners stay shared. This will apply the moment
+> anyone adds vertex noise to the tree tiers.
+
+**NOT VISUALLY CONFIRMED.** The code is correct and committed, but Playwright
+kept dropping its driver connection at the end of the session and the close-up
+never rendered. `/tmp/rockshot.py` is a small harness that finds the nearest
+plateau `hd_edge_stone` and frames it at radius 1.7 — **run that first thing** to
+confirm, then delete it or fold it into `shot_views.py` as a `rock` view.
+
+If Playwright is still flaky: `pkill -9 -f use-angle=gl-egl`, wait a second, and
+re-run. Note that `pgrep -c chrome` returns ~40 on this machine from the user's
+OWN desktop Chrome — **that is normal, do not kill it.** Only ever match on
+`use-angle=gl-egl`, which is unique to our harness.
+
+### 8.2 THE TREE — decision already made: build it PROCEDURALLY
+
+The user reviewed the options and chose to **hand-author the tree in code**,
+explicitly waiving the "do not replace reference-derived art with procedural
+substitutes" rule in `RENDERING_HANDOFF.md` **for this asset only**. Rationale:
+a tree at diorama scale is pure silhouette plus shading with essentially no
+surface texture, so the thing Tripo is good at buys nothing, while thin flared
+skirts are the topology Tripo handles worst.
+
+**That rule still stands for `crate`, `house`, `barrel` and the rocks**, where
+baked wood grain and stone surface genuinely matter. Do not generalise this.
+
+Do **NOT** use `handoff/tile_work/asset_tree.png`. It is a 3-tier smooth
+low-poly pine with flat single-tone green, and it does not match the master — it
+is barely distinguishable from the procedural cone stack already in
+`buildFlora()`.
+
+### 8.3 What the master tree ACTUALLY looks like — build to THIS
+
+Measured from a 1.7x crop of the master image, tree cluster at
+`crop(w*0.36, h*0.10, w*0.72, h*0.42)` of
+`/xfiles/localmr/static/imgs/gpt_image_7fRofQ_FKB_m9w_0.png`. **Re-crop it and
+look before writing code** — the user's note this session was that these
+subtleties were being missed:
+
+1. **5 to 6 tiers**, not three. The current procedural `pine()` uses 3 to 5 and
+   reads far too blobby.
+2. Tiers are **thin flared skirts**, wide and shallow, NOT smooth tall cones.
+   Each skirt's lower edge is **notched / scalloped**, not a clean circle.
+3. **Strong dark undersides.** The near-black gap beneath each skirt is most of
+   what makes the form read. This is the single most important property and the
+   current version has none of it.
+4. **Two-tone green:** light yellow-green on the upper surface of each tier,
+   dropping to near-black in the gaps. Not one flat green.
+5. **Slight twist between consecutive tiers** (yaw offset per tier).
+6. Short **octagonal dark warm-brown trunk**, mostly hidden by the lowest skirt.
+7. Tall narrow silhouette, roughly **2.5:1 height to base width**. Several
+   distinct sizes are present in the master, not one scale.
+
+Implementation notes: this is a stack of flared octagonal frustums, so
+`CreateCylinder` with `tessellation:8` per tier and a per-tier `faceColors` /
+vertex tone is the natural approach — the same per-face tone trick that fixed
+the cliff cubes (see 7.2) applies directly, and it is what will give the dark
+undersides. Replace `pine()` in `buildFlora()` in `app/terrain-hd.js` around
+line 1057; keep the existing `trunks` / `leavesA` / `leavesB` merge groups so
+the draw-call structure is unchanged.
+
+### 8.4 Verify like the edge was verified
+
+The measurement discipline in section 1 is what made the edge converge; use it
+here too. Crop a tree from the master and from a render, compare mean green rgb,
+saturation, and the **luminance spread between tier tops and undersides** — that
+spread is the whole game for this asset. But remember 7.1: compare LIKE REGIONS,
+not whole-frame percentiles.
+
+Useful views: `iso` and `far` show the tree line, `close` for one tree.
