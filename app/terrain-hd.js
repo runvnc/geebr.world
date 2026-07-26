@@ -138,6 +138,31 @@
     return cv;
   }
 
+  // Chipped-rock detail for the edge cubes: broad tonal patches plus a few
+  // sharp light chips and dark pits. Deliberately has no repeating structure,
+  // unlike paintStoneDetail() which draws mortar courses.
+  function paintStoneChips(cv, seed=71){
+    const ctx=cv.getContext('2d'), S=cv.width;
+    let s=seed; const rnd=()=>{ s=(s*16807)%2147483647; return s/2147483647; };
+    for(let i=0;i<70;i++){
+      const x=rnd()*S, y=rnd()*S, r=S*(.05+rnd()*.16);
+      const g=ctx.createRadialGradient(x,y,1,x,y,r);
+      const up=rnd()<.5;
+      g.addColorStop(0,'rgba('+(up?'236,232,222':'52,52,48')+','+(.05+rnd()*.09).toFixed(3)+')');
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+    }
+    for(let i=0;i<130;i++){
+      const x=rnd()*S, y=rnd()*S, w=2+rnd()*9, h=2+rnd()*7;
+      ctx.fillStyle=rnd()<.55
+        ? 'rgba(226,222,210,'+(.05+rnd()*.13).toFixed(3)+')'
+        : 'rgba(38,38,34,'+(.05+rnd()*.15).toFixed(3)+')';
+      ctx.save(); ctx.translate(x,y); ctx.rotate(rnd()*3.14);
+      ctx.fillRect(-w*.5,-h*.5,w,h); ctx.restore();
+    }
+    return cv;
+  }
+
   function paintStrataDetail(cv, seed=29){
     const ctx=cv.getContext('2d'), S=cv.width;
     let s=seed; const rnd=()=>{ s=(s*40692)%2147483647; return s/2147483647; };
@@ -342,7 +367,7 @@
   }
 
   window.GeebrHD = { version:'hd1', surface, normalFromCanvas, ormFromCanvas, grade, dyn, loadImage, macroHeightCanvas, stoneFloorHeight,
-                     paintGrassDetail, paintDirtDetail, paintStoneDetail, paintStrataDetail, canvasOf, roundedTile };
+                     paintGrassDetail, paintDirtDetail, paintStoneDetail, paintStoneChips, paintStrataDetail, canvasOf, roundedTile };
 })();
 
 /* ==================================================================
@@ -367,6 +392,83 @@
     return m;
   }
 
+
+  /* ---------- shared island edge profile ------------------------------
+   * ONE deterministic description of the perimeter, consumed by the grass
+   * cascade in buildIslandTop(), the stone hem in buildBedrock() and the
+   * scatter in buildVegetation(). Interleaving grass, stone and plants is the
+   * whole point of the reference edge, and that is only possible if all three
+   * builders agree on which cells step down.
+   * -------------------------------------------------------------------- */
+  const TOP_Y      = .445;          // measured grass slab top
+  const CAP_BOTTOM = TOP_Y - .87;   // measured grass slab underside
+  // Raised from -3.05. The camera never sees below the waterline (beta .22 to
+  // 1.42), so a deep wall was pure cost; a high sea is what makes the edge read
+  // as a shallow hem rather than a cliff.
+  const SEA_LEVEL  = -1.90;
+  // Visible green on the plateau's vertical face before the stone hem starts.
+  // The grass slab is 0.87 tall and only its top is green, so without this the
+  // edge is dominated by a 0.87-unit dark-green wall rather than by stone.
+  const GRASS_LIP  = .26;
+
+  let EDGE_CACHE=null;
+  function edgeProfile(){
+    if(EDGE_CACHE) return EDGE_CACHE;
+    const { WORLD }=API;
+    let seed=0x1c3ff5;
+    const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
+    const cells=[];
+    for(const axis of ['x','z']) for(const side of [-1,1]){
+      const half = axis==='x' ? WORLD.halfW : WORLD.halfH;
+      const n=Math.round(half*2);
+      for(let i=0;i<n;i++){
+        const corner = i===0 || i===n-1;
+        // 36% of the perimeter steps the plateau down and out one tile; a
+        // sixth of those step again, so the green cascades instead of stopping.
+        const step = corner ? 0 : (rnd()<.36 ? (rnd()<.17?2:1) : 0);
+        const stepOut = .30+rnd()*.16;
+        const c={
+          axis, side, corner, step,
+          along: -half+.5+i,
+          stepOut, stepDrop: .54,
+          stepOut2: stepOut+.66, stepDrop2: 1.10,
+          stepShift: (rnd()-.5)*.30,
+          perch: !corner && rnd()<.26,
+          scatter: !corner && rnd()<.16,
+          rA: rnd(), rB: rnd(), rC: rnd(), rD: rnd()
+        };
+        // Sub-columns: TWO stone cubes per grass tile across, which is the
+        // proportion in the reference. One tile-wide block per cell always
+        // reads as a wall panel however it is toned or staggered.
+        c.cols=[];
+        for(let k=0;k<2;k++){
+          const along=c.along+(k?.25:-.25);
+          if(step){
+            // Sit directly under the grass tile that stepped out here, so the
+            // cascade has something to stand on.
+            const s2 = step===2 && k===1;
+            const off  = s2?c.stepOut2:c.stepOut;
+            const drop = s2?c.stepDrop2:c.stepDrop;
+            c.cols.push({ along, top: TOP_Y-drop-GRASS_LIP-rnd()*.10, out: off+.26+rnd()*.12,
+                          r:rnd(), r2:rnd() });
+          } else {
+            // Vertical jitter on the tread is what stops neighbouring cubes
+            // from being coplanar and hiding each other's top faces.
+            // Only a shallow vertical jitter: a deep one exposes the core
+            // under the plateau. Depth variety comes from `out`.
+            c.cols.push({ along, top: TOP_Y-GRASS_LIP-rnd()*.16,
+                          out: (corner?.04:.02)+rnd()*(corner?.12:.50),
+                          r:rnd(), r2:rnd() });
+          }
+        }
+        // Kept for the vegetation pass, which seeds plants on the treads.
+        c.ledges=c.cols.map(q=>({ top:q.top, out:q.out }));
+        cells.push(c);
+      }
+    }
+    EDGE_CACHE={ cells };
+    return EDGE_CACHE;
+  }
 
   /* ---------- 1. island top surface ---------------------------------- */
   async function buildIslandTop(scene){
@@ -444,6 +546,33 @@
         groups[key].push(box);
       }
     }
+    // Grass cascade. The reference plateau does not stop at a line: part of
+    // the perimeter steps down and outward one or two tiles before the stone
+    // takes over. These are real grass_v7 clones, not boxes, so they carry the
+    // same baked AO and material as the plateau and merge into the same mesh.
+    if(grassProto){
+      for(const c of edgeProfile().cells){
+        if(!c.step) continue;
+        const outHalf=c.axis==='x'?WORLD.halfH:WORLD.halfW;
+        for(let s=0;s<c.step;s++){
+          const off =s?c.stepOut2:c.stepOut;
+          const drop=s?c.stepDrop2:c.stepDrop;
+          const along=c.along+(s?c.stepShift:0);
+          const outward=outHalf+off;
+          const x=c.axis==='x'?along:c.side*outward;
+          const z=c.axis==='x'?c.side*outward:along;
+          const box=grassProto.clone('hd_grass_step');
+          box.setEnabled(true); box.isVisible=true; box.isPickable=false;
+          box.rotation.y=Math.floor(yawRnd()*4)*Math.PI/2;
+          box.scaling.x=(yawRnd()<.5?-1:1)*1.006;
+          box.scaling.z=(yawRnd()<.5?-1:1)*1.006;
+          box.scaling.y=1.006;
+          box.position.set(x,.010-drop,z);
+          groups.grass.push(box);
+        }
+      }
+    }
+
     const out={};
     for(const k of Object.keys(groups)){
       if(!groups[k].length) continue;
@@ -457,7 +586,7 @@
     API.state.hdMaterials=Object.assign(API.state.hdMaterials||{},mats);
     API.state.usingGrassGLB=usedGrassGLB;
     if(out.grass?.material) API.state.hdMaterials.grassGLB=out.grass.material;
-    API.state.terrainTopY=.445;
+    API.state.terrainTopY=TOP_Y;
     return out;
   }
 
@@ -518,127 +647,157 @@
   // World units per masonry texture repeat. Boxes carry real face UVs so the
   // graded stone albedo / generated normal / ORM maps actually resolve; the old
   // roundedTile() path emitted no UVs at all and read as flat brown slabs.
-  const STONE_UV = 1.6;
+  const STONE_UV = 3.4;
 
+  // Faces are toned separately. A single tone per block made every plane in
+  // the terrace equal, so the blocks fused into a wall; the reference reads as
+  // cubes precisely because each one's top face is the brightest thing on it.
   function stoneBox(scene,name,w,h,d,x,y,z,mat,tone,ry=0){
     const uw=w/STONE_UV, uh=h/STONE_UV, ud=d/STONE_UV;
     const fz=rect(0,0,uw,uh), fx=rect(0,0,ud,uh), fy=rect(0,0,uw,ud);
-    const c=new BABYLON.Color4(tone,tone,tone,1);
+    const g=v=>{ const t=Math.min(1.25,tone*v); return new BABYLON.Color4(t,t,t,1); };
+    const top=g(1.24), bot=g(.62), lit=g(1.0), shade=g(.86);
     const m=BABYLON.MeshBuilder.CreateBox(name,{ width:w, height:h, depth:d,
-      faceUV:[fz,fz,fx,fx,fy,fy], faceColors:[c,c,c,c,c,c], wrap:true },scene);
+      faceUV:[fz,fz,fx,fx,fy,fy],
+      faceColors:[lit,shade,lit,shade,top,bot], wrap:true },scene);
     m.position.set(x,y,z);
     if(ry) m.rotation.y=ry;
     m.material=mat; m.isPickable=false; m.receiveShadows=true;
     return m;
   }
 
+  // Faceted rock. An icosphere with jittered vertices and flat shading reads
+  // as a quarried boulder under the clay look, and unlike a box it never lines
+  // up with the cube grid behind it.
+  function boulder(scene,name,r,x,y,z,mat,tone,rnd){
+    const m=BABYLON.MeshBuilder.CreateIcoSphere(name,{ radius:r, subdivisions:2, flat:true },scene);
+    const p=m.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    for(let i=0;i<p.length;i+=3){
+      const k=.80+rnd()*.34;
+      p[i]*=k; p[i+1]*=k*(.62+rnd()*.30); p[i+2]*=k;
+    }
+    m.updateVerticesData(BABYLON.VertexBuffer.PositionKind,p);
+    const cols=new Float32Array((p.length/3)*4);
+    for(let i=0;i<cols.length;i+=4){ cols[i]=cols[i+1]=cols[i+2]=tone; cols[i+3]=1; }
+    m.setVerticesData(BABYLON.VertexBuffer.ColorKind,cols);
+    const nrm=[]; BABYLON.VertexData.ComputeNormals(p,m.getIndices(),nrm);
+    m.setVerticesData(BABYLON.VertexBuffer.NormalKind,nrm);
+    m.position.set(x,y,z); m.rotation.y=rnd()*Math.PI*2;
+    m.material=mat; m.isPickable=false; m.receiveShadows=true;
+    return m;
+  }
+
   async function buildBedrock(scene){
     const { WORLD }=API;
-    // Cut-stone blocks, not sediment banding. One texture repeat per ~0.8 units
-    // so a single block face shows two or three stones plus mortar.
-    const stone=await HD.surface(scene,{ name:'cliff_masonry', file:'stone_blocks.png',
-      gradeOpts:{ sat:.36, bright:1.04, contrast:1.20, tintR:.96, tintG:1.00, tintB:1.05 },
-      paint:cv=>HD.paintStoneDetail(cv,71), normalStrength:3.2, rough:.90, roughVar:.10, ao:.72 });
-    stone.environmentIntensity=.62;
-    // Grass caps on the step-down blocks reuse the island grass look rather than
-    // introducing a second green.
-    const capMat=API.state.hdMaterials?.grassGLB||null;
+    // Plain quarried stone. NOT stone_blocks.png: that texture is a printed
+    // grid of small square tiles, so every cube face wore brickwork and a row
+    // of them fused into a retaining wall however the geometry was staggered.
+    // The reference cubes are unpatterned mottled rock; stone_soft.png has the
+    // blotch without the grid.
+    const stone=await HD.surface(scene,{ name:'cliff_masonry', file:'stone_soft.png',
+      gradeOpts:{ sat:.62, bright:1.00, contrast:1.14, tintR:.97, tintG:1.01, tintB:1.00 },
+      paint:cv=>HD.paintStoneChips(cv,71), normalStrength:1.9, rough:.90, roughVar:.10, ao:.46 });
+    stone.environmentIntensity=.78;
+    // Every cliff face is vertical while the key light points down (-.48,-.86,
+    // .62), so lights barely reach them: a large hemi lift measured only about
+    // +5 levels. A low emissive copy of the albedo lifts the value into the
+    // reference's mid blue-grey while keeping the masonry detail, which a flat
+    // ambient term would wash out.
+    stone.emissiveTexture=stone.albedoTexture;
+    stone.emissiveColor=new BABYLON.Color3(.074,.078,.078);
 
-    const top=API.state.terrainTopY??.445;
-    const capBottom=top-.87;      // measured grass slab underside
-    const SEA=-3.05;
-    const TERRACE_TOP=capBottom+.10;
-    const BOT=SEA-.55;
+    const E=edgeProfile();
+    const TERRACE_TOP=CAP_BOTTOM+.30;
+    const BOT=SEA_LEVEL-.80;
 
-    const blocks=[], shore=[], caps=[];
+    const blocks=[], shore=[], perches=[];
     let seed=0xbed40c;
     const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
+    // Mid values, separated block to block. The reference distinguishes cubes
+    // by value, not by hue, and nothing in it is close to black.
+    const tone=()=>{ const r=rnd(); return r<.22?.72+rnd()*.08 : r<.74?.83+rnd()*.09 : .94+rnd()*.06; };
 
-    // Blocks read light on top, mid on the lit faces, dark where they recess.
-    const tone=()=>{ const r=rnd(); return r<.20?.52+rnd()*.10 : r<.72?.70+rnd()*.12 : .86+rnd()*.10; };
+    // Deepest inner face reached by any cube, so the core can be pulled back
+    // behind them: a core flush with the plateau edge reads as a continuous
+    // back wall through the seams.
+    let coreX=0, coreZ=0;
 
-    const COURSES=[
-      // top, height, base outward offset relative to the plateau edge
-      { y0:TERRACE_TOP,      h:.78, off:-.10 },
-      { y0:TERRACE_TOP-.70,  h:.86, off:-.30 },
-      { y0:TERRACE_TOP-1.48, h:.94, off:-.16 },
-      { y0:TERRACE_TOP-2.34, h:BOT===null?1:0, off:-.34 }   // h filled below
-    ];
-    COURSES[3].h=COURSES[3].y0-BOT;
+    const put=(list,name,c,along,face,w,h,d,cyTop,t)=>{
+      const outward=face-d*.5;
+      const inner=face-d;
+      if(c.axis==='x') coreZ=Math.max(coreZ,inner); else coreX=Math.max(coreX,inner);
+      const x=c.axis==='x'?along:c.side*outward;
+      const z=c.axis==='x'?c.side*outward:along;
+      const m=stoneBox(scene,name,c.axis==='x'?w:d,h,c.axis==='x'?d:w,
+        x,cyTop-h*.5,z,stone,t);
+      list.push(m); return m;
+    };
 
-    const addRun=(axis,side)=>{
-      const half   = axis==='x' ? WORLD.halfW : WORLD.halfH;
-      const outHalf= axis==='x' ? WORLD.halfH : WORLD.halfW;
-      // place() hides the axis swap: everything below is (along, outward, ...).
-      const place=(list,name,along,outward,w,h,d,cy,t,mat)=>{
-        const x=axis==='x'?along:side*outward, z=axis==='x'?side*outward:along;
-        const m=stoneBox(scene,name,axis==='x'?w:d,h,axis==='x'?d:w,x,cy,z,mat||stone,t);
-        list.push(m);
-        return m;
-      };
-
-      // One block column per unit cell along the side.
-      const n=Math.round(half*2);
-      for(let i=0;i<n;i++){
-        const along=-half+.5+i;
-        // Skip the last half cell at each end; corners are built separately.
-        const nearCorner = i===0 || i===n-1;
-
-        COURSES.forEach((c,ci)=>{
-          // Split some courses into two narrower blocks so the seam pattern is
-          // not one block per cell everywhere.
-          const split = !nearCorner && ci>0 && rnd()<.34;
-          const parts = split ? 2 : 1;
-          for(let k=0;k<parts;k++){
-            const w=(1.0/parts)*(.90+rnd()*.14);
-            const d=.62+rnd()*.30;
-            const jitter=(rnd()-.5)*.26;
-            const outward=outHalf+c.off+jitter-d*.5;
-            const a=along+(parts===2?(k?.26:-.26):0)+(rnd()-.5)*.06;
-            // Overlap each course into the one above so no gap can open.
-            const h=c.h+.10;
-            place(blocks,'hd_cliff_block',a,outward,w,h,d,c.y0-h*.5+.10,tone());
-          }
-        });
-
-        // Occasional grass-capped step block: the reference steps the plateau
-        // down at the edge rather than dropping straight to bare stone.
-        if(!nearCorner && rnd()<.20){
-          const d=.72+rnd()*.16, w=.88+rnd()*.10;
-          const outward=outHalf+.16-d*.5;
-          const h=.42;
-          const y=capBottom+.30;
-          const b=place(caps,'hd_cliff_step_cap',along+(rnd()-.5)*.12,outward,w,h,d,y-h*.5,.88,capMat);
-          if(!capMat) b.material=stone;
-        }
-
-        // Sparse boulder perched on the terrace shoulder.
-        if(!nearCorner && rnd()<.18){
-          const s=.30+rnd()*.22;
-          const outward=outHalf+.24-s*.5;
-          place(shore,'hd_shore_rock',along+(rnd()-.5)*.3,outward,s,s*(.7+rnd()*.5),s,
-            TERRACE_TOP-1.40+rnd()*.5,tone(),null);
+    const COURSE=.53;    // three courses fill the ~1.58 unit hem
+    for(const c of E.cells){
+      const outHalf = c.axis==='x' ? WORLD.halfH : WORLD.halfW;
+      for(const col of c.cols){
+        let top=col.top, ci=0;
+        while(top>BOT+.10){
+          const last=(top-COURSE)<=BOT+.10;
+          const h=last?top-BOT:COURSE*(.92+col.r*.16);
+          // Batter: each course steps back slightly, with jitter, and the odd
+          // one juts proud so the waterline is not a straight extrusion.
+          const jut=(ci>0 && ((ci*7+col.r2*11)%3)<1)?.10:0;
+          const out=Math.max(.01, col.out-ci*.07+jut+(rnd()-.5)*.10);
+          // Depth derived from the outward offset, so the inner face always
+          // lands the same distance inside the plateau edge: that is what makes
+          // the terrace void-proof however far a cube steps out.
+          const d=out+1.06+rnd()*.16;
+          // Cube is narrower than its 0.5 slot, leaving a seam for SSAO.
+          const w=.42+rnd()*.05;
+          put(blocks,'hd_cliff_block',c,col.along+(rnd()-.5)*.03,
+            outHalf+out,w,h,d,top,tone());
+          top-=h; ci++;
         }
       }
-    };
-    addRun('x',-1); addRun('x',1); addRun('z',-1); addRun('z',1);
 
-    // Corner stacks: blocks turned 45 degrees so the two runs meet on a cut
-    // corner instead of forming a square tower.
-    for(const sx of [-1,1]) for(const sz of [-1,1]){
-      COURSES.forEach((c,ci)=>{
-        const s=1.15-ci*.06+rnd()*.14;
-        const inset=.42+ci*.06+rnd()*.12;
-        const h=c.h+.10;
-        blocks.push(stoneBox(scene,'hd_cliff_corner_block',s,h,s,
-          sx*(WORLD.halfW-inset),c.y0-h*.5+.10,sz*(WORLD.halfH-inset),stone,tone(),Math.PI/4));
-      });
+      // A loose cube perched on the tread, as in the reference.
+      if(c.perch){
+        const L=c.cols[0];
+        const s=.26+rnd()*.14;
+        put(perches,'hd_edge_stone',c,c.along+(rnd()-.5)*.34,
+          outHalf+L.out-.06,s,s*(.82+rnd()*.28),s,L.top+s*(.82+rnd()*.10),tone());
+      }
     }
 
-    // Solid inner core. Reaches under the innermost possible block face so the
-    // jittered terrace can never be seen through.
-    blocks.push(stoneBox(scene,'hd_cliff_core',WORLD.w-.55,TERRACE_TOP-BOT,WORLD.h-.55,
-      0,(TERRACE_TOP+BOT)*.5,0,stone,.58));
+    // Rounded boulders scattered ON the plateau. The reference has these well
+    // inside the boundary, and they are rocks, not cubes: a cube here just
+    // looks like a piece of the wall that escaped.
+    for(let i=0;i<26;i++){
+      const s=.20+rnd()*.26;
+      const edge=rnd()<.45;
+      const x=edge?(rnd()<.5?-1:1)*(WORLD.halfW-.3-rnd()*1.6):(rnd()*2-1)*(WORLD.halfW-1.2);
+      const z=edge?(rnd()*2-1)*(WORLD.halfH-1.0):(rnd()<.5?-1:1)*(WORLD.halfH-.3-rnd()*1.6);
+      if(Math.abs(x)<2.2&&Math.abs(z)<2.2) continue;
+      perches.push(boulder(scene,'hd_edge_stone',s,x,TOP_Y+s*.42,z,stone,tone(),rnd));
+    }
+
+    // Corner stacks turned 45 degrees so the two runs meet on a cut corner
+    // rather than a square tower.
+    for(const sx of [-1,1]) for(const sz of [-1,1]){
+      let top=TOP_Y-GRASS_LIP-rnd()*.10;
+      for(let ci=0;ci<2;ci++){
+        const s=1.12-ci*.10+rnd()*.14;
+        const inset=.46+ci*.16+rnd()*.10;
+        const h=ci?top-BOT:.80+rnd()*.16;
+        blocks.push(stoneBox(scene,'hd_cliff_corner_block',s,h,s,
+          sx*(WORLD.halfW-inset),top-h*.5,sz*(WORLD.halfH-inset),stone,tone(),Math.PI/4));
+        top=top-h+.12;
+      }
+    }
+
+    // Solid core. Set well back from the shallowest cube: flush with them it
+    // reads as a continuous wall behind the seams, whereas at this depth the
+    // seams go dark and the cubes separate. Toned down for the same reason.
+    const coreInX=Math.min(coreX,WORLD.halfW-.95), coreInZ=Math.min(coreZ,WORLD.halfH-.95);
+    blocks.push(stoneBox(scene,'hd_cliff_core',coreInX*2,TERRACE_TOP-BOT,coreInZ*2,
+      0,(TERRACE_TOP+BOT)*.5,0,stone,.46));
 
     // Shallow-water stones so the shoreline is not a clean rectangle meeting a
     // flat plane.
@@ -648,58 +807,25 @@
       const half   = axis==='x' ? WORLD.halfW : WORLD.halfH;
       const outHalf= axis==='x' ? WORLD.halfH : WORLD.halfW;
       const along=(rnd()*2-1)*(half-.4);
-      const outward=outHalf+.05+rnd()*.70;
-      const s=.22+rnd()*.42;
+      const outward=outHalf+.55+rnd()*.75;
+      const s=.24+rnd()*.40;
       const x=axis==='x'?along:side*outward, z=axis==='x'?side*outward:along;
-      shore.push(stoneBox(scene,'hd_shore_rock',s,s*(.7+rnd()*.7),s*(.7+rnd()*.5),
-        x,SEA+.02+rnd()*.20,z,stone,tone(),rnd()*Math.PI));
+      shore.push(boulder(scene,'hd_shore_rock',s*.7,x,SEA_LEVEL-.06+rnd()*.22,z,
+        stone,tone(),rnd));
     }
 
-    let a,b;
-    try{
-      // The generated grass cap is trimmed away entirely; only the rock body of
-      // the asset is wanted, otherwise it reads as a second grass ledge.
-      // cliff_rock_*.glb are the restone.py recolours of cliff_straight_*.glb.
-      // The originals could not be used at all: their 4096 albedo measured 95%
-      // green over the WHOLE texture (Tripo textured the entire asset as moss),
-      // so no geometric trim could remove the green - it was never a rock skin.
-      // Geometry is untouched and still reference-derived; only albedo changed.
-      [a,b]=await Promise.all([
-        importCliffAsset(scene,'cliff_rock_a.glb','hd_cliff_variant_a_proto'),
-        importCliffAsset(scene,'cliff_rock_b.glb','hd_cliff_variant_b_proto')
-      ]);
-      const accents=[];
-      // Six accents on a 52-cell perimeter: irregular silhouette breaks without
-      // tiling an ornament per cell.
-      const sites=[
-        ['x',-1,-2.9], ['x',-1, 1.7], ['x', 1,-0.6],
-        ['z',-1, 2.2], ['z', 1,-1.4], ['x', 1, 3.6]
-      ];
-      sites.forEach((site,i)=>{
-        const [axis,side,along]=site;
-        const proto=i%2?a:b, c=proto.clone('hd_cliff_buttress_accent');
-        c.setEnabled(true); c.isVisible=true; c.isPickable=false;
-        const h=proto.metadata?.trimmedHeight??proto.metadata?.assetHeight??.75;
-        const sxz=1.0+rnd()*.28, sy=(1.25+rnd()*.45)/Math.max(.2,h);
-        c.scaling.set((i%3===0?-1:1)*sxz,sy,sxz);
-        c.rotation.y=axis==='x' ? (side<0?0:Math.PI) : (side<0?-Math.PI/2:Math.PI/2);
-        const outHalf=axis==='x'?WORLD.halfH:WORLD.halfW;
-        const outward=outHalf+.30-sxz*.5;
-        const x=axis==='x'?along:side*outward, z=axis==='x'?side*outward:along;
-        c.position.set(x,TERRACE_TOP-2.30,z);
-        c.receiveShadows=true; accents.push(c);
-      });
-      a.dispose(); b.dispose();
-      API.state.generatedCliffSegments=accents.length;
-    }catch(e){ console.warn('generated cliff accents unavailable',e); a?.dispose(); b?.dispose(); }
+    // The imported cliff_rock_*.glb accents were removed here. They were sized
+    // for the old tall wall and dwarfed the half-tile cubes; the reference edge
+    // has no such feature. importCliffAsset()/restone.py remain available.
+    API.state.generatedCliffSegments=0;
 
     const wall=merge(blocks,'hd_cliff_wall',stone);
     const rocks=merge(shore,'hd_shore_rocks',stone);
-    const stepCaps=caps.length?merge(caps,'hd_cliff_step_caps',caps[0].material):null;
+    const loose=merge(perches,'hd_edge_stones',stone);
     API.state.hdMaterials=Object.assign(API.state.hdMaterials||{},{cliff:stone});
-    API.state.cliffFaceParts=blocks.length+shore.length+caps.length;
+    API.state.cliffFaceParts=blocks.length+shore.length+perches.length;
     API.state.cliffBottomY=BOT;
-    return { wall, rocks, stepCaps };
+    return { wall, rocks, loose };
   }
 
   /* ---------- 3. vegetation ------------------------------------------ */
@@ -822,6 +948,40 @@
         daisies.push(c);
       }
     }
+    // Vegetation does not stop at the plateau boundary in the reference: it
+    // grows on the stepped-down grass caps and out of the seams between the
+    // top course of cubes.
+    for(const c of edgeProfile().cells){
+      const outHalf=c.axis==='x'?WORLD.halfH:WORLD.halfW;
+      const spots=[];
+      if(c.step){
+        spots.push([c.stepOut,(API.state.terrainTopY??TOP_Y)-c.stepDrop+.018,2]);
+        if(c.step===2) spots.push([c.stepOut2,(API.state.terrainTopY??TOP_Y)-c.stepDrop2+.018,1]);
+      }
+      if(!c.corner && c.rD<.42) spots.push([c.ledges[0].out-.26,c.ledges[0].top+.02,1]);
+      for(const [off,y,count] of spots){
+        for(let j=0;j<count;j++){
+          const outward=outHalf+off+(rnd()-.5)*.34;
+          const along=c.along+(rnd()-.5)*.62;
+          const x=c.axis==='x'?along:c.side*outward;
+          const z=c.axis==='x'?c.side*outward:along;
+          const t=tuftProto.clone('hd_blade_cluster');
+          t.scaling.setAll(.46*(.85+rnd()*.28));
+          t.rotationQuaternion=BABYLON.Quaternion.FromEulerAngles((rnd()-.5)*.22,rnd()*Math.PI*2,0);
+          t.position.set(x,y,z); t.isPickable=false; tufts.push(t);
+        }
+        if(rnd()<.22){
+          const outward=outHalf+off+(rnd()-.5)*.3;
+          const along=c.along+(rnd()-.5)*.5;
+          const d=daisyProto.clone('hd_daisy_clump');
+          d.scaling.setAll(.38*(.9+rnd()*.2));
+          d.rotationQuaternion=BABYLON.Quaternion.FromEulerAngles(0,rnd()*Math.PI*2,0);
+          d.position.set(c.axis==='x'?along:c.side*outward,y,c.axis==='x'?c.side*outward:along);
+          d.isPickable=false; daisies.push(d);
+        }
+      }
+    }
+
     tuftProto.dispose(); daisyProto.dispose();
     // Keep transformed clones separate. Mesh.MergeMeshes was flattening the
     // imported GLB clones without preserving their authored rotations, making
@@ -914,13 +1074,15 @@
   function buildWater(scene){
     const { WORLD } = API;
     const sea=BABYLON.MeshBuilder.CreateGround('hd_sea',{ width:180, height:180, subdivisions:64 },scene);
-    const SEA_Y=-3.05;
+    const SEA_Y=SEA_LEVEL;
     sea.position.y=SEA_Y; sea.isPickable=false;
     const m=new BABYLON.PBRMaterial('hd_sea_mat',scene);
     m.albedoColor=C3(.012,.042,.072);
-    m.metallic=.16; m.roughness=.14;
+    // Was metallic .16 / roughness .14: a mirror that blew out to pure white
+    // wherever the key light glanced off it.
+    m.metallic=.06; m.roughness=.34;
     m.emissiveColor=C3(.005,.018,.032);
-    m.environmentIntensity=.75;
+    m.environmentIntensity=.42;
     m.alpha=.985;
     sea.material=m;
     const pos=sea.getVerticesData(BABYLON.VertexBuffer.PositionKind), base=pos.slice();
@@ -960,10 +1122,13 @@
     const bw=.62;
     const strips=[];
     const mk=(w,h,x,z,ry)=>{ const f=BABYLON.MeshBuilder.CreateGround('foam',{ width:w, height:h },scene); f.position.set(x,SEA_Y+.055,z); if(ry) f.rotation.y=ry; strips.push(f); };
-    mk(WORLD.w-4.6,bw,0,-(WORLD.halfH-2.3)-bw*.3);
-    mk(WORLD.w-4.6,bw,0, (WORLD.halfH-2.3)+bw*.3);
-    mk(WORLD.h-4.6,bw,-(WORLD.halfW-2.3)-bw*.3,0,Math.PI/2);
-    mk(WORLD.h-4.6,bw, (WORLD.halfW-2.3)+bw*.3,0,Math.PI/2);
+    // Hug the actual waterline. These used to sit at halfH-2.3, which was well
+    // inside the island and therefore buried under it.
+    const fo=.62;
+    mk(WORLD.w+1.3,bw,0,-(WORLD.halfH+fo));
+    mk(WORLD.w+1.3,bw,0, (WORLD.halfH+fo));
+    mk(WORLD.h+1.3,bw,-(WORLD.halfW+fo),0,Math.PI/2);
+    mk(WORLD.h+1.3,bw, (WORLD.halfW+fo),0,Math.PI/2);
     const foam=merge(strips,'hd_foam_collar',foamM,{shadows:false});
     if(foam) foam.alphaIndex=6;
     if(window.GEEBR_STILL_MODE){ foamM.alpha=.46; }
