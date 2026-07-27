@@ -1,6 +1,7 @@
 # geebr.world — Master Match Plan
 
-**Target:** `/xfiles/localmr/static/imgs/gpt_image_7fRofQ_FKB_m9w_0.png`  
+**Target:** `/xfiles/localmr/static/imgs/gpt_image_7fRofQ_FKB_m9w_0.png`
+**Technical reference:** [`RENDERING_HANDOFF.md`](RENDERING_HANDOFF.md)
 **Current baseline:** image-to-3D tree integrated; island edge complete; legacy
 fallback trees removed; raised stone stacks rebuilt as supported outcrops.
 
