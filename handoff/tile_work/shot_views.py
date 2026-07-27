@@ -1,7 +1,7 @@
 """Multi-view real-app screenshot harness. GPU-accelerated, self-cleaning.
 
 Usage: python3 shot_views.py PREFIX [W H] [views] [ids]
-  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree
+  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree, crate
               ('rock' auto-frames the nearest plateau boulder at radius 1.7)
 
 CPU SAFETY (read this before changing the launch args):
@@ -95,6 +95,17 @@ if(!best) return null;
 return {verts:p.length/3,pos:[+best.x.toFixed(2),+(best.y-0.12).toFixed(2),+best.z.toFixed(2)]}}'''
 
 
+# 'crate' view: frame the isolated decorative crate on the east side. The south-west
+# crates are a stack, so the east crate is the unambiguous close-review target.
+FINDCRATE = '''()=>{const s=S();
+const ms=s.meshes.filter(x=>x.name==='hd_decor_crate'&&x.isEnabled()&&x.getTotalVertices?.()>0);
+if(!ms.length) return null;
+let best=ms[0],bx=-1e9;
+for(const m of ms){const p=m.getAbsolutePosition();if(p.x>bx){bx=p.x;best=m;}}
+const p=best.getAbsolutePosition();
+return {count:ms.length,pos:[+p.x.toFixed(2),+(p.y+.24).toFixed(2),+p.z.toFixed(2)]}}'''
+
+
 # 'tree' view: frame the tallest canopy vertex, i.e. one whole tree in profile.
 FINDTREE = '''()=>{const s=S();
 const ms=s.meshes.filter(x=>x.name==='hd_tree'&&x.isEnabled()&&x.getTotalVertices?.()>0);
@@ -134,7 +145,12 @@ async def main():
 
             async def sweep_views(suffix=''):
                 for name in WANT:
-                    if name == 'tree':
+                    if name == 'crate':
+                        info = await page.evaluate(FINDCRATE)
+                        print('crate target', json.dumps(info), flush=True)
+                        if not info: continue
+                        a, b, r, t = -1.15, 1.12, 1.75, info['pos']
+                    elif name == 'tree':
                         info = await page.evaluate(FINDTREE)
                         print('tree target', json.dumps(info), flush=True)
                         if not info:

@@ -22,9 +22,9 @@ not scene-specific procedural substitutes.
 
 ## Phase 1 — Hero props already concepted
 
-1. **Crate** — `tile_work/asset_crate.png`, Tripo 3k and 5k comparison.
-   Replace both procedural scenery crates and generic legacy crate visuals with
-   one reusable GLB asset while retaining physics proxies where required.
+1. **Crate — complete** — `tile_work/asset_crate.png`; 3k and 5k Tripo outputs compared.
+   The 5k asset is integrated as `assets/models/props/gen/crate.glb` for both
+   decorative scenery and interactive crates, with invisible physics proxies retained.
 2. **Barrel** — `tile_work/asset_barrel.png`, Tripo 3k and 5k comparison.
    Integrate as a reusable pickup/physics prop; remove visual duplication.
 3. **House** — `tile_work/asset_house.png`, Tripo approximately 10k and 15k.

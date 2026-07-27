@@ -967,6 +967,10 @@
     return mesh;
   }
 
+  // Scenery is registered in a later closure, so expose the shared generated-
+  // asset importer on the HD namespace rather than relying on closure scope.
+  HD.importScatterAsset=importScatterAsset;
+
   async function buildVegetation(scene){
     const { WORLD } = API;
     let tuftProto,daisyProto;
@@ -1270,8 +1274,12 @@
     await buildVegetation(scene);
     await buildFlora(scene);
     buildWater(scene);
-    if(window.GeebrHD.buildScenery){
-      try{ await window.GeebrHD.buildScenery(scene,API); }catch(e){ console.warn('scenery failed',e); }
+    // Part 3 registers after this closure has run, but before buildIsland() is
+    // called. `window.GeebrHD` was captured as HD in Part 1; use that stable
+    // object rather than looking the property up through an optional global.
+    // The old lookup silently skipped the entire scenery pass in some harnesses.
+    if(HD.buildScenery){
+      try{ await HD.buildScenery(scene,API); }catch(e){ console.warn('scenery failed',e); }
     }
     console.log('[geebr] HD diorama built (hd2)');
   }
@@ -1343,16 +1351,28 @@
       arm.position.set(-3.42+dir*.30,y,.22+dir*.05); arm.rotation.y=.24+dir*.16; planks.push(arm);
     }
 
-    /* --- crate stack (decor, non-interactive) --- */
+    /* --- reference-derived crate stack (decor, non-interactive) --- */
+    // One reusable GLB replaces the old textured boxes. Its source is the
+    // master's square-framed, diagonally braced crate; the 5k conversion keeps
+    // the broad braces and clean corners from every azimuth better than 3k.
     const crateSpots=[[-1.05,-3.35,.52,0],[-.55,-3.05,.44,.6],[-1.02,-3.30,.40,.3],[3.05,1.85,.50,-.4]];
-    let stackY=0;
-    crateSpots.forEach((c,i)=>{
-      const [x,z,sz,ry]=c;
-      const y = i===2 ? .52*.5+.40*.5 : sz/2;
-      const b=BABYLON.MeshBuilder.CreateBox('decor_crate',{ width:sz, height:sz, depth:sz,
-        faceUV:Array(6).fill(rect(0,0,1,1)) },scene);
-      b.position.set(x,y,z); b.rotation.y=ry; planks.push(b);
-    });
+    try{
+      const crateProto=await HD.importScatterAsset(scene,'crate.glb','hd_crate_proto');
+      const cb=crateProto.getHierarchyBoundingVectors(true);
+      const ce=cb.max.subtract(cb.min);
+      const base=Math.max(ce.x,ce.z,1e-6);
+      crateProto.scaling.setAll(1/base); crateProto.bakeCurrentTransformIntoVertices();
+      crateProto.scaling.setAll(1); crateProto.position.set(0,0,0); crateProto.setEnabled(false);
+      crateSpots.forEach((c,i)=>{
+        const [x,z,sz,ry]=c;
+        const y=(api.state.terrainTopY??0)+(i===2 ? .52 : 0);
+        const b=crateProto.clone('hd_decor_crate');
+        b.setEnabled(true); b.isVisible=true; b.isPickable=false;
+        b.scaling.setAll(sz); b.rotation.y=ry; b.position.set(x,y,z);
+        b.receiveShadows=true; api.addShadow(b);
+      });
+      crateProto.dispose();
+    }catch(e){ console.warn('generated crate unavailable',e); }
 
     /* --- canvas tent on the north-east grass --- */
     const tentX=4.15, tentZ=-1.35;

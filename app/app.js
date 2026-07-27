@@ -548,7 +548,28 @@ function syncGeebr(g){
 }
 function makeTile(scene,x,z,material='grass'){ const t=BABYLON.MeshBuilder.CreateBox('tile_'+material,{width:1,height:.06,depth:1},scene); t.position.set(x,-.065,z); t.material=state.materials[material+'Base']||state.materials[material]; t.receiveShadows=true; t.isPickable=true; tag(t,'tile',{interactive:false,tileMaterial:material}); state.tiles.push(t); return t; }
 function makeBlock(scene,x,z,cracked=false){ const b=BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:.62,depth:.96},scene); b.position.set(x,.31,z); addToScene(b,cracked?state.materials.cracked:state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(b,'wall',{health:cracked?1:3,material:'stone',state:cracked?'cracked':'intact'}); state.blocks.push(b); return b; }
-function makeCrate(scene,x,z){ const m=BABYLON.MeshBuilder.CreateBox('crate',{size:.72},scene); m.position.set(x,.38,z); addToScene(m,state.materials.wood,{shape:'BOX',mass:1.4,restitution:.12}); tag(m,'crate',{health:2,material:'wood',flammable:true}); state.props.push(m); return m; }
+function makeCrate(scene,x,z){
+  // Keep the simple box as the physics/picking proxy, but make it invisible and
+  // attach the same authored GLB used by decorative scenery. This preserves the
+  // sandbox interaction contract while eliminating the duplicate generic visual.
+  const m=BABYLON.MeshBuilder.CreateBox('crate',{size:.72},scene);
+  m.position.set(x,(state.terrainTopY??0)+.36,z); m.isVisible=false;
+  addToScene(m,state.materials.wood,{shape:'BOX',mass:1.4,restitution:.12});
+  tag(m,'crate',{health:2,material:'wood',flammable:true}); state.props.push(m);
+  BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', 'crate.glb', scene).then(result=>{
+    const root=new BABYLON.TransformNode('crate_visual_root',scene); root.parent=m;
+    const meshes=result.meshes.filter(q=>q.getTotalVertices?.()>0);
+    if(!meshes.length) throw new Error('crate.glb contains no renderable mesh');
+    let min=new BABYLON.Vector3(1e9,1e9,1e9),max=new BABYLON.Vector3(-1e9,-1e9,-1e9);
+    for(const q of meshes){ q.computeWorldMatrix(true); const b=q.getBoundingInfo().boundingBox; min=BABYLON.Vector3.Minimize(min,b.minimumWorld); max=BABYLON.Vector3.Maximize(max,b.maximumWorld); }
+    const ext=max.subtract(min), scale=.72/Math.max(ext.x,ext.z,1e-6);
+    root.scaling.setAll(scale); root.position.y=-ext.y*scale*.5;
+    for(const q of result.meshes){ q.parent=root; q.metadata={proxy:m}; q.isPickable=true; q.receiveShadows=true; addShadow(q); }
+    applyClayLookToMeshes(result.meshes,scene,{detail:.11,detailScale:5});
+    m.metadata.asset='crate.glb';
+  }).catch(err=>{ console.warn('failed to load crate visual',err); m.isVisible=true; });
+  return m;
+}
 function makeBarrel(scene,x,z){ const b=BABYLON.MeshBuilder.CreateCylinder('barrel',{height:.78,diameter:.55,tessellation:10},scene); b.position.set(x,.42,z); b.rotation.z=Math.random()*.08; addToScene(b,state.materials.wood,{shape:'CYLINDER',mass:1.1,restitution:.22,friction:.55}); tag(b,'barrel',{health:2,material:'wood',flammable:true}); state.props.push(b); return b; }
 function makeMushroom(scene,x,z,s=.7){ const root=new BABYLON.TransformNode('mushroom_root',scene); root.position.set(x,0,z); const stem=BABYLON.MeshBuilder.CreateCylinder('mushroom_stem',{height:.42*s,diameter:.18*s,tessellation:7},scene); stem.parent=root; stem.position.y=.21*s; stem.material=state.materials.canvas; const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_cap',{diameter:.52*s,segments:10},scene); cap.parent=root; cap.position.y=.46*s; cap.scaling.y=.38; cap.material=state.materials.mushroom; addShadow(stem); addShadow(cap); tag(root,'mushroom',{health:2,material:'soft',soft:true}); stem.metadata={proxy:root}; cap.metadata={proxy:root}; state.props.push(root); return root; }
 function makeLamp(scene,x,z){ const root=new BABYLON.TransformNode('lamp_root',scene); root.position.set(x,0,z); const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.parent=root; pole.position.y=.46; pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.parent=root; c.position.y=.98; c.material=state.materials.magic; addShadow(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(0,.96,0),scene); light.parent=root; light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; tag(root,'lamp',{health:1,material:'crystal'}); pole.metadata={proxy:root}; c.metadata={proxy:root}; state.props.push(root); return root; }

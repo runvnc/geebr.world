@@ -12,7 +12,7 @@ see [`MASTER_MATCH_PLAN.md`](MASTER_MATCH_PLAN.md).
 - Trees use `assets/models/props/gen/tree.glb`, converted from
   `tile_work/asset_tree.png`; procedural and legacy fallback trees are removed.
 - Raised edge rocks are compact supported outcrops, not vertical stacks.
-- Next hero GLBs: crate, barrel, house; then approved rock concepts.
+- Crate GLB is integrated; next hero GLBs are barrel and house, then approved rock concepts.
 
 Validate every change:
 
@@ -70,6 +70,25 @@ Useful scripts in `handoff/tile_work/`:
 - `shot_views.py`, `shot_tile.py`, `measure.py`, `mk.py`
 - `restone.py` is a specialized retained example for recoloring bad stone albedo.
 - Do not use `tint.py`.
+
+
+## Crate asset integration (2026-07-26)
+
+Source `tile_work/asset_crate.png` was converted at 3,000 and 5,000 faces. Both
+were inspected through four azimuths; the 5k output retained cleaner broad braces,
+corner blocks, and rear faces, so it was selected. Final pipeline:
+
+```text
+asset_crate.png -> Tripo 5k -> bake.py gain .60
+-> orm.py --rough .88 --roughvar .035 --ao .85 --cavity .5
+-> assets/models/props/gen/crate.glb
+```
+
+Final mesh: 4,994 faces / 3,936 vertices; near-unit bounds, no backing plane or
+open side, AO declared, metallic zero. The imported decorative instances replace
+the old boxes. `makeCrate()` retains an invisible `.72` box physics/picking proxy
+and parents the same reusable GLB visual to it. Close, `iso`, and `far` passed on
+the NVIDIA renderer. `shot_views.py` now has a `crate` framing mode.
 
 ## Runtime look
 
