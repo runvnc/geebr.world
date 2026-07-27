@@ -42,7 +42,15 @@ not scene-specific procedural substitutes.
   master crops; retain procedural primitives only where they already match and
   are genuinely generic.
 
-## Phase 3 — Composition pass
+## Phase 3 — Composition pass (started 2026-07-26)
+
+Initial pass reduced the uniform vegetation carpet, opened quiet zones around the
+centre/house/fire, shifted the campfire toward the centre, darkened cool ambient
+fill, and strengthened the warm fire pool. The island-footprint rewrite is
+deliberately deferred until after the three rock GLBs: the current stepped edge
+already supplies irregular silhouette, while removing core grid cells would alter
+walkability and all shared edge-profile assumptions.
+
 
 - Match the master’s denser back tree line without crowding the playable centre.
 - Establish the house at back-right, tree cluster at back-left/centre, and clear

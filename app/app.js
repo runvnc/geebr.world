@@ -2132,8 +2132,8 @@ function makeCampfire(scene,x=1.8,z=2.6){
   const flame=BABYLON.MeshBuilder.CreateCylinder('campfire_flame',{diameterTop:0,diameterBottom:.20,height:.38,tessellation:7},scene);
   flame.position.set(x,.24,z); flame.material=flameM; flame.isPickable=false;
   const light=new BABYLON.PointLight('campfire_light',new BABYLON.Vector3(x,.8,z),scene);
-  light.diffuse=new BABYLON.Color3(1,.55,.20); light.intensity=.55; light.range=5;
-  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=.52+Math.sin(t*3.1)*.08; });
+  light.diffuse=new BABYLON.Color3(1,.48,.16); light.intensity=2.15; light.range=4.2;
+  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=2.05+Math.sin(t*3.1)*.22; });
 }
 function makeSelectionRing(scene){
   const m=new BABYLON.StandardMaterial('sel_ring_mat',scene);
@@ -2175,7 +2175,7 @@ async function addTerrainPolish(scene){
   } else {
     makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene);
   }
-  makeCampfire(scene,1.8,2.6);
+  makeCampfire(scene,1.0,.45);
   makeSelectionRing(scene);
   // Invisible physics ground so props and geebrs rest on the island surface.
   const ground=BABYLON.MeshBuilder.CreateGround('physics_ground',{width:WORLD.w,height:WORLD.h},scene);
@@ -2213,13 +2213,13 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // reads as a lit model on a dark table, plus a teal rim to separate the
   // silhouette from the water.
   const hemi=new BABYLON.HemisphericLight('sky_dome_light',new BABYLON.Vector3(.15,1,.05),scene);
-  hemi.intensity=.72; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
+  hemi.intensity=.50; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
   const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.48,-.86,.62),scene);
   sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=3.1; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38);
   const rim=new BABYLON.DirectionalLight('teal_rim',new BABYLON.Vector3(.62,-.34,-.68),scene);
-  rim.intensity=.62; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
+  rim.intensity=.42; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
   const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-9,5,7),scene);
-  fill.intensity=.30; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
+  fill.intensity=.18; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
   state.sun=sun;
   state.shadow=new BABYLON.ShadowGenerator(2048,sun);
   state.shadow.useBlurCloseExponentialShadowMap=true; state.shadow.blurKernel=26; state.shadow.darkness=.30; state.shadow.bias=.0014; state.shadow.normalBias=.010;

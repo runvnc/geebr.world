@@ -105,7 +105,7 @@
     }
     // dried cracks
     ctx.strokeStyle='rgba(40,26,14,0.26)';
-    for(let i=0;i<58;i++){
+    for(let i=0;i<44;i++){
       let x=rnd()*S, y=rnd()*S; ctx.lineWidth=.6+rnd()*1.1; ctx.beginPath(); ctx.moveTo(x,y);
       for(let k=0;k<4;k++){ x+=(rnd()-.5)*26; y+=(rnd()-.5)*26; ctx.lineTo(x,y); }
       ctx.stroke();
@@ -987,8 +987,11 @@
       const cx=tx+.5,cz=tz+.5;
       if(API.proceduralTerrainAt(cx,cz)!=='grass') continue;
       const density=noise(tx*2.17+31,tz*1.73-19);
-      let count=density<.34?0:density<.70?1:density<.90?2:3+Math.floor(rnd()*2);
-      if(Math.abs(cx)<1.25&&Math.abs(cz)<1.25) count=Math.min(count,1);
+      let count=density<.55?0:density<.84?1:density<.96?2:3;
+      if(Math.abs(cx)<2.1&&Math.abs(cz)<2.1) count=0;
+      // Keep larger quiet zones around the house and campfire so hero props
+      // read against clean grass instead of the old uniform tuft carpet.
+      if(Math.hypot(cx-4.15,cz+1.35)<2.0 || Math.hypot(cx-1.0,cz-.45)<1.45) count=0;
       for(let j=0;j<count;j++){
         const c=tuftProto.clone('hd_blade_cluster');
         const scale=.50*(.90+rnd()*.20);
@@ -1000,7 +1003,7 @@
         c.position.set(cx+(rnd()-.5)*.72,(API.state.terrainTopY??0)+.018,cz+(rnd()-.5)*.72); c.isPickable=false;
         tufts.push(c);
       }
-      if(density>.72&&rnd()<.48){
+      if(density>.78&&rnd()<.38){
         const c=daisyProto.clone('hd_daisy_clump');
         const scale=.42*(.90+rnd()*.20);
         const mode=Math.floor(rnd()*6);
@@ -1114,7 +1117,7 @@
 
     // perimeter forest: dense at the far edges so the island reads as a wooded plateau
     let seed=0;
-    for(let i=0;i<58;i++){
+    for(let i=0;i<44;i++){
       seed++;
       const side=i%4;
       const t=noise(i*1.61,i*.83);
@@ -1125,7 +1128,7 @@
       else { x=WORLD.halfW-noise(i,9)*1.9; z=-WORLD.halfH+t*WORLD.h; }
       if(API.proceduralTerrainAt(x,z)!=='grass') continue;
       if(Math.abs(x)<3.0 && Math.abs(z)<3.0) continue;
-      if(noise(i*4.7,i*2.9)<.42) continue;
+      if(noise(i*4.7,i*2.9)<.35) continue;
       pine(x,z,.85+noise(i,11)*.95,seed);
     }
     // scattered inner bushes and boulders

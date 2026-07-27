@@ -110,6 +110,24 @@ gain `.60`; `orm.py --rough .88 --roughvar .035 --ao .85 --cavity .5`.
 normalised to about 2.35 grid cells. The central play space remains clear. Close,
 `iso`, `far`, and corner views pass; `shot_views.py` includes a `house` mode.
 
+## Initial composition and light pass (2026-07-26)
+
+Against the full master, the largest current differences were not global exposure:
+the scene had a uniform tuft carpet, weak warm focal light, excessive cool fill,
+and too little quiet grass around hero props. Plateau vegetation thresholds were
+reduced from 419 to about 325 blade-cluster instances, with clear zones around the
+centre, house, and fire. Perimeter trees were reduced from 58 attempts to 44 but
+the acceptance threshold was loosened, preserving a readable back tree line. The
+campfire moved from `(1.8,2.6)` to `(1.0,.45)` and its point light increased from
+`.55` to `2.15` with a tighter `4.2` range. Hemi/rim/fill intensities changed
+`.72/.62/.30 -> .50/.42/.18`; the warm key and neutral tonemap remain unchanged.
+
+A more irregular core island footprint is deferred until the rock assets and final
+composition are placed. The current edge already has stepped/cascaded irregularity;
+cutting plateau cells now would change grid walkability and invalidate the shared
+`edgeProfile()` grammar. If still needed in the finish pass, prefer a small number
+of corner/side notches reflected consistently in terrain, collision, and edge data.
+
 ## Runtime look
 
 `app/look.js` is the shared material/post source.
