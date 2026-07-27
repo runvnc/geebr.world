@@ -293,3 +293,84 @@ hue check (cool grey-blue, not green); selected 5k = 3,146 vertices / 5,000 face
 Baked at gain `.60`, ORM `.88/.035/.85/.5`. Final candidate is staged at
 `assets/models/props/gen/rock_boulder3.glb`; it is not yet integrated at runtime.
 Raw comparison work was removed.
+
+## 10. Final live checkpoint after browser-guided lighting/camera pass
+
+The stale sections above describe intermediate experiments and are superseded by
+this checkpoint. Current committed/pushed HEAD is `c879c94` (`camera: frame house
+and campfire composition`), following lighting commit `d353f41`. Branch `main`
+is synchronized with `origin/main`; working tree was clean before this handoff edit.
+
+### House orientation is resolved
+
+The actual imported house was proved to be the live object by temporarily floating
+it 5 units and tumbling it on all axes. There is no hidden GLB/node rotation: the
+asset has one node and one mesh. The user then visually stepped the yaw until the
+door faced correctly. Final runtime orientation is:
+
+```js
+houseProto.rotationQuaternion = null;
+houseProto.rotation.set(0, Math.PI, 0);
+```
+
+Do not restore `-Math.PI/2` or `Math.PI/2`; both were intermediate/wrong views.
+
+### Current lighting hierarchy
+
+The broad warm directional key remains instantiated only for easy rollback but is
+fully disabled (`sun.intensity = 0`). The working illumination is:
+
+```text
+corner point position: (-4.9, 4.0, 4.2), opposite the house and moved inward
+corner point intensity/range/radius: 7.5 / 42 / 4.5
+corner point falloff: FALLOFF_GLTF
+corner shadow: 1024 PCF medium, darkness .38
+hemisphere: .16
+teal rim: .22
+cool fill: .35
+scene environment: .10
+shared imported-material environment: .12
+neutral exposure/contrast: 1.34 / 1.12
+campfire intensity/range: 5.2 / 6.2; flicker base 4.9
+campfire shadow: 512 PCF low, darkness .48
+```
+
+A huge point-light radius plus physical inverse-square attenuation was tried and
+was counterproductive: brightness changes remained weak and difficult to control.
+The current glTF falloff is intentional. The user says this checkpoint is improved
+but remains somewhat dark, so future work should measure/render before blindly
+inflating radius again. Preserve local contrast and shadows while lifting usable
+midtones.
+
+All current scene models are registered after async HD construction as shadow
+casters/receivers (except sea and sky), and future dynamic meshes enter through
+`addShadow()`. Vegetation now explicitly casts shadows. Two point-light cubemap
+shadow generators are active, so monitor GPU cost.
+
+### Composition reductions
+
+Perimeter tree attempts were reduced by one third, `44 -> 29`. Plateau grass
+cluster density thresholds and edge counts were reduced by approximately one
+third. Do not confuse this with changing the grass texture's painted macro detail.
+
+### Initial camera accepted
+
+The user guided the starting view to a closer, lower three-quarter composition:
+
+```js
+alpha  = -Math.PI * .69
+beta   = 1.16
+radius = 20.5
+target = (0.9, 0.62, -0.15)
+fov    = .46
+```
+
+This frames the house high-right, fire/Geebr left of centre, and foreground
+tree/crates at lower-right. It supersedes the temporary camera target placed at
+the corner light.
+
+### Next production task
+
+Resume the asset plan: integrate the already staged
+`assets/models/props/gen/rock_boulder3.glb`, then generate/integrate `rock_cluster`
+and `rock_slab`. After composition locks, perform measured lighting refinement.
