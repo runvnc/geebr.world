@@ -272,3 +272,24 @@ Recommended next session action:
 - do not commit the lighting test until the user's browser/runtime discrepancy is
   diagnosed;
 - either revert only the lighting hunks or commit house and lighting separately.
+## 9. Lighting diagnosis and boulder candidate (2026-07-26 late)
+
+The browser/runtime lighting discrepancy was diagnosed with same-camera ablations.
+The dominant source was the full-island warm directional key at `3.1`; additionally,
+`look.js` forced imported PBR materials to environment intensity `.55`, independently
+of `scene.environmentIntensity`. Turning all global sources off reduced the measured
+central crop from luminance `.288` to `.041`, proving low ambient is supported.
+
+Current live lighting checkpoint: hemisphere `.025`, warm key `1.65`, teal rim `.06`,
+cool fill `.015`, scene environment `.025`, per-material environment default `.06`,
+neutral exposure `1.10`, contrast `1.16`; campfire intensity `3.35`, range `4.6`.
+This is intentionally near-zero ambient with a moderate global key and local warm pool.
+
+The house runtime yaw is now `-Math.PI/2`, an explicit 180-degree change from the prior
+`Math.PI/2` checkpoint. The user will judge orientation in the live `/app` view.
+
+`rock_boulder3` was generated at 5k and 8k budgets. Both passed the immediate albedo
+hue check (cool grey-blue, not green); selected 5k = 3,146 vertices / 5,000 faces.
+Baked at gain `.60`, ORM `.88/.035/.85/.5`. Final candidate is staged at
+`assets/models/props/gen/rock_boulder3.glb`; it is not yet integrated at runtime.
+Raw comparison work was removed.

@@ -2132,8 +2132,8 @@ function makeCampfire(scene,x=1.8,z=2.6){
   const flame=BABYLON.MeshBuilder.CreateCylinder('campfire_flame',{diameterTop:0,diameterBottom:.20,height:.38,tessellation:7},scene);
   flame.position.set(x,.24,z); flame.material=flameM; flame.isPickable=false;
   const light=new BABYLON.PointLight('campfire_light',new BABYLON.Vector3(x,.8,z),scene);
-  light.diffuse=new BABYLON.Color3(1,.48,.16); light.intensity=2.15; light.range=4.2;
-  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=2.05+Math.sin(t*3.1)*.22; });
+  light.diffuse=new BABYLON.Color3(1,.46,.13); light.intensity=3.35; light.range=4.6;
+  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=3.20+Math.sin(t*3.1)*.30; });
 }
 function makeSelectionRing(scene){
   const m=new BABYLON.StandardMaterial('sel_ring_mat',scene);
@@ -2213,13 +2213,13 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // reads as a lit model on a dark table, plus a teal rim to separate the
   // silhouette from the water.
   const hemi=new BABYLON.HemisphericLight('sky_dome_light',new BABYLON.Vector3(.15,1,.05),scene);
-  hemi.intensity=.50; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
+  hemi.intensity=.025; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
   const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.48,-.86,.62),scene);
-  sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=3.1; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38);
+  sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=1.65; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38);
   const rim=new BABYLON.DirectionalLight('teal_rim',new BABYLON.Vector3(.62,-.34,-.68),scene);
-  rim.intensity=.42; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
+  rim.intensity=.06; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
   const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-9,5,7),scene);
-  fill.intensity=.18; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
+  fill.intensity=.015; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
   state.sun=sun;
   state.shadow=new BABYLON.ShadowGenerator(2048,sun);
   state.shadow.useBlurCloseExponentialShadowMap=true; state.shadow.blurKernel=26; state.shadow.darkness=.30; state.shadow.bias=.0014; state.shadow.normalBias=.010;
@@ -2230,11 +2230,11 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Neutral environment reflections give PBR clay broad shape cues without making it glossy.
   const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
   scene.environmentTexture=envTexture;
-  scene.environmentIntensity=.38;
+  scene.environmentIntensity=.025;
   // Tonemap + diorama grade (teal-lifted shadows, warm highlights). The old
   // ACES at contrast/exposure 1.34 was crushing shadows and desaturating the
   // olive greens relative to the concept art.
-  LOOK()?.applyTonemap(scene,{exposure:1.28,contrast:1.10,tonemap:'neutral',grade:true});
+  LOOK()?.applyTonemap(scene,{exposure:1.10,contrast:1.16,tonemap:'neutral',grade:true});
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
   try{
     const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);

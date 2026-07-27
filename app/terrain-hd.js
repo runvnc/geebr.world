@@ -1388,7 +1388,7 @@
       const scale=2.35/Math.max(he.x,he.z,1e-6);
       houseProto.scaling.setAll(scale); houseProto.bakeCurrentTransformIntoVertices();
       houseProto.scaling.setAll(1); houseProto.position.set(tentX,api.state.terrainTopY??0,tentZ);
-      houseProto.rotation.y=Math.PI/2; houseProto.name='hd_house'; houseProto.isPickable=false;
+      houseProto.rotation.y=-Math.PI/2; houseProto.name='hd_house'; houseProto.isPickable=false;
       houseProto.receiveShadows=true; api.addShadow(houseProto); house=houseProto;
     }catch(e){ console.warn('generated house unavailable',e); }
 
