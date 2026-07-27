@@ -2212,7 +2212,9 @@ async function addTerrainPolish(scene){
 
 async function main(){ window.GEEBR_STATE=state; const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
   scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk)); if(window.GEEBR_STILL_MODE){ try{ scene.getPhysicsEngine()?.setTimeStep(0); console.warn('GEEBR: still mode - physics frozen'); }catch(e){} }
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(-4.9,.3,4.2),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  // Initial three-quarter composition: house high-right, fire/geebr left of
+  // centre, and the near tree/crates framing the lower-right foreground.
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI*.69,1.16,20.5,new BABYLON.Vector3(.9,.62,-.15),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;
