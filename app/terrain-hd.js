@@ -987,7 +987,7 @@
       const cx=tx+.5,cz=tz+.5;
       if(API.proceduralTerrainAt(cx,cz)!=='grass') continue;
       const density=noise(tx*2.17+31,tz*1.73-19);
-      let count=density<.55?0:density<.84?1:density<.96?2:3;
+      let count=density<.62?0:density<.89?1:density<.975?2:3;
       if(Math.abs(cx)<2.1&&Math.abs(cz)<2.1) count=0;
       // Keep larger quiet zones around the house and campfire so hero props
       // read against clean grass instead of the old uniform tuft carpet.
@@ -1028,7 +1028,8 @@
       if(!c.corner && c.rD<.72) spots.push([c.ledges[0].out-.24,c.ledges[0].top+.02,2]);
       // Right on the plateau lip, spilling outward over the drop.
       if(!c.corner && c.rC<.95) spots.push([-.14-c.rB*.26,(API.state.terrainTopY??TOP_Y)+.018,3]);
-      for(const [off,y,count] of spots){
+      for(const [off,y,rawCount] of spots){
+        const count=Math.max(0,Math.round(rawCount*2/3));
         for(let j=0;j<count;j++){
           const outward=outHalf+off+(rnd()-.5)*.34;
           const along=c.along+(rnd()-.5)*.62;
@@ -1055,8 +1056,8 @@
     // Keep transformed clones separate. Mesh.MergeMeshes was flattening the
     // imported GLB clones without preserving their authored rotations, making
     // every flower and blade cluster visibly identical.
-    for(const c of tufts){ c.receiveShadows=true; c.name='hd_generated_blade_cluster'; }
-    for(const c of daisies){ c.receiveShadows=true; c.name='hd_generated_daisy_clump'; }
+    for(const c of tufts){ c.receiveShadows=true; c.name='hd_generated_blade_cluster'; API.addShadow(c); }
+    for(const c of daisies){ c.receiveShadows=true; c.name='hd_generated_daisy_clump'; API.addShadow(c); }
     API.state.generatedVegetation={tufts:tufts.length,daisies:daisies.length};
   }
 
@@ -1115,9 +1116,10 @@
       }
     }
 
-    // perimeter forest: dense at the far edges so the island reads as a wooded plateau
+    // perimeter forest: reduced by one third to preserve the back line while
+    // opening larger gaps around the playable plateau.
     let seed=0;
-    for(let i=0;i<44;i++){
+    for(let i=0;i<29;i++){
       seed++;
       const side=i%4;
       const t=noise(i*1.61,i*.83);
@@ -1387,8 +1389,12 @@
       // back-right landmark, leaving the central play area unobstructed.
       const scale=2.35/Math.max(he.x,he.z,1e-6);
       houseProto.scaling.setAll(scale); houseProto.bakeCurrentTransformIntoVertices();
-      houseProto.scaling.setAll(1); houseProto.position.set(tentX,api.state.terrainTopY??0,tentZ);
-      houseProto.rotation.y=-Math.PI/2; houseProto.name='hd_house'; houseProto.isPickable=false;
+      houseProto.scaling.setAll(1);
+      houseProto.position.set(tentX,api.state.terrainTopY??0,tentZ);
+      // The doorway needed another quarter-turn from the +PI/2 checkpoint.
+      houseProto.rotationQuaternion=null;
+      houseProto.rotation.set(0,Math.PI,0);
+      houseProto.name='hd_house'; houseProto.isPickable=false;
       houseProto.receiveShadows=true; api.addShadow(houseProto); house=houseProto;
     }catch(e){ console.warn('generated house unavailable',e); }
 

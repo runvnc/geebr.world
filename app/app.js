@@ -457,7 +457,20 @@ async function tryLoadRiggedCharacter(scene){
   }
 }
 
-function addShadow(mesh){ if(state.shadow && mesh) { try { state.shadow.addShadowCaster(mesh,true); } catch{} } }
+function addShadow(mesh){
+  if(!mesh) return;
+  mesh.receiveShadows=true;
+  if(state.shadow){ try { state.shadow.addShadowCaster(mesh,true); } catch{} }
+  for(const shadow of state.extraShadows||[]){ try { shadow.addShadowCaster(mesh,true); } catch{} }
+}
+function registerAllShadowMeshes(scene){
+  if(!state.shadow) return;
+  for(const mesh of scene.meshes){
+    if(!mesh || mesh.isDisposed?.() || mesh.name==='hd_sea' || mesh.name==='sky_dome') continue;
+    mesh.receiveShadows=true;
+    try { state.shadow.addShadowCaster(mesh,true); } catch{}
+  }
+}
 function addBody(mesh,motion,shape='BOX',mass=1,opts={}){ if(!BABYLON.PhysicsBody) return null; const agg=new BABYLON.PhysicsAggregate(mesh,BABYLON.PhysicsShapeType[shape],{mass,friction:opts.friction??.82,restitution:opts.restitution??.08},state.scene); if(motion==='static') agg.body.setMotionType(BABYLON.PhysicsMotionType.STATIC); return agg; }
 function tag(mesh,type,extra={}){ state.meta.set(mesh,{type,state:extra.state||'intact',material:extra.material||type,tileMaterial:extra.tileMaterial||null,health:extra.health??2,interactive:extra.interactive!==false,zone:extra.zone||'world',flammable:!!extra.flammable, soft:!!extra.soft}); mesh.metadata=state.meta.get(mesh); return mesh; }
 function meta(mesh){ const m=state.meta.get(mesh)||mesh?.metadata; if(m?.proxy) return state.meta.get(m.proxy)||m.proxy.metadata; return m; }
@@ -2132,8 +2145,21 @@ function makeCampfire(scene,x=1.8,z=2.6){
   const flame=BABYLON.MeshBuilder.CreateCylinder('campfire_flame',{diameterTop:0,diameterBottom:.20,height:.38,tessellation:7},scene);
   flame.position.set(x,.24,z); flame.material=flameM; flame.isPickable=false;
   const light=new BABYLON.PointLight('campfire_light',new BABYLON.Vector3(x,.8,z),scene);
-  light.diffuse=new BABYLON.Color3(1,.46,.13); light.intensity=3.35; light.range=4.6;
-  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=3.20+Math.sin(t*3.1)*.30; });
+  light.diffuse=new BABYLON.Color3(1,.46,.13); light.intensity=5.2; light.range=6.2; light.radius=.18;
+  // A small cubemap is enough for this short-range, flickering practical light.
+  // Register the current scene and let addShadow() add future dynamic meshes.
+  const fireShadow=new BABYLON.ShadowGenerator(512,light);
+  fireShadow.usePercentageCloserFiltering=true;
+  fireShadow.filteringQuality=BABYLON.ShadowGenerator.QUALITY_LOW;
+  fireShadow.bias=.0022; fireShadow.normalBias=.022; fireShadow.darkness=.48;
+  for(const m of scene.meshes){
+    if(!m || m.name==='hd_sea' || m.name==='sky_dome' || m===flame) continue;
+    m.receiveShadows=true;
+    try { fireShadow.addShadowCaster(m,true); } catch{}
+  }
+  state.extraShadows ||= [];
+  state.extraShadows.push(fireShadow);
+  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=4.9+Math.sin(t*3.1)*.45; });
 }
 function makeSelectionRing(scene){
   const m=new BABYLON.StandardMaterial('sel_ring_mat',scene);
@@ -2186,7 +2212,7 @@ async function addTerrainPolish(scene){
 
 async function main(){ window.GEEBR_STATE=state; const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
   scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk)); if(window.GEEBR_STILL_MODE){ try{ scene.getPhysicsEngine()?.setTimeStep(0); console.warn('GEEBR: still mode - physics frozen'); }catch(e){} }
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(1.6,.3,0),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI/4,.80,30,new BABYLON.Vector3(-4.9,.3,4.2),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;
@@ -2213,28 +2239,37 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // reads as a lit model on a dark table, plus a teal rim to separate the
   // silhouette from the water.
   const hemi=new BABYLON.HemisphericLight('sky_dome_light',new BABYLON.Vector3(.15,1,.05),scene);
-  hemi.intensity=.025; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
+  hemi.intensity=.16; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
   const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.48,-.86,.62),scene);
-  sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=1.65; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38);
+  sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=0; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38); // Directional flood intentionally disabled.
+  // Broad point source at the front-left corner, opposite the house.
+  // Its finite range equals the island's 14-unit width.
+  const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(-4.9,4.0,4.2),scene);
+  cornerKey.diffuse=new BABYLON.Color3(1,.82,.55); cornerKey.specular=new BABYLON.Color3(.34,.26,.17);
+  cornerKey.intensity=7.5; cornerKey.range=WORLD.size*3; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
+  // Point-light shadows render a cubemap (six directions), so keep this at
+  // 1024 rather than duplicating the old 2048 directional-map cost sixfold.
+  const cornerShadow=new BABYLON.ShadowGenerator(1024,cornerKey);
+  cornerShadow.usePercentageCloserFiltering=true;
+  cornerShadow.filteringQuality=BABYLON.ShadowGenerator.QUALITY_MEDIUM;
+  cornerShadow.bias=.0018; cornerShadow.normalBias=.018; cornerShadow.darkness=.38;
   const rim=new BABYLON.DirectionalLight('teal_rim',new BABYLON.Vector3(.62,-.34,-.68),scene);
-  rim.intensity=.06; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
+  rim.intensity=.22; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
   const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-9,5,7),scene);
-  fill.intensity=.015; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
+  fill.intensity=.35; fill.diffuse=new BABYLON.Color3(.48,.66,1); fill.range=24;
   state.sun=sun;
-  state.shadow=new BABYLON.ShadowGenerator(2048,sun);
-  state.shadow.useBlurCloseExponentialShadowMap=true; state.shadow.blurKernel=26; state.shadow.darkness=.30; state.shadow.bias=.0014; state.shadow.normalBias=.010;
-  state.shadow.depthScale=42;
-  // Fit the shadow frustum tightly to the island so 2048 texels land where they matter.
-  sun.autoCalcShadowZBounds=false; sun.shadowMinZ=2; sun.shadowMaxZ=48;
-  sun.orthoLeft=-16; sun.orthoRight=16; sun.orthoTop=16; sun.orthoBottom=-16;
+  // addShadow() and the HD builders now populate the active point-light map.
+  // Keep the disabled directional light object for an easy rollback, but do not
+  // spend a shadow map on a zero-intensity source.
+  state.shadow=cornerShadow;
   // Neutral environment reflections give PBR clay broad shape cues without making it glossy.
   const envTexture=BABYLON.CubeTexture.CreateFromPrefilteredData('https://assets.babylonjs.com/environments/studio.env',scene);
   scene.environmentTexture=envTexture;
-  scene.environmentIntensity=.025;
+  scene.environmentIntensity=.10;
   // Tonemap + diorama grade (teal-lifted shadows, warm highlights). The old
   // ACES at contrast/exposure 1.34 was crushing shadows and desaturating the
   // olive greens relative to the concept art.
-  LOOK()?.applyTonemap(scene,{exposure:1.10,contrast:1.16,tonemap:'neutral',grade:true});
+  LOOK()?.applyTonemap(scene,{exposure:1.34,contrast:1.12,tonemap:'neutral',grade:true});
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
   try{
     const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);
@@ -2273,6 +2308,9 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Demo-first blank world: retain the terrain as a canvas, but do not populate
   // the old RPG cast, buildings, border walls, or random props on first load.
   await addTerrainPolish(scene);
+  // Catch every model created during async terrain/scenery construction,
+  // including merged terrain, imported GLBs, vegetation, and decorative props.
+  registerAllShadowMeshes(scene);
   // Imported grass slabs have their visible top around y=.30. Gameplay and
   // legacy scenery were authored for y=0, which buried characters, fences,
   // tents and loose props halfway into the new terrain. Lift only those scene

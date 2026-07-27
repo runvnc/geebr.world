@@ -30,7 +30,7 @@
     rough: 0.88,        // matte clay target; only used when there is no ORM tex
     detail: 0.11,       // locked subtle clay tooth; >0.3 reads as crusty sand
     detailScale: 5,     // detail map UV tiling per unit tile
-    envIntensity: 0.06
+    envIntensity: 0.12
   };
 
   let _detailTex = null;
