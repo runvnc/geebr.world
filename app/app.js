@@ -383,10 +383,10 @@ async function createGeneratedGeebr(scene,id,pos){
   root.position.copyFrom(pos); root.scaling.setAll(.58);
   const importedRoot=idleRes.meshes.find(m=>m.name==='__root__') || idleRes.meshes[0];
   // New imported PBR materials arrive after startup's global material pass.
-  // Keep their light layout deterministic too; six covers the world lights and
-  // practicals without approaching WebGPU's uniform-buffer ceiling.
+  // Keep their shader layout conservative too. Four is Babylon's portable
+  // WebGPU default; practicals are selected per mesh below.
   for(const material of new Set(idleRes.meshes.map(m=>m.material).filter(Boolean))){
-    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=6;
+    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=4;
   }
   importedRoot.parent=root; importedRoot.position.set(0,0,0);
   // Meshy exports this character facing local +Z; root yaw zero therefore faces north visually.
@@ -2254,6 +2254,9 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   hemi.intensity=.16; hemi.diffuse=new BABYLON.Color3(.42,.55,.76); hemi.groundColor=new BABYLON.Color3(.10,.12,.11); hemi.specular=new BABYLON.Color3(.05,.08,.11);
   const sun=new BABYLON.DirectionalLight('warm_key',new BABYLON.Vector3(-.48,-.86,.62),scene);
   sun.position=new BABYLON.Vector3(11,17,-12); sun.intensity=0; sun.diffuse=new BABYLON.Color3(1,.82,.58); sun.specular=new BABYLON.Color3(.50,.45,.38); // Directional flood intentionally disabled.
+  // A zero-intensity enabled light still consumes one of Babylon's material
+  // light slots and one shader uniform buffer.
+  sun.setEnabled(false);
   // Broad point source at the front-left corner, opposite the house.
   // Its finite range equals the island's 14-unit width.
   const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(-4.9,4.0,4.2),scene);
@@ -2323,13 +2326,16 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Catch every model created during async terrain/scenery construction,
   // including merged terrain, imported GLBs, vegetation, and decorative props.
   registerAllShadowMeshes(scene);
-  // PBR materials inherit Babylon's default of four simultaneous lights.
-  // With the global key/rim/fill, campfire and lantern, this silently excludes
-  // practical lights according to creation order until a later material/model
-  // dirties the shader. Compile enough slots once, before the first Geebr, while
-  // remaining below WebGPU's per-stage uniform-buffer limit.
+  // Babylon otherwise takes the first N scene lights, so the late-created
+  // campfire/lantern lose to broad fill lights. Put practicals first; material
+  // shaders then get both practical pools plus the shared key/rim within four.
+  const lightPriority={campfire_light:0,hd_lantern_light:1,composition_opposite_corner_point:2,teal_rim:3,sky_dome_light:4,cool_fill:5};
+  scene.lights.sort((a,b)=>(lightPriority[a.name]??50)-(lightPriority[b.name]??50));
+  // Keep PBR light shaders within WebGPU's portable uniform-buffer budget.
+  // Four slots are sufficient once the disabled sun is removed and practical
+  // lights are explicitly prioritized per mesh.
   for(const material of scene.materials){
-    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=6;
+    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=4;
   }
   // Imported grass slabs have their visible top around y=.30. Gameplay and
   // legacy scenery were authored for y=0, which buried characters, fences,
