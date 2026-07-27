@@ -12,7 +12,7 @@ see [`MASTER_MATCH_PLAN.md`](MASTER_MATCH_PLAN.md).
 - Trees use `assets/models/props/gen/tree.glb`, converted from
   `tile_work/asset_tree.png`; procedural and legacy fallback trees are removed.
 - Raised edge rocks are compact supported outcrops, not vertical stacks.
-- Crate GLB is integrated; next hero GLBs are barrel and house, then approved rock concepts.
+- Crate and barrel GLBs are integrated; next hero GLB is the house, then approved rock concepts.
 
 Validate every change:
 
@@ -89,6 +89,16 @@ open side, AO declared, metallic zero. The imported decorative instances replace
 the old boxes. `makeCrate()` retains an invisible `.72` box physics/picking proxy
 and parents the same reusable GLB visual to it. Close, `iso`, and `far` passed on
 the NVIDIA renderer. `shot_views.py` now has a `crate` framing mode.
+
+## Barrel asset integration (2026-07-26)
+
+Source `tile_work/asset_barrel.png` was converted at 3,000 and 5,000 faces. The
+5k result was selected for its cleaner segmented rim, stave seams, and circular
+bands. Final pipeline: Tripo 5k; `bake.py` gain `.60`; `orm.py --rough .88
+--roughvar .035 --ao .85 --cavity .5`. Final asset is
+`assets/models/props/gen/barrel.glb` at 5,000 faces / 3,203 vertices. Interactive
+barrels retain their invisible `.78 x .55` cylinder proxy and load this GLB as
+the shared visual. Metallic is zero and geometric/cavity AO is declared.
 
 ## Runtime look
 

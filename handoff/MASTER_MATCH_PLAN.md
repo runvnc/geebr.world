@@ -25,8 +25,8 @@ not scene-specific procedural substitutes.
 1. **Crate — complete** — `tile_work/asset_crate.png`; 3k and 5k Tripo outputs compared.
    The 5k asset is integrated as `assets/models/props/gen/crate.glb` for both
    decorative scenery and interactive crates, with invisible physics proxies retained.
-2. **Barrel** — `tile_work/asset_barrel.png`, Tripo 3k and 5k comparison.
-   Integrate as a reusable pickup/physics prop; remove visual duplication.
+2. **Barrel — complete** — `tile_work/asset_barrel.png`; 3k and 5k Tripo outputs compared.
+   The 5k GLB is the reusable pickup visual, attached to the retained cylinder physics proxy.
 3. **House** — `tile_work/asset_house.png`, Tripo approximately 10k and 15k.
    Replace or augment the placeholder tent only after checking scale and scene
    composition against the master. Preserve walkable/grid clearances.

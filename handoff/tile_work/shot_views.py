@@ -1,7 +1,7 @@
 """Multi-view real-app screenshot harness. GPU-accelerated, self-cleaning.
 
 Usage: python3 shot_views.py PREFIX [W H] [views] [ids]
-  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree, crate
+  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree, crate, barrel
               ('rock' auto-frames the nearest plateau boulder at radius 1.7)
 
 CPU SAFETY (read this before changing the launch args):
@@ -95,6 +95,14 @@ if(!best) return null;
 return {verts:p.length/3,pos:[+best.x.toFixed(2),+(best.y-0.12).toFixed(2),+best.z.toFixed(2)]}}'''
 
 
+# 'barrel' view: frame the first interactive barrel visual when one is present.
+FINDBARREL = '''()=>{const s=S();
+const ms=s.meshes.filter(x=>x.name==='barrel'&&x.isEnabled());
+if(!ms.length) return null;
+const p=ms[0].getAbsolutePosition();
+return {count:ms.length,pos:[+p.x.toFixed(2),+p.y.toFixed(2),+p.z.toFixed(2)]}}'''
+
+
 # 'crate' view: frame the isolated decorative crate on the east side. The south-west
 # crates are a stack, so the east crate is the unambiguous close-review target.
 FINDCRATE = '''()=>{const s=S();
@@ -145,7 +153,12 @@ async def main():
 
             async def sweep_views(suffix=''):
                 for name in WANT:
-                    if name == 'crate':
+                    if name == 'barrel':
+                        info = await page.evaluate(FINDBARREL)
+                        print('barrel target', json.dumps(info), flush=True)
+                        if not info: continue
+                        a, b, r, t = -1.05, 1.08, 1.75, info['pos']
+                    elif name == 'crate':
                         info = await page.evaluate(FINDCRATE)
                         print('crate target', json.dumps(info), flush=True)
                         if not info: continue
