@@ -97,18 +97,18 @@ return {verts:p.length/3,pos:[+best.x.toFixed(2),+(best.y-0.12).toFixed(2),+best
 
 # 'tree' view: frame the tallest canopy vertex, i.e. one whole tree in profile.
 FINDTREE = '''()=>{const s=S();
-const m=s.meshes.find(x=>x.name==='hd_leaves_a');
-if(!m) return null;
-m.computeWorldMatrix(true);
-const w=m.getWorldMatrix();
-const p=m.getVerticesData(BABYLON.VertexBuffer.PositionKind);
-let best=null;
-for(let i=0;i<p.length;i+=3){
-  const v=BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(p[i],p[i+1],p[i+2]),w);
-  if(!best||v.y>best.y) best=v;
+const ms=s.meshes.filter(x=>x.name==='hd_tree'&&x.isEnabled()&&x.getTotalVertices?.()>0);
+let chosen=null,bestY=-1e9;
+for(const m of ms){
+  const b=m.getHierarchyBoundingVectors(true);
+  if(b.max.y>bestY){bestY=b.max.y;chosen={m,b};}
 }
-return {verts:p.length/3,apex:+best.y.toFixed(2),
-        pos:[+best.x.toFixed(2),+(best.y*0.55).toFixed(2),+best.z.toFixed(2)]}}'''
+if(!chosen) return null;
+const {m,b}=chosen;
+return {verts:m.getTotalVertices(),apex:+b.max.y.toFixed(2),
+        pos:[+((b.min.x+b.max.x)/2).toFixed(2),
+             +((b.min.y+b.max.y)/2).toFixed(2),
+             +((b.min.z+b.max.z)/2).toFixed(2)]}}'''
 
 
 def sweep():
@@ -139,7 +139,7 @@ async def main():
                         print('tree target', json.dumps(info), flush=True)
                         if not info:
                             continue
-                        a, b, r, t = -0.95, 1.02, 5.2, info['pos']
+                        a, b, r, t = -0.95, 1.02, 3.5, info['pos']
                     elif name == 'rock':
                         info = await page.evaluate(FINDROCK)
                         print('rock target', json.dumps(info), flush=True)

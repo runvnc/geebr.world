@@ -8,15 +8,16 @@
 > This file remains authoritative for art direction, the asset pipeline, the
 > `look.js` render settings, terrain/vegetation state and the tool list.
 
-**Updated:** 2026-07-25
+**Updated:** 2026-07-26
 **Repo:** `/files/geebr.world` · branch `main`
 **Master visual target:** `/xfiles/localmr/static/imgs/gpt_image_7fRofQ_FKB_m9w_0.png`
 
 ## 1. Current state
 
-Grass tiles, terrain elevation and vegetation are integrated and committed. The
-island edge / cliff is in progress — see `CLIFF_EDGE_HANDOFF.md` for its exact
-state and the remaining steps.
+Grass tiles, terrain elevation, vegetation, and the island edge are integrated.
+The procedural tree was rejected after a fresh visual audit and has been replaced
+with the image-to-3D GLB from `tile_work/asset_tree.png`; see
+`CLIFF_EDGE_HANDOFF.md` section 9.8 for its exact state.
 
 Validation (there is no `node` on this machine):
 
@@ -57,7 +58,7 @@ Visual rules:
 
 - `app/look.js` is the shared look source.
 - Neutral tonemap: exposure `1.28`, contrast `1.10`.
-- SSAO2: strength `2.2`, radius `.9`, samples `16`, maxZ `60`.
+- SSAO2: strength `3.1`, radius `.62`, samples `20`, maxZ `60`.
 - Real DOF enabled.
 - Shared clay detail level `.11`.
 - Main material factories use PBR.
@@ -96,9 +97,9 @@ placement or trim can hide it. See CLIFF_EDGE_HANDOFF section 4.2 and
 
 ## 7. Next asset replacements after cliff lock
 
-The **tree is done** (session 5d, procedural by explicit exception — see
-CLIFF_EDGE_HANDOFF sections 8.2 and 9). The "do not replace reference-derived art
-with hand-authored procedural substitutes" rule in section 2 still applies to
+The tree now follows the normal reference-derived GLB pipeline rather than a
+procedural exception. See `CLIFF_EDGE_HANDOFF.md` section 9.8. The "do not replace
+reference-derived art with hand-authored procedural substitutes" rule applies to
 everything below.
 
 Convert and replace procedural counterparts rather than layering duplicates:

@@ -1052,210 +1052,46 @@
   }
 
   /* ---------- 4. trees, bushes, boulders ----------------------------- */
-  function buildFlora(scene){
+  async function buildFlora(scene){
     const { WORLD } = API;
-    const trunkM=new BABYLON.PBRMaterial('hd_trunk',scene);
-    trunkM.albedoColor=C3(.20,.13,.09); trunkM.metallic=0; trunkM.roughness=.92;
-    const leafA=new BABYLON.PBRMaterial('hd_leaf_a',scene);
-    // Raised from .085/.120/.052: tier faces are now vertex-toned and the mean
-    // multiplier is about .72, so the old albedo left the canopy muddy.
-    // Measured: canopy was lum .105 rgb 21/32/15 against the master's .183 and
-    // 42/54/21, so both the level and the red share had to come up.
-    leafA.albedoColor=C3(.175,.235,.098); leafA.metallic=0; leafA.roughness=.94;
     const leafB=new BABYLON.PBRMaterial('hd_leaf_b',scene);
     leafB.albedoColor=C3(.115,.155,.068); leafB.metallic=0; leafB.roughness=.92;
     const rockM=new BABYLON.PBRMaterial('hd_boulder',scene);
     rockM.albedoColor=C3(.22,.215,.205); rockM.metallic=0; rockM.roughness=.88;
 
-    const trunks=[], leavesA=[], leavesB=[], rocks=[];
+    const leavesA=[], leavesB=[], rocks=[], trees=[];
 
-    // Sun direction flattened to the ground plane, pointing FROM a surface
-    // TOWARDS the light, so dot(faceNormalXZ, SUN) > 0 means a lit facet. The
-    // key light in look.js aims (-.48,-.86,.62), hence (+.48,-.62) normalised.
-    const SUNX=.611, SUNZ=-.792;
+    // Art-directed image-to-3D asset derived from the master concept. Keeping
+    // trees in the same GLB pipeline as other props makes flora reusable by the
+    // sandbox and avoids the winding/open-shell failures of bespoke tier meshes.
+    let pineProto=null;
+    try{
+      pineProto=await importScatterAsset(scene,'tree.glb','hd_tree_proto');
+      const b=pineProto.getHierarchyBoundingVectors(true);
+      const h=Math.max(1e-6,b.max.y-b.min.y);
+      // Tripo normalises this asset to about one unit tall; preserve the old
+      // pine(x,z,s) call sites, whose nominal tree height was roughly 1.5*s.
+      pineProto.scaling.setAll(1.50/h);
+      pineProto.bakeCurrentTransformIntoVertices();
+      pineProto.scaling.setAll(1); pineProto.position.set(0,0,0);
+      pineProto.setEnabled(false);
+    }catch(e){ console.warn('generated tree unavailable',e); }
 
-    // Darker leaf faces pick up sky fill rather than simply scaling down:
-    // measured lit 65/74/25 against shade 30/47/25 in the master, i.e. red
-    // falls away faster than green. Mild, because the hemi light does part of
-    // this already.
-    // Measured: at (.80+.20w) the shadow faces came out at sat .554 against the
-    // master's .630 - lifting red that hard on the dark faces was greying them
-    // out. Cutting the red share deepens the chroma AND widens the p10-p90
-    // spread, which was .122-.242 against the master's .093-.275.
-    function leafTone(k){
-      const w=Math.min(1,k);
-      return [k*(.64+.30*w), k, k*(.74+.20*w)];
+    function pine(x,z,s,seed){
+      if(!pineProto) return;
+      const t=pineProto.clone('hd_tree');
+      t.setEnabled(true); t.isVisible=true; t.isPickable=false;
+      t.position.set(x,0,z);
+      t.rotation.y=noise(seed,31)*Math.PI*2;
+      // Geometric size variation only; no per-instance colour tint jitter.
+      t.scaling.setAll(s*(.88+noise(seed,33)*.24));
+      t.receiveShadows=true; API.addShadow(t); trees.push(t);
     }
 
-    // merge() turns on useVertexColors, and a colour buffer present on only
-    // SOME of the merged meshes is undefined, so anything sharing a merge group
-    // with a toned tier has to carry one too.
     function paintUniform(mesh,t){
       const n=mesh.getTotalVertices(), c=new Float32Array(n*4);
       for(let i=0;i<n;i++){ c[i*4]=c[i*4+1]=c[i*4+2]=t; c[i*4+3]=1; }
       mesh.setVerticesData(BABYLON.VertexBuffer.ColorKind,c);
-    }
-
-    // A tier tree, built to the measured master (CLIFF_EDGE_HANDOFF 8.3, with
-    // the session 5d correction). FOUR tiers, not five or six; roughly 1.4:1
-    // tall, not 2.5:1. The read comes almost entirely from the near-black band
-    // on the UPPER slope of each skirt, which is the shadow of the skirt above
-    // it. That band is faked with vertex colour on a COPLANAR face row - the
-    // same per-face tone trick that fixed the cliff cubes - because no shadow
-    // map resolves a .05-unit overhang at diorama scale.
-    const TIER_N = 8;         // facets per tier; the master reads octagonal
-    const TIERS = 4;          // apex cone plus three skirts
-    // Tiers OVERLAP: each cone's top ring is tucked ABOVE and well inside the
-    // rim above it. The first attempt placed it just below and just inside that
-    // rim, which left an open annulus at every junction and the camera looked
-    // straight through the hollow tree and out the backface-culled far side.
-    // The master has a PINCH, not a hole - what shows in the pinch is the next
-    // tier's own slope.
-    // ...but the tuck ALONE made the tree read as one smooth cone with faint
-    // banding instead of a stack of skirts: a slope sweeping from .42 of the rim
-    // above all the way out to its own rim is nearly collinear with the next one
-    // down, so the SILHOUETTE never stepped. The master steps at every rim
-    // because a tier's visible top is a SHOULDER just outside and just below the
-    // rim above it, which also hides that rim's edge. Three rings per tier:
-    //   tuck     - hidden inside the tier above; closes the solid
-    //   shoulder - the visible top, just outside/below the rim above
-    //   rim      - its own, widest, scalloped
-    // SHOULDER_R is measured, not guessed: on the master, tier 2's silhouette
-    // pinches to half-width 22px directly under a rim of 25.5px and then flares
-    // to 36.5px, so the shoulder is .86 of the rim above and that rim DOES
-    // overhang it slightly - the overhang is the pinch, not a defect. Pushing
-    // the shoulder out past 1.0 to "hide a flange" was wrong and turned every
-    // skirt into a thin near-vertical blade, because it left almost no radial
-    // span between shoulder and rim to flare across.
-    const TUCK_Y = .42, TUCK_R = .42;
-    const SHOULDER_R = .86, SHOULDER_Y = .13;
-    const SHADE_VIS = .46;
-    function pine(x,z,s,seed){
-      const P=[],C=[],I=[],U=[];
-      // UVs are NOT optional even though the leaf material is a flat colour:
-      // MergeMeshes refuses to merge vertex data with differing attribute sets,
-      // and every CreateSphere/CreateCylinder in these merge groups has them.
-      // This is root cause 3.1 in the handoff, from the other direction.
-      const tri=(a,b,c,t)=>{
-        const o=P.length/3;
-        P.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]);
-        for(const v of [a,b,c]) U.push((Math.atan2(v[2],v[0])/(Math.PI*2)+.5)*1.4, v[1]*1.4);
-        for(let k=0;k<3;k++) C.push(t[0],t[1],t[2],1);
-        I.push(o,o+1,o+2);
-      };
-      const lerp=(a,b,t)=>[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
-
-      const R=.46*s;                                  // lowest rim radius
-      // Canopy height works out at 4.55*PITCH against a 2R base. The master
-      // measures 118px tall by 117px wide, but that is at a ~35 degree camera
-      // tilt, so the true ratio is nearer 1.35 - hence .60, not the .47 the
-      // raw pixel pitch suggested.
-      const PITCH=.60*R;
-      const trunkH=(.26+noise(seed,1)*.10)*s;
-      const rimY=k=>trunkH*.55+(TIERS-1-k)*PITCH;     // k=0 is the apex tier
-      const rimR=k=>R*(.44+.56*k/(TIERS-1));
-      const lean=noise(seed,31)*Math.PI*2;            // whole-tree yaw
-      const vary=.92+noise(seed,33)*.16;              // per-tree brightness
-
-      for(let k=0;k<TIERS;k++){
-        const yb=rimY(k), rb=rimR(k);
-        const apex=k===0;
-        // The top ring sits slightly BELOW the rim above it at .86 of its
-        // radius: that is the pinch measured between every pair of tiers.
-        const yt=apex ? yb+1.55*PITCH : rimY(k-1)+TUCK_Y*PITCH;
-        const rt=apex ? 0 : rimR(k-1)*TUCK_R;
-        const ys=apex ? yt : rimY(k-1)-SHOULDER_Y*PITCH;
-        const rs=apex ? 0 : rimR(k-1)*SHOULDER_R;
-        const yaw=lean+k*.38;                         // slight twist per tier
-        for(let i=0;i<TIER_N;i++){
-          const a0=yaw+i*Math.PI*2/TIER_N, a1=a0+Math.PI*2/TIER_N;
-          const am=(a0+a1)*.5;
-          // Per-facet rim wobble so the skirt is not a clean circle. Derived
-          // from the ring index only, so it is a pure function of position and
-          // shared corners stay shared (see handoff 8.1).
-          // The wobble is indexed by CORNER and wraps, so facet TIER_N-1's second
-          // corner is literally the same value as facet 0's first. Without the
-          // modulo one seam per tier had two mismatched radii and the overlap
-          // showed as a thin sliver of one facet poking out past its neighbour.
-          const wob=j=>1+(noise(seed,k*17+(j%TIER_N))-.5)*.13;
-          const w0=wob(i), w1=wob(i+1);
-          const t0=[Math.cos(a0)*rt*w0, yt, Math.sin(a0)*rt*w0];
-          const t1=[Math.cos(a1)*rt*w1, yt, Math.sin(a1)*rt*w1];
-          const s0=[Math.cos(a0)*rs*w0, ys, Math.sin(a0)*rs*w0];
-          const s1=[Math.cos(a1)*rs*w1, ys, Math.sin(a1)*rs*w1];
-          const b0=[Math.cos(a0)*rb*w0, yb, Math.sin(a0)*rb*w0];
-          const b1=[Math.cos(a1)*rb*w1, yb, Math.sin(a1)*rb*w1];
-          const face=Math.max(0,Math.cos(am)*SUNX+Math.sin(am)*SUNZ);
-          const litK=(.70+.74*face)*vary;   // wider spread, same mean
-          const lit=leafTone(litK);
-          // The apex has nothing above it, so it gets no shadow band.
-          const dark=leafTone((apex ? litK*.86 : .41*(.86+.38*face))*vary);
-          const bm=lerp(b0,b1,.5);
-          const tuckC=.17+noise(seed,k*23+i)*.13;
-          if(apex){
-            // t0 and t1 COINCIDE at the point of the cone, so the old
-            // tri(t0,t1,m1) was a DEGENERATE ZERO-AREA triangle and the whole
-            // upper part of every apex tier had no geometry at all. That is why
-            // every tree in the scene rendered with a chopped flat top. A fan
-            // from the point out over the two scallop segments covers it.
-            // The scallop is a fraction of the corner-to-top span, and on the
-            // apex that span is the whole 1.55*PITCH cone rather than a short
-            // skirt slope, so the same tuckC cut two deep triangular notches
-            // either side of the point. Scale it down to match.
-            const p0=lerp(b0,t0,tuckC*.30), p1=lerp(b1,t1,tuckC*.30);
-            tri(t0,p1,bm,lit); tri(t0,bm,p0,lit);
-            continue;
-          }
-          // Hidden strip, tuck ring down to the shoulder: never seen, but it has
-          // to exist or the tier is an open annulus (defect 9.4b).
-          tri(t0,t1,s1,dark); tri(t0,s1,s0,dark);
-          // The shadow band IS the shoulder-to-rim strip - which is also the
-          // honest answer, since that is the strip the rim above overhangs.
-          const m0=lerp(s0,b0,SHADE_VIS), m1=lerp(s1,b1,SHADE_VIS);
-          tri(s0,s1,m1,dark); tri(s0,m1,m0,dark);
-          // Scalloped lower edge. The facet MIDDLE hangs lowest and the two
-          // CORNERS are tucked back up the slope, like a drooping bough. The
-          // first attempt did the reverse - midpoint up, corners left at full
-          // reach - and adjacent facets' corners then met at a sharp radial
-          // spine, so every rim grew long sideways daggers. All three points
-          // stay in the facet plane, so the facet is still flat.
-          // Gentle. At .62-.82 the corners came almost up to the mid ring, so
-          // each facet detached into a hanging flap with a dagger at its middle.
-          const c0=lerp(b0,m0,tuckC), c1=lerp(b1,m1,tuckC);
-          tri(m0,m1,c1,lit); tri(m0,c1,bm,lit); tri(m0,bm,c0,lit);
-          // Underside of the lowest skirt only: closes the solid and is what
-          // the shadow map casts from.
-          if(k===TIERS-1){
-            const c=[0,yb,0], u=leafTone(.16*vary);
-            tri(c,c0,bm,u); tri(c,bm,c1,u);
-          }
-        }
-      }
-
-      const vd=new BABYLON.VertexData();
-      vd.positions=P; vd.indices=I; vd.colors=C; vd.uvs=U;
-      const mesh=new BABYLON.Mesh('pine_tiers',scene);
-      vd.applyToMesh(mesh);
-      // Winding is not guessed: test the first side facet's normal against its
-      // own radial direction and reverse every triangle if it faces inward.
-      let nrm=[]; BABYLON.VertexData.ComputeNormals(P,I,nrm);
-      if(P[0]*nrm[0]+P[2]*nrm[2] < 0){
-        for(let i=0;i<I.length;i+=3){ const t=I[i+1]; I[i+1]=I[i+2]; I[i+2]=t; }
-        mesh.setIndices(I); nrm=[]; BABYLON.VertexData.ComputeNormals(P,I,nrm);
-      }
-      // Set normals UNCONDITIONALLY. Doing it only on the reversed branch left
-      // the mesh with no normal attribute at all, which is the other half of
-      // why MergeMeshes rejected the group.
-      mesh.setVerticesData(BABYLON.VertexBuffer.NormalKind,nrm);
-      mesh.position.set(x,0,z);
-      leavesA.push(mesh);
-
-      // Short octagonal warm-brown trunk, mostly hidden by the lowest skirt.
-      const tr=BABYLON.MeshBuilder.CreateCylinder('pine_trunk',
-        { height:trunkH, diameterTop:.11*s, diameterBottom:.16*s, tessellation:8 },scene);
-      tr.position.set(x,trunkH*.5,z);
-      paintUniform(tr,1);
-      trunks.push(tr);
     }
 
     function bush(x,z,s,seed){
@@ -1300,11 +1136,11 @@
       rocks.push(r);
     }
 
-    const t1=merge(trunks,'hd_trunks',trunkM);
+    pineProto?.dispose();
     const l1=merge(leavesA,'hd_leaves_a',leafA);
     const l2=merge(leavesB,'hd_leaves_b',leafB);
     const r1=merge(rocks,'hd_boulders',rockM);
-    for(const m of [t1,l1,l2,r1]) if(m) API.addShadow(m);
+    for(const m of [l1,l2,r1]) if(m) API.addShadow(m);
   }
 
   /* ---------- 5. water + foam ---------------------------------------- */
@@ -1428,7 +1264,7 @@
     await buildIslandTop(scene);
     await buildBedrock(scene);
     await buildVegetation(scene);
-    buildFlora(scene);
+    await buildFlora(scene);
     buildWater(scene);
     if(window.GeebrHD.buildScenery){
       try{ await window.GeebrHD.buildScenery(scene,API); }catch(e){ console.warn('scenery failed',e); }

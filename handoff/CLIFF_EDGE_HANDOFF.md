@@ -582,3 +582,47 @@ cut two deep notches either side of the point.
 
 After all of it (master | ours, lit tree): lum .183 | .166, rgb 42/54/21 |
 34/50/23, sat .630 | .570, p10/p90 .093/.275 | .095/.251.
+
+
+### 9.8 Correction: procedural tree rejected; GLB tree is now the current path
+
+The success conclusions in 9.5-9.7 were wrong. A fresh `tree,far,iso` render at
+`63fe4fe` showed the procedural mesh still had the same fundamental failure:
+tiers merged into an elongated cone, with spikes and open black gaps. Aggregate
+canopy colour statistics did not detect those silhouette/topology defects.
+
+The user also clarified the architectural requirement: geebr.world is a sandbox
+where authored assets should be droppable/reusable, not a one-scene procedural
+special case. The detailed, now-deleted `ASSET_PIPELINE_HANDOFF.md` was recovered
+from commit `2280484`; it explicitly identified `asset_tree.png` as a finished
+image-to-3D source and recommended Tripo conversion.
+
+The full master was re-inspected at
+`/xfiles/localmr/static/imgs/gpt_image_7fRofQ_FKB_m9w_0.png`. Its trees are solid,
+compact assets with three broad overlapping skirts, short crowns, faceted matte
+surfaces, dark inter-tier separation, and visible trunks. This agrees with
+`handoff/tile_work/asset_tree.png` much better than the procedural detour did.
+
+Current replacement pipeline:
+
+```
+asset_tree.png
+  -> tripo_one.py, 8000 faces
+  -> bake.py gain .60
+  -> orm.py --rough .88 --roughvar .035 --ao .85 --cavity .5
+  -> app/assets/models/props/gen/tree.glb
+```
+
+The 5k and 8k outputs were compared; 8k preserves the skirt silhouette slightly
+better for only about 70 KB extra final size and is the integrated version.
+`buildFlora()` now imports one prototype through `importScatterAsset()`, applies
+the shared clay material path, normalises it to the old `pine(...,s)` scale, and
+clones it with yaw and geometric scale variation only. There is no colour tint
+jitter. The old hand-built tier geometry is removed from runtime.
+
+Fresh renders show solid, clean, overlap-separated trees with no spikes, holes,
+or chopped apex. Remaining differences are ordinary art tuning, not broken
+geometry: Tripo added subtle bark-like surface relief, and the tree reads a bit
+brighter/less contrasty than the master. Do not return to procedural topology;
+if tuning is needed, adjust the source image/albedo bake/material or regenerate
+the GLB.
