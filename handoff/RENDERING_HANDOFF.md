@@ -12,7 +12,7 @@ see [`MASTER_MATCH_PLAN.md`](MASTER_MATCH_PLAN.md).
 - Trees use `assets/models/props/gen/tree.glb`, converted from
   `tile_work/asset_tree.png`; procedural and legacy fallback trees are removed.
 - Raised edge rocks are compact supported outcrops, not vertical stacks.
-- Crate and barrel GLBs are integrated; next hero GLB is the house, then approved rock concepts.
+- Crate, barrel, and house GLBs are integrated; next are the approved rock concepts.
 
 Validate every change:
 
@@ -99,6 +99,16 @@ bands. Final pipeline: Tripo 5k; `bake.py` gain `.60`; `orm.py --rough .88
 `assets/models/props/gen/barrel.glb` at 5,000 faces / 3,203 vertices. Interactive
 barrels retain their invisible `.78 x .55` cylinder proxy and load this GLB as
 the shared visual. Metallic is zero and geometric/cavity AO is declared.
+
+## House asset integration (2026-07-26)
+
+`tile_work/asset_house.png` was converted at 10k and 15k and reviewed from four
+azimuths. The 15k output was selected for cleaner roof-panel divisions, masonry,
+and rear silhouette. Pipeline: Tripo 14,992 faces / 10,394 vertices; `bake.py`
+gain `.60`; `orm.py --rough .88 --roughvar .035 --ao .85 --cavity .5`.
+`assets/models/props/gen/house.glb` now replaces the procedural tent at back-right,
+normalised to about 2.35 grid cells. The central play space remains clear. Close,
+`iso`, `far`, and corner views pass; `shot_views.py` includes a `house` mode.
 
 ## Runtime look
 

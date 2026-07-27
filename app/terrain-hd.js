@@ -1374,23 +1374,20 @@
       crateProto.dispose();
     }catch(e){ console.warn('generated crate unavailable',e); }
 
-    /* --- canvas tent on the north-east grass --- */
+    /* --- reference-derived house on the north-east grass --- */
     const tentX=4.15, tentZ=-1.35;
-    const roofL=BABYLON.MeshBuilder.CreateBox('tent_roof',{ width:1.20, height:.05, depth:1.10,
-      faceUV:Array(6).fill(rect(0,0,2.2,1.9)) },scene);
-    roofL.position.set(tentX-.33,.70,tentZ); roofL.rotation.z=.70;
-    const roofR=roofL.clone('tent_roof2'); roofR.position.set(tentX+.33,.70,tentZ); roofR.rotation.z=-.70;
-    const ridge=BABYLON.MeshBuilder.CreateCylinder('tent_ridge',{ height:1.16, diameter:.065, tessellation:7 },scene);
-    ridge.rotation.x=Math.PI/2; ridge.position.set(tentX,1.04,tentZ);
-    const tentPosts=[];
-    for(const dz of [-.52,.52]){
-      const p=BABYLON.MeshBuilder.CreateCylinder('tent_pole',{ height:1.04, diameter:.06, tessellation:7 },scene);
-      p.position.set(tentX,.52,tentZ+dz); tentPosts.push(p);
-    }
-    const tentCloth=BABYLON.Mesh.MergeMeshes([roofL,roofR],true,true,undefined,false,false);
-    if(tentCloth){ tentCloth.name='hd_tent_cloth'; tentCloth.material=cloth; cloth.albedoColor=C3(.20,.62,.66); tentCloth.isPickable=false; api.addShadow(tentCloth); }
-    for(const p of tentPosts) posts.push(p);
-    posts.push(ridge);
+    let house=null;
+    try{
+      const houseProto=await HD.importScatterAsset(scene,'house.glb','hd_house_proto');
+      const hb=houseProto.getHierarchyBoundingVectors(true), he=hb.max.subtract(hb.min);
+      // The master house occupies about 2.4 x 2.2 cells and remains a compact
+      // back-right landmark, leaving the central play area unobstructed.
+      const scale=2.35/Math.max(he.x,he.z,1e-6);
+      houseProto.scaling.setAll(scale); houseProto.bakeCurrentTransformIntoVertices();
+      houseProto.scaling.setAll(1); houseProto.position.set(tentX,api.state.terrainTopY??0,tentZ);
+      houseProto.rotation.y=-Math.PI/2; houseProto.name='hd_house'; houseProto.isPickable=false;
+      houseProto.receiveShadows=true; api.addShadow(houseProto); house=houseProto;
+    }catch(e){ console.warn('generated house unavailable',e); }
 
     /* --- hanging lantern beside the tent --- */
     const hook=BABYLON.MeshBuilder.CreateBox('lantern_hook',{ width:.055, height:1.30, depth:.055 },scene);
@@ -1421,7 +1418,6 @@
     if(r1){ r1.name='hd_rails'; r1.material=wood; r1.isPickable=false; r1.receiveShadows=true; api.addShadow(r1); }
     const k1=lift(planks.length===1?planks[0]:BABYLON.Mesh.MergeMeshes(planks,true,true,undefined,false,false));
     if(k1){ k1.name='hd_planks'; k1.material=wood; k1.isPickable=false; k1.receiveShadows=true; api.addShadow(k1); }
-    if(tentCloth) tentCloth.position.y+=topY;
     for(const m of [cage,bulb]) m.position.y+=topY;
     lamp.position.y+=topY;
   }

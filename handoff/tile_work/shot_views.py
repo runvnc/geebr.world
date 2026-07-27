@@ -1,7 +1,7 @@
 """Multi-view real-app screenshot harness. GPU-accelerated, self-cleaning.
 
 Usage: python3 shot_views.py PREFIX [W H] [views] [ids]
-  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree, crate, barrel
+  views = comma list from: iso, edge, corner, water, top, close, profile, far, rock, tree, crate, barrel, house
               ('rock' auto-frames the nearest plateau boulder at radius 1.7)
 
 CPU SAFETY (read this before changing the launch args):
@@ -95,6 +95,14 @@ if(!best) return null;
 return {verts:p.length/3,pos:[+best.x.toFixed(2),+(best.y-0.12).toFixed(2),+best.z.toFixed(2)]}}'''
 
 
+# 'house' view: frame the authored back-right house landmark.
+FINDHOUSE = '''()=>{const s=S();
+const m=s.meshes.find(x=>x.name==='hd_house'&&x.isEnabled()&&x.getTotalVertices?.()>0);
+if(!m) return null;
+const p=m.getAbsolutePosition();
+return {pos:[+p.x.toFixed(2),+(p.y+1.0).toFixed(2),+p.z.toFixed(2)]}}'''
+
+
 # 'barrel' view: frame the first interactive barrel visual when one is present.
 FINDBARREL = '''()=>{const s=S();
 const ms=s.meshes.filter(x=>x.name==='barrel'&&x.isEnabled());
@@ -153,7 +161,12 @@ async def main():
 
             async def sweep_views(suffix=''):
                 for name in WANT:
-                    if name == 'barrel':
+                    if name == 'house':
+                        info = await page.evaluate(FINDHOUSE)
+                        print('house target', json.dumps(info), flush=True)
+                        if not info: continue
+                        a, b, r, t = -1.05, 1.08, 4.4, info['pos']
+                    elif name == 'barrel':
                         info = await page.evaluate(FINDBARREL)
                         print('barrel target', json.dumps(info), flush=True)
                         if not info: continue

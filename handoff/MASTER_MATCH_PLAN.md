@@ -27,9 +27,9 @@ not scene-specific procedural substitutes.
    decorative scenery and interactive crates, with invisible physics proxies retained.
 2. **Barrel — complete** — `tile_work/asset_barrel.png`; 3k and 5k Tripo outputs compared.
    The 5k GLB is the reusable pickup visual, attached to the retained cylinder physics proxy.
-3. **House** — `tile_work/asset_house.png`, Tripo approximately 10k and 15k.
-   Replace or augment the placeholder tent only after checking scale and scene
-   composition against the master. Preserve walkable/grid clearances.
+3. **House — complete** — `tile_work/asset_house.png`; 10k and 15k outputs compared.
+   The 15k GLB replaces the placeholder tent at back-right, scaled to about 2.35
+   grid cells while preserving the central playable area.
 4. For every conversion: inspect all azimuths for fused parts, holes, accidental
    backing planes, shadows baked into geometry, and wrong albedo hue. Run
    `orm.py`; use shared `applyClayLookToMeshes()`; cast and receive shadows.
