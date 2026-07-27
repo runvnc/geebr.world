@@ -382,6 +382,12 @@ async function createGeneratedGeebr(scene,id,pos){
   const root=new BABYLON.TransformNode(id,scene);
   root.position.copyFrom(pos); root.scaling.setAll(.58);
   const importedRoot=idleRes.meshes.find(m=>m.name==='__root__') || idleRes.meshes[0];
+  // New imported PBR materials arrive after startup's global material pass.
+  // Keep their light layout deterministic too; six covers the world lights and
+  // practicals without approaching WebGPU's uniform-buffer ceiling.
+  for(const material of new Set(idleRes.meshes.map(m=>m.material).filter(Boolean))){
+    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=6;
+  }
   importedRoot.parent=root; importedRoot.position.set(0,0,0);
   // Meshy exports this character facing local +Z; root yaw zero therefore faces north visually.
   importedRoot.rotationQuaternion=null; importedRoot.rotation.set(0,0,0);
@@ -420,11 +426,10 @@ async function createGeneratedGeebr(scene,id,pos){
   collider.position.copyFrom(root.position); collider.position.y+=.72; collider.isVisible=false; collider.metadata={ownerId:id};
   const agg=addBody(collider,'dynamic','BOX',1.25,{friction:.92,restitution:.02});
   agg?.body?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
-  // Small character-local lights preserve facial/belly modeling at any camera angle.
-  const portraitKey=new BABYLON.PointLight(id+'_portrait_key',new BABYLON.Vector3(-1.45,2.65,-2.35),scene);
-  portraitKey.parent=root; portraitKey.diffuse=new BABYLON.Color3(1,.88,.72); portraitKey.intensity=.5; portraitKey.range=4.7;
-  const portraitRim=new BABYLON.PointLight(id+'_portrait_rim',new BABYLON.Vector3(1.6,2.35,1.45),scene);
-  portraitRim.parent=root; portraitRim.diffuse=new BABYLON.Color3(.48,.70,1); portraitRim.intensity=.3; portraitRim.range=4.0;
+  // Do not add per-character scene lights here. Babylon compiles every light
+  // affecting a PBR material into that material's vertex pipeline; two lights
+  // per spawned Geebr pushed WebGPU over its 12-uniform-buffer stage limit.
+  // The shared key/rim/fill/practical lights already model every character.
   const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true); state.geebrs.push(geebr); debugRigAnims(geebr); return geebr;
 }
@@ -1564,6 +1569,11 @@ function clearWorld() {
     try { if (g.collider) g.collider.dispose(); } catch {}
     try { if (g.root) g.root.dispose(); } catch {}
   }
+  // Clean up character-local lights left by saves/scenes created by versions
+  // before v14.6. TransformNode.dispose() does not dispose light children.
+  for(const light of state.scene?.lights?.slice?.()||[]){
+    if(/_portrait_(key|rim)$/.test(light.name||'')) try{ light.dispose(); }catch{}
+  }
   for (const m of state.props.concat(state.blocks)) {
     if (!m || m.isDisposed?.()) continue;
     disposeWorldObject(m);
@@ -2313,6 +2323,14 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Catch every model created during async terrain/scenery construction,
   // including merged terrain, imported GLBs, vegetation, and decorative props.
   registerAllShadowMeshes(scene);
+  // PBR materials inherit Babylon's default of four simultaneous lights.
+  // With the global key/rim/fill, campfire and lantern, this silently excludes
+  // practical lights according to creation order until a later material/model
+  // dirties the shader. Compile enough slots once, before the first Geebr, while
+  // remaining below WebGPU's per-stage uniform-buffer limit.
+  for(const material of scene.materials){
+    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=6;
+  }
   // Imported grass slabs have their visible top around y=.30. Gameplay and
   // legacy scenery were authored for y=0, which buried characters, fences,
   // tents and loose props halfway into the new terrain. Lift only those scene
