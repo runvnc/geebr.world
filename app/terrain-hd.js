@@ -831,23 +831,25 @@
       }
     }
 
-    // A cluster of cubes stacking ABOVE the plateau. The reference does this in
-    // one or two places and it is what stops the island reading as a flat lid.
+    // Two compact stepped outcrops break the flat lid. Keep every block seated
+    // on the plateau or on the block below: the former vertical random walk
+    // created a floating Jenga column of separated cubes.
     for(const site of [[-1,'x',-1.6],[1,'z',2.4]]){
       const [side,axis,along]=site;
       const outHalf=axis==='x'?WORLD.halfH:WORLD.halfW;
-      let y=TOP_Y, n=3+Math.floor(rnd()*2);
-      for(let i=0;i<n;i++){
-        const s=.46-i*.04+rnd()*.06;
-        const h=COURSE*(.86+rnd()*.20);
-        const off=-.30+i*.10+(rnd()-.5)*.22;
-        const a=along+(rnd()-.5)*.5*i;
+      const place=(da,off,w,h,d,base,rot=0)=>{
         const outward=outHalf+off;
-        const x=axis==='x'?a:side*outward, z=axis==='x'?side*outward:a;
-        blocks.push(stoneBox(scene,'hd_cliff_stack',s,h,s,x,y+h*.5,z,
-          stone,tone()*(1.02-i*.03),rnd()*.5));
-        y+=h;
-      }
+        const x=axis==='x'?along+da:side*outward;
+        const z=axis==='x'?side*outward:along+da;
+        blocks.push(stoneBox(scene,'hd_cliff_stack',w,h,d,x,base+h*.5,z,
+          stone,tone(),rot));
+      };
+      const h0=COURSE*.72;
+      // Broad two-block footing straddles the lip and reads as an outcrop.
+      place(-.18,-.34,.43,h0,.42,TOP_Y,.05);
+      place( .20,-.28,.39,h0*.91,.40,TOP_Y,-.08);
+      // One smaller cap bridges the footing, with no air gap or tall pillar.
+      place(.01,-.31,.34,h0*.78,.34,TOP_Y+h0*.91,.12);
     }
 
     // Solid core. Set well back from the shallowest cube: flush with them it
@@ -1054,6 +1056,8 @@
   /* ---------- 4. trees, bushes, boulders ----------------------------- */
   async function buildFlora(scene){
     const { WORLD } = API;
+    const leafA=new BABYLON.PBRMaterial('hd_leaf_a',scene);
+    leafA.albedoColor=C3(.175,.235,.098); leafA.metallic=0; leafA.roughness=.94;
     const leafB=new BABYLON.PBRMaterial('hd_leaf_b',scene);
     leafB.albedoColor=C3(.115,.155,.068); leafB.metallic=0; leafB.roughness=.92;
     const rockM=new BABYLON.PBRMaterial('hd_boulder',scene);

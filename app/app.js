@@ -2083,33 +2083,6 @@ function makeSkyDome(scene){
   dome.material=m; dome.isPickable=false; dome.infiniteDistance=true;
   return dome;
 }
-function makePine(scene,x,z,s=1){
-  const mats=scene._pineMats||(scene._pineMats={
-    trunk:colorMat(scene,'pine_trunk',new BABYLON.Color3(.20,.13,.09)),
-    leaf:colorMat(scene,'pine_leaf',new BABYLON.Color3(.10,.26,.20)),
-    leaf2:colorMat(scene,'pine_leaf2',new BABYLON.Color3(.13,.32,.22))});
-  const trunk=BABYLON.MeshBuilder.CreateCylinder('pine_trunk',{height:.34*s,diameter:.11*s,tessellation:6},scene);
-  trunk.position.set(x,.17*s,z); trunk.material=mats.trunk; trunk.isPickable=false; addShadow(trunk);
-  const tiers=[[.34,.62,.42],[.26,.5,.72],[.16,.4,1.0]];
-  for(let i=0;i<3;i++){ const r=tiers[i][0],h=tiers[i][1],yc=tiers[i][2];
-    const cone=BABYLON.MeshBuilder.CreateCylinder('pine_tier',{diameterTop:0,diameterBottom:r*2*s,height:h*s,tessellation:7},scene);
-    cone.position.set(x,yc*s,z); cone.material=i%2?mats.leaf2:mats.leaf; cone.isPickable=false; addShadow(cone); }
-}
-function scatterRimDecor(scene){
-  const spots=[[-6.2,-4.6],[-5.8,3.9],[-3.1,-5.2],[2.8,-5.3],[5.9,-3.4],[6.2,2.4],[3.4,5.1],[-1.2,5.4],[-6.3,.6],[.8,-5.5],[5.4,4.9],[-4.4,5.0]];
-  for(const sp of spots){ const x=sp[0],z=sp[1]; if(proceduralTerrainAt(x,z)!=='grass') continue; makePine(scene,x,z,.85+hashNoise(x,z)*.5); }
-  const rockM=colorMat(scene,'rim_rock',new BABYLON.Color3(.30,.32,.36));
-  for(let i=0;i<16;i++){ const x=-6.5+((i*2.77)%13), z=-5.5+((i*3.91)%11);
-    if(proceduralTerrainAt(x,z)!=='grass') continue;
-    const r=BABYLON.MeshBuilder.CreatePolyhedron('rim_rock',{type:2,size:.10+hashNoise(i,3)*.16},scene);
-    r.position.set(x,.05,z); r.rotation.set(i*.9,i*1.7,i*.4); r.material=rockM; r.isPickable=false; }
-  const fm1=colorMat(scene,'flower_white',new BABYLON.Color3(.75,.78,.72),new BABYLON.Color3(.20,.22,.20));
-  const fm2=colorMat(scene,'flower_pink',new BABYLON.Color3(.62,.42,.52),new BABYLON.Color3(.16,.08,.12));
-  for(let i=0;i<26;i++){ const x=-6.4+((i*1.93)%12.8), z=-5.3+((i*2.51)%10.6);
-    if(proceduralTerrainAt(x,z)!=='grass') continue;
-    const f=BABYLON.MeshBuilder.CreateSphere('night_flower',{diameter:.05+hashNoise(i,9)*.03,segments:5},scene);
-    f.position.set(x,.06,z); f.material=i%3?fm1:fm2; f.isPickable=false; }
-}
 function makeCampfire(scene,x=1.8,z=2.6){
   const logM=colorMat(scene,'fire_log',new BABYLON.Color3(.23,.14,.08));
   for(let i=0;i<4;i++){ const lg=BABYLON.MeshBuilder.CreateCylinder('fire_log',{height:.42,diameter:.075,tessellation:6},scene);
@@ -2159,10 +2132,10 @@ async function addTerrainPolish(scene){
       await window.GeebrHD.buildIsland(scene,{ WORLD, state, hashNoise, smoothNoise, proceduralTerrainAt, addShadow });
     }catch(err){
       console.error('HD diorama failed, falling back to legacy terrain',err);
-      makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene); scatterRimDecor(scene);
+      makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene);
     }
   } else {
-    makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene); scatterRimDecor(scene);
+    makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene);
   }
   makeCampfire(scene,1.8,2.6);
   makeSelectionRing(scene);

@@ -626,3 +626,18 @@ geometry: Tripo added subtle bark-like surface relief, and the tree reads a bit
 brighter/less contrasty than the master. Do not return to procedural topology;
 if tuning is needed, adjust the source image/albedo bake/material or regenerate
 the GLB.
+
+
+### 9.9 Screenshot cleanup: legacy fallback trees and raised outcrops
+
+A user screenshot exposed two unrelated leftovers. First, the app-level legacy
+fallback still defined and called `makePine()` / `scatterRimDecor()`. Those teal,
+two-cone trees are not the new GLB and could reappear whenever HD construction
+failed. The obsolete functions and fallback calls are now removed; fallback
+terrain no longer injects a second visual vocabulary of trees/rocks/flowers.
+
+Second, `hd_cliff_stack` was a vertical random walk: each cube incremented Y and
+wandered sideways, producing a floating Jenga column. It is now two broad,
+plateau-seated footing stones plus one smaller seated cap at each of two sites.
+Every block is supported; the feature reads as a compact stepped outcrop rather
+than a tower. Full-grid `iso` and `far` renders were reviewed after both fixes.
