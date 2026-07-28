@@ -1145,11 +1145,12 @@ function tileAtGrid(x,z){
   return bd<=1.02 ? best : null;
 }
 function proceduralTerrainAt(x,z){
-  // The visible plateau is continuous grass. The old dirt path was represented
-  // by full tile cells, but non-grass cells used a different slab height and
-  // produced deep trench-like cuts through the island. Paths can return later
-  // as thin surface dressing; they must never remove the grass foundation.
-  if(Math.abs(x)>WORLD.halfW || Math.abs(z)>WORLD.halfH) return 'water';
+  // Organic island shape: a rounded blob with noise-driven edges, matching
+  // the concept art's natural silhouette rather than a square.
+  const nx=x/WORLD.halfW, nz=z/WORLD.halfH;
+  const d=Math.sqrt(nx*nx+nz*nz);
+  const wobble=hashNoise(x*2.1,z*2.3)*.08+hashNoise(x*5.7,z*4.3)*.04;
+  if(d>0.98+wobble) return 'water';
   return 'grass';
 }
 function baseGlyphForTile(x,z){
@@ -2297,13 +2298,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
    
     // Tilt-shift depth of field. The old comment promised this but it was never
     // enabled. Focus tracks the camera target so the island centre stays sharp.
-    rp.depthOfFieldEnabled=true;
-    rp.depthOfFieldBlurLevel=BABYLON.DepthOfFieldEffectBlurLevel.High;
-    rp.depthOfField.focalLength=200;
-    rp.depthOfField.fStop=0.7;
-    // Maximum tilt-shift effect. Focus at 18000 puts the sharp band
-    // across the middle of the island.
-    rp.depthOfField.focusDistance=18000;
+    rp.depthOfFieldEnabled=false;
     state.renderPipeline=rp;
     // Ambient occlusion is what makes the reference read as sculpted clay
     // rather than flat colour. Neither the imported GLBs (Tripo bakes a pure

@@ -1237,6 +1237,48 @@
       if(!window.GEEBR_STILL_MODE)
         scene.onBeforeRenderObservable.add(()=>{ sc+=sp*.016; if(sc>3.6) sc=.4; ring.scaling.set(sc,sc,1); rm.alpha=.30*(1-sc/3.8); });
     }
+
+    // Layered water: concentric depth rings around the island, lighter toward
+    // the shore, darker out to sea. Matches the concept's painted strata.
+    const layerM=[];
+    for(let i=0;i<4;i++){
+      const lm=new BABYLON.PBRMaterial('hd_water_layer_'+i,scene);
+      const t=i/3;
+      lm.albedoColor=C3(.012+.028*t,.048+.052*t,.078+.068*t);
+      lm.metallic=.10; lm.roughness=.28;
+      lm.emissiveColor=C3(.004+.006*t,.014+.012*t,.026+.018*t);
+      lm.environmentIntensity=.42;
+      lm.alpha=.72-.12*i;
+      layerM.push(lm);
+    }
+    const layerR=[WORLD.halfW+2.2, WORLD.halfW+4.8, WORLD.halfW+8.2, WORLD.halfW+13.0];
+    for(let i=0;i<4;i++){
+      const ring=BABYLON.MeshBuilder.CreateDisc('hd_water_layer',{ radius:layerR[i], tessellation:64 },scene);
+      ring.rotation.x=Math.PI/2; ring.position.y=SEA_Y-.015-.012*i;
+      ring.material=layerM[i]; ring.isPickable=false;
+    }
+
+    // Lily pads scattered on the water near the island edge.
+    const lilyM=new BABYLON.PBRMaterial('hd_lily_mat',scene);
+    lilyM.albedoColor=C3(.09,.24,.10); lilyM.metallic=0; lilyM.roughness=.72;
+    lilyM.emissiveColor=C3(.01,.04,.01);
+    let lilySeed=0xbeef42;
+    const lilyRnd=()=>{ lilySeed=(lilySeed*1664525+1013904223)>>>0; return lilySeed/4294967296; };
+    for(let i=0;i<18;i++){
+      const a=lilyRnd()*Math.PI*2;
+      const r=WORLD.halfW+1.2+lilyRnd()*5.5;
+      const x=Math.cos(a)*r, z=Math.sin(a)*r*.85;
+      const pad=BABYLON.MeshBuilder.CreateDisc('hd_lily_pad',{ radius:.16+lilyRnd()*.22, tessellation:8 },scene);
+      pad.rotation.x=Math.PI/2; pad.rotation.z=lilyRnd()*Math.PI*2;
+      pad.position.set(x,SEA_Y+.02,z);
+      pad.material=lilyM; pad.isPickable=false;
+      // notch: a small darker disc on top reads as the classic lily-pad split
+      if(lilyRnd()<.55){
+        const notch=BABYLON.MeshBuilder.CreateDisc('hd_lily_notch',{ radius:pad.radius*.42, tessellation:6 },scene);
+        notch.rotation.x=Math.PI/2; notch.position.set(x+pad.radius*.38,SEA_Y+.022,z);
+        notch.material=lilyM; notch.isPickable=false;
+      }
+    }
     return sea;
   }
 
