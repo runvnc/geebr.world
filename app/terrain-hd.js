@@ -418,18 +418,31 @@
     let seed=0x1c3ff5;
     const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
     const cells=[];
+
+    // Deliberately unrelated silhouettes on all four sides. Each entry is the
+    // signed displacement of one perimeter tile from the old rectangle: the
+    // long east nose, bitten north-west bay and short south shoulder make the
+    // island unmistakably lopsided from every useful camera angle.
+    const edgeOffsets={
+      'x:-1':[-.35,-.80,-1.15,-.95,-.40,.15,.75,1.15,1.00,.35],
+      'x:1': [.55,.10,-.35,-.85,-.60,.10,.95,1.65,2.05,1.35],
+      'z:-1':[-.65,-.95,-.45,.20,.75,1.15,1.45,1.05,.25,-.55,-1.00,-.55],
+      'z:1': [1.55,1.05,.35,-.35,-.95,-1.25,-.70,.05,.75,1.35,.85,.15]
+    };
     for(const axis of ['x','z']) for(const side of [-1,1]){
-      const half = axis==='x' ? WORLD.halfW : WORLD.halfH;
-      const n=Math.round(half*2);
+      const alongHalf = axis==='x' ? WORLD.halfW : WORLD.halfH;
+      const n=Math.round(alongHalf*2);
+      const profile=edgeOffsets[axis+':'+side];
       for(let i=0;i<n;i++){
         const corner = i===0 || i===n-1;
-        // 36% of the perimeter steps the plateau down and out one tile; a
-        // sixth of those step again, so the green cascades instead of stopping.
-        const step = corner ? 0 : (rnd()<.72 ? (rnd()<.45?2:1) : 0);
+        const shapeOut=profile[i%profile.length];
+        // Cascades are biased toward coves; exposed noses carry more bare rock.
+        const stepChance=shapeOut<0?.84:.58;
+        const step = corner ? 0 : (rnd()<stepChance ? (rnd()<(shapeOut<0?.55:.34)?2:1) : 0);
         const stepOut = .22+rnd()*.28;
         const c={
-          axis, side, corner, step,
-          along: -half+.5+i,
+          axis, side, corner, step, shapeOut,
+          along: -alongHalf+.5+i,
           stepOut, stepDrop: .54,
           stepOut2: stepOut+.66, stepDrop2: 1.10,
           stepShift: (rnd()-.5)*.30,
@@ -437,32 +450,22 @@
           scatter: !corner && rnd()<.16,
           rA: rnd(), rB: rnd(), rC: rnd(), rD: rnd()
         };
-        // Sub-columns: TWO stone cubes per grass tile across, which is the
-        // proportion in the reference. One tile-wide block per cell always
-        // reads as a wall panel however it is toned or staggered.
         c.cols=[];
-        const wide=!corner && !step && rnd()<.26;   // one full-tile cube here
+        const wide=!corner && !step && rnd()<.26;
         for(let k=0;k<(wide?1:2);k++){
           const along=c.along+(wide?0:(k?.25:-.25));
           if(step){
-            // Sit directly under the grass tile that stepped out here, so the
-            // cascade has something to stand on.
             const s2 = step===2 && k===1;
             const off  = s2?c.stepOut2:c.stepOut;
             const drop = s2?c.stepDrop2:c.stepDrop;
-            c.cols.push({ along, top: TOP_Y-drop-GRASS_LIP-rnd()*.10, out: off+.26+rnd()*.12,
-                          r:rnd(), r2:rnd(), wide });
+            c.cols.push({ along, top: TOP_Y-drop-GRASS_LIP-rnd()*.10,
+                          out: shapeOut+off+.26+rnd()*.12, r:rnd(), r2:rnd(), wide });
           } else {
-            // Vertical jitter on the tread is what stops neighbouring cubes
-            // from being coplanar and hiding each other's top faces.
-            // Only a shallow vertical jitter: a deep one exposes the core
-            // under the plateau. Depth variety comes from `out`.
             c.cols.push({ along, top: TOP_Y-GRASS_LIP-rnd()*.09,
-                          out: (corner?.04:.03)+rnd()*(corner?.10:.20),
+                          out: shapeOut+(corner?.04:.03)+rnd()*(corner?.10:.20),
                           r:rnd(), r2:rnd(), wide });
           }
         }
-        // Kept for the vegetation pass, which seeds plants on the treads.
         c.ledges=c.cols.map(q=>({ top:q.top, out:q.out }));
         cells.push(c);
       }
@@ -516,6 +519,14 @@
         const cx=tx+.5, cz=tz+.5;
         const kind = API.proceduralTerrainAt(cx,cz);
         const key = groups[kind] ? kind : 'grass';
+        // Cut the plateau itself to the same one-sided silhouette as the cliff.
+        // The east nose reaches farther than the west, while the north-west bay
+        // takes a deep bite; this is intentionally not mirrored on either axis.
+        const east=[.55,.10,-.35,-.85,-.60,.10,.95,1.65,2.05,1.35][Math.max(0,Math.min(9,Math.floor(tz+WORLD.halfH)))];
+        const west=[-.35,-.80,-1.15,-.95,-.40,.15,.75,1.15,1.00,.35][Math.max(0,Math.min(9,Math.floor(tz+WORLD.halfH)))];
+        const north=[1.55,1.05,.35,-.35,-.95,-1.25,-.70,.05,.75,1.35,.85,.15][Math.max(0,Math.min(11,Math.floor(tx+WORLD.halfW)))];
+        const south=[-.65,-.95,-.45,.20,.75,1.15,1.45,1.05,.25,-.55,-1.00,-.55][Math.max(0,Math.min(11,Math.floor(tx+WORLD.halfW)))];
+        if(cx>WORLD.halfW+east || cx<-WORLD.halfW-west || cz>WORLD.halfH+north || cz<-WORLD.halfH-south) continue;
         const n=noise(tx*3.1+5,tz*2.7-3);
         const h=.42+n*.025;
         const lift=(noise(tx*7.7,tz*5.3)-.5)*.018;
@@ -1159,84 +1170,126 @@
   /* ---------- 5. water + foam ---------------------------------------- */
   function buildWater(scene){
     const { WORLD } = API;
-    const sea=BABYLON.MeshBuilder.CreateGround('hd_sea',{ width:180, height:180, subdivisions:64 },scene);
     const SEA_Y=SEA_LEVEL;
+    const sea=BABYLON.MeshBuilder.CreateGround('hd_sea',{ width:180, height:180, subdivisions:72 },scene);
     sea.position.y=SEA_Y; sea.isPickable=false;
     const m=new BABYLON.PBRMaterial('hd_sea_mat',scene);
-    m.albedoColor=C3(.008,.032,.058);
-    // Was metallic .16 / roughness .14: a mirror that blew out to pure white
-    // wherever the key light glanced off it.
-    m.metallic=.22; m.roughness=.18;
-    m.emissiveColor=C3(.003,.012,.024);
-    m.environmentIntensity=.68;
-    m.alpha=.92;
+    m.albedoColor=C3(.006,.039,.064);
+    m.metallic=.12; m.roughness=.24;
+    m.emissiveColor=C3(.002,.014,.025);
+    m.environmentIntensity=.72; m.alpha=.96;
     sea.material=m;
     const pos=sea.getVerticesData(BABYLON.VertexBuffer.PositionKind), base=pos.slice();
     const nrm=sea.getVerticesData(BABYLON.VertexBuffer.NormalKind);
-    // 4,225 CPU vertex writes plus a full normal recompute per frame. Fine when
-    // a human is watching the waves, pure waste for a screenshot, so still mode
-    // evaluates it once and unhooks.
+    const waveHeight=(x,z,t)=>
+      Math.sin(x*.43+z*.14+t*.68)*.060+
+      Math.sin(z*.71-x*.09-t*.52)*.044+
+      Math.sin((x+z)*1.26+t*1.03)*.018+
+      Math.sin(Math.hypot(x+5,z-2)*.92-t*.80)*.012;
     const waveStep=(t)=>{
-      for(let i=0;i<pos.length;i+=3){
-        const x=base[i], z=base[i+2];
-        pos[i+1]=Math.sin(x*.55+t*.75)*.068+Math.sin(z*.83-t*.58)*.048+Math.sin((x+z)*1.4+t*1.2)*.018;
-      }
+      for(let i=0;i<pos.length;i+=3) pos[i+1]=waveHeight(base[i],base[i+2],t);
       sea.updateVerticesData(BABYLON.VertexBuffer.PositionKind,pos,false,false);
       BABYLON.VertexData.ComputeNormals(pos,sea.getIndices(),nrm);
       sea.updateVerticesData(BABYLON.VertexBuffer.NormalKind,nrm,false,false);
     };
-    if(window.GEEBR_STILL_MODE) waveStep(0);
-    else scene.onBeforeRenderObservable.add(()=>waveStep(performance.now()*.001));
 
-    // Layered water: concentric depth rings around the island, lighter toward
-    // the shore, darker out to sea. Matches the concept's painted strata.
-    const layerM=[];
-    for(let i=0;i<4;i++){
-      const lm=new BABYLON.PBRMaterial('hd_water_layer_'+i,scene);
-      const t=i/3;
-      lm.albedoColor=C3(.018+.042*t,.068+.072*t,.108+.088*t);
-      lm.metallic=.06; lm.roughness=.22;
-      lm.emissiveColor=C3(.006+.010*t,.022+.020*t,.038+.028*t);
-      lm.environmentIntensity=.58;
-      lm.alpha=.88-.08*i;
-      layerM.push(lm);
-    }
-    const layerR=[WORLD.halfW+2.2, WORLD.halfW+4.8, WORLD.halfW+8.2, WORLD.halfW+13.0];
-    for(let i=0;i<4;i++){
-      const ring=BABYLON.MeshBuilder.CreateDisc('hd_water_layer',{ radius:layerR[i], tessellation:64 },scene);
-      ring.rotation.x=Math.PI/2; ring.position.y=SEA_Y-.015-.012*i;
-      ring.material=layerM[i]; ring.isPickable=false;
+    // Broad translucent current bands. They are irregular polygons rather than
+    // concentric discs, so the water has a direction and never reads as rings.
+    const currentM=[];
+    const currentMeshes=[];
+    const makeCurrent=(i,pts,color,alpha)=>{
+      // A triangle fan avoids Babylon's optional earcut dependency. These
+      // current shapes are convex by design, so the fan is exact.
+      const cx=pts.reduce((a,p)=>a+p[0],0)/pts.length;
+      const cz=pts.reduce((a,p)=>a+p[1],0)/pts.length;
+      const positions=[cx,0,cz], indices=[];
+      for(const p of pts) positions.push(p[0],0,p[1]);
+      for(let j=0;j<pts.length;j++) indices.push(0,1+j,1+((j+1)%pts.length));
+      const vd=new BABYLON.VertexData(); vd.positions=positions; vd.indices=indices;
+      vd.normals=[]; BABYLON.VertexData.ComputeNormals(positions,indices,vd.normals);
+      const poly=new BABYLON.Mesh('hd_water_current_'+i,scene); vd.applyToMesh(poly);
+      const cm=new BABYLON.PBRMaterial('hd_water_current_mat_'+i,scene);
+      cm.albedoColor=color; cm.emissiveColor=color.scale(.17); cm.metallic=.04;
+      cm.roughness=.30; cm.alpha=alpha; cm.backFaceCulling=false;
+      poly.position.y=SEA_Y+.018+i*.004; poly.material=cm; poly.isPickable=false; poly.alphaIndex=4+i;
+      currentM.push(cm); currentMeshes.push(poly);
+    };
+    makeCurrent(0,[[-19,-10],[-7,-12],[6,-9],[18,-3],[18,2],[5,-2],[-7,-5],[-19,-3]],C3(.018,.105,.144),.27);
+    makeCurrent(1,[[-18,7],[-7,3],[3,4],[18,10],[18,16],[4,10],[-8,10],[-18,14]],C3(.025,.128,.160),.23);
+    makeCurrent(2,[[-15,-18],[-10,-7],[-12,4],[-18,15],[-24,15],[-19,2],[-21,-9]],C3(.014,.080,.126),.24);
+
+    // Thin moving glints laid over the physical waves. Their low alpha and
+    // staggered lengths give highlights without the old solid torus/ring look.
+    const glintM=new BABYLON.StandardMaterial('hd_water_glint_mat',scene);
+    glintM.emissiveColor=C3(.20,.48,.57); glintM.diffuseColor=C3(0,0,0);
+    glintM.disableLighting=true; glintM.alpha=.20;
+    const glints=[];
+    let waterSeed=0xa71ce5;
+    const wrnd=()=>{ waterSeed=(waterSeed*1664525+1013904223)>>>0; return waterSeed/4294967296; };
+    for(let i=0;i<34;i++){
+      const x=(wrnd()*2-1)*20, z=(wrnd()*2-1)*15, len=.35+wrnd()*1.35;
+      const line=BABYLON.MeshBuilder.CreateTube('hd_water_glint',{path:[V3(x-len*.5,SEA_Y+.07,z),V3(x+len*.5,SEA_Y+.07,z+.05)],radius:.009+wrnd()*.010,tessellation:4},scene);
+      line.material=glintM; line.isPickable=false; line.alphaIndex=9;
+      glints.push({mesh:line,x,z,phase:wrnd()*6.28,speed:.10+wrnd()*.15});
     }
 
-    // Lily pads scattered on the water near the island edge.
+    // Foam dashes sampled from the same lopsided edge profile as the cliff.
+    // Every dash bobs independently; no rectangular collar and no z-fighting.
+    const foamM=new BABYLON.StandardMaterial('hd_shore_foam_mat',scene);
+    foamM.emissiveColor=C3(.31,.56,.61); foamM.diffuseColor=C3(.05,.12,.13);
+    foamM.disableLighting=true; foamM.alpha=.34;
+    const foam=[];
+    for(const c of edgeProfile().cells){
+      if(c.corner) continue;
+      const outHalf=c.axis==='x'?WORLD.halfH:WORLD.halfW;
+      const out=outHalf+c.shapeOut+.55+c.rA*.24;
+      const along=c.along+(c.rB-.5)*.45;
+      const x=c.axis==='x'?along:c.side*out, z=c.axis==='x'?c.side*out:along;
+      const len=.15+c.rC*.32;
+      const dash=BABYLON.MeshBuilder.CreateTube('hd_shore_foam',{path:[V3(x-len,SEA_Y+.075,z),V3(x+len,SEA_Y+.075,z)],radius:.018+c.rD*.012,tessellation:4},scene);
+      if(c.axis==='z') dash.rotation.y=Math.PI/2;
+      dash.material=foamM; dash.isPickable=false; dash.alphaIndex=10;
+      foam.push({mesh:dash,x,z,phase:(c.rA+c.rC)*6.28});
+    }
+
     const lilyM=new BABYLON.PBRMaterial('hd_lily_mat',scene);
     lilyM.albedoColor=C3(.09,.24,.10); lilyM.metallic=0; lilyM.roughness=.72; lilyM.specularIntensity=.5;
     lilyM.emissiveColor=C3(.01,.04,.01);
     const lilyStemM=new BABYLON.PBRMaterial('hd_lily_stem_mat',scene);
     lilyStemM.albedoColor=C3(.06,.16,.06); lilyStemM.metallic=0; lilyStemM.roughness=.82; lilyStemM.specularIntensity=.5;
-    let lilySeed=0xbeef42;
-    const lilyRnd=()=>{ lilySeed=(lilySeed*1664525+1013904223)>>>0; return lilySeed/4294967296; };
+    const lilies=[];
     for(let i=0;i<18;i++){
-      const a=lilyRnd()*Math.PI*2;
-      const r=WORLD.halfW+1.2+lilyRnd()*5.5;
-      const x=Math.cos(a)*r, z=Math.sin(a)*r*.85;
-      const padR=.16+lilyRnd()*.22;
-      // Pad: a low cylinder so it has thickness and catches light on its rim
-      const pad=BABYLON.MeshBuilder.CreateCylinder('hd_lily_pad',{ diameter:padR*2, height:.028, tessellation:10 },scene);
-      pad.rotation.y=lilyRnd()*Math.PI*2;
-      pad.position.set(x,SEA_Y+.014,z);
-      pad.material=lilyM; pad.isPickable=false;
-      // Stem: a thin cylinder dropping into the water
-      const stem=BABYLON.MeshBuilder.CreateCylinder('hd_lily_stem',{ diameter:.024, height:.22, tessellation:5 },scene);
-      stem.position.set(x,SEA_Y-.10,z);
-      stem.material=lilyStemM; stem.isPickable=false;
-      // Notch: a small wedge cut out of the pad rim
-      if(lilyRnd()<.55){
-        const notch=BABYLON.MeshBuilder.CreateCylinder('hd_lily_notch',{ diameter:padR*.84, height:.030, tessellation:6 },scene);
-        notch.position.set(x+padR*.38,SEA_Y+.015,z);
-        notch.material=lilyStemM; notch.isPickable=false;
-      }
+      const a=wrnd()*Math.PI*2, r=WORLD.halfW+1.4+wrnd()*5.4;
+      const x=Math.cos(a)*r+1.3, z=Math.sin(a)*r*.82-.4, padR=.16+wrnd()*.22;
+      const pad=BABYLON.MeshBuilder.CreateCylinder('hd_lily_pad',{diameter:padR*2,height:.028,tessellation:10},scene);
+      pad.rotation.y=wrnd()*Math.PI*2; pad.position.set(x,SEA_Y+.045,z); pad.material=lilyM; pad.isPickable=false;
+      const stem=BABYLON.MeshBuilder.CreateCylinder('hd_lily_stem',{diameter:.024,height:.22,tessellation:5},scene);
+      stem.position.set(x,SEA_Y-.08,z); stem.material=lilyStemM; stem.isPickable=false;
+      lilies.push({pad,stem,x,z,phase:wrnd()*6.28});
     }
+
+    const animate=(t)=>{
+      waveStep(t);
+      for(let i=0;i<currentMeshes.length;i++){
+        currentMeshes[i].position.x=Math.sin(t*.07+i*2.1)*.55;
+        currentMeshes[i].position.z=Math.cos(t*.055+i)*.35;
+        currentM[i].alpha=(i===0?.27:i===1?.23:.24)*(1+Math.sin(t*.28+i)*.10);
+      }
+      for(const g of glints){
+        g.mesh.position.x=((t*g.speed+g.phase)%4)-2;
+        g.mesh.position.y=waveHeight(g.x+g.mesh.position.x,g.z,t)+SEA_Y+.075;
+        g.mesh.scaling.x=.70+.30*Math.sin(t*.75+g.phase);
+      }
+      foamM.alpha=.29+Math.sin(t*.92)*.07;
+      for(const f of foam) f.mesh.position.y=waveHeight(f.x,f.z,t)+Math.sin(t*1.2+f.phase)*.018;
+      for(const l of lilies){
+        const y=waveHeight(l.x,l.z,t);
+        l.pad.position.y=SEA_Y+.045+y; l.stem.position.y=SEA_Y-.08+y;
+        l.pad.rotation.z=Math.sin(t*.65+l.phase)*.035;
+      }
+    };
+    if(window.GEEBR_STILL_MODE) animate(0);
+    else scene.onBeforeRenderObservable.add(()=>animate(performance.now()*.001));
     return sea;
   }
 
