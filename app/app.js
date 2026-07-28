@@ -2224,7 +2224,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk)); if(window.GEEBR_STILL_MODE){ try{ scene.getPhysicsEngine()?.setTimeStep(0); console.warn('GEEBR: still mode - physics frozen'); }catch(e){} }
   // Initial three-quarter composition: house high-right, fire/geebr left of
   // centre, and the near tree/crates framing the lower-right foreground.
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI*.69,1.16,20.5,new BABYLON.Vector3(.9,.62,-.15),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI*.69+Math.PI,1.16,20.5,new BABYLON.Vector3(.9,.62,-.15),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;
@@ -2298,13 +2298,12 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     // Tilt-shift depth of field. The old comment promised this but it was never
     // enabled. Focus tracks the camera target so the island centre stays sharp.
     rp.depthOfFieldEnabled=true;
-    rp.depthOfFieldBlurLevel=BABYLON.DepthOfFieldEffectBlurLevel.Medium;
-    rp.depthOfField.focalLength=50;
-    rp.depthOfField.fStop=1.4;
-    scene.onBeforeRenderObservable.add(()=>{
-      // focusDistance is in millimetres
-      rp.depthOfField.focusDistance=BABYLON.Vector3.Distance(camera.position,camera.target)*1000;
-    });
+    rp.depthOfFieldBlurLevel=BABYLON.DepthOfFieldEffectBlurLevel.High;
+    rp.depthOfField.focalLength=200;
+    rp.depthOfField.fStop=0.7;
+    // Maximum tilt-shift effect. Focus at 18000 puts the sharp band
+    // across the middle of the island.
+    rp.depthOfField.focusDistance=18000;
     state.renderPipeline=rp;
     // Ambient occlusion is what makes the reference read as sculpted clay
     // rather than flat colour. Neither the imported GLBs (Tripo bakes a pure
