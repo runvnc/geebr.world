@@ -1,9 +1,0 @@
-Match the art style of the provided reference image EXACTLY, then produce a single isolated 3D game asset: ONE square modular terrain CLIFF EDGE tile, rendered as a clean product shot.
-
-The asset is a single square column block:
-- The TOP is a flat square of grass in the exact style of the reference: smooth matte clay-like desaturated olive / moss green with subtle mottled darker and lighter patches, a small tight rounded bevel at the top edges, NOT fuzzy grass, NOT bright saturated green. Add one small cluster of chunky simplified grass blades near one corner.
-- Directly below the grass, the sides are made of the same stylized stacked stone blocks seen in the reference cliff: chunky rectangular desaturated grey-green and blue-grey stone bricks of varying size, slightly irregular, with soft rounded edges and dark recessed gaps between them, some blocks jutting out a little. Muted, low saturation, matte.
-- The block is roughly as tall as it is wide, so it reads as a cliff edge piece.
-- A thin lip of the green grass layer overhangs the top row of stones very slightly, and a couple of small grass blades sprout from the top stone crevices.
-
-Framing: three-quarter view from above, object centered and entirely visible with margin, even soft neutral studio lighting, no cast shadow, plain flat neutral light grey background, nothing else in frame, no water, no fence, no crates, no text, no watermark. Product shot suitable for image-to-3D reconstruction.
