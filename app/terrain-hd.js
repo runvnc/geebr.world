@@ -425,8 +425,8 @@
         const corner = i===0 || i===n-1;
         // 36% of the perimeter steps the plateau down and out one tile; a
         // sixth of those step again, so the green cascades instead of stopping.
-        const step = corner ? 0 : (rnd()<.58 ? (rnd()<.34?2:1) : 0);
-        const stepOut = .30+rnd()*.16;
+        const step = corner ? 0 : (rnd()<.72 ? (rnd()<.45?2:1) : 0);
+        const stepOut = .22+rnd()*.28;
         const c={
           axis, side, corner, step,
           along: -half+.5+i,
@@ -1163,13 +1163,13 @@
     const SEA_Y=SEA_LEVEL;
     sea.position.y=SEA_Y; sea.isPickable=false;
     const m=new BABYLON.PBRMaterial('hd_sea_mat',scene);
-    m.albedoColor=C3(.012,.042,.072);
+    m.albedoColor=C3(.008,.032,.058);
     // Was metallic .16 / roughness .14: a mirror that blew out to pure white
     // wherever the key light glanced off it.
-    m.metallic=.06; m.roughness=.34;
-    m.emissiveColor=C3(.005,.018,.032);
-    m.environmentIntensity=.42;
-    m.alpha=.985;
+    m.metallic=.22; m.roughness=.18;
+    m.emissiveColor=C3(.003,.012,.024);
+    m.environmentIntensity=.68;
+    m.alpha=.92;
     sea.material=m;
     const pos=sea.getVerticesData(BABYLON.VertexBuffer.PositionKind), base=pos.slice();
     const nrm=sea.getVerticesData(BABYLON.VertexBuffer.NormalKind);
@@ -1179,7 +1179,7 @@
     const waveStep=(t)=>{
       for(let i=0;i<pos.length;i+=3){
         const x=base[i], z=base[i+2];
-        pos[i+1]=Math.sin(x*.55+t*.75)*.045+Math.sin(z*.83-t*.58)*.032+Math.sin((x+z)*1.4+t*1.2)*.012;
+        pos[i+1]=Math.sin(x*.55+t*.75)*.068+Math.sin(z*.83-t*.58)*.048+Math.sin((x+z)*1.4+t*1.2)*.018;
       }
       sea.updateVerticesData(BABYLON.VertexBuffer.PositionKind,pos,false,false);
       BABYLON.VertexData.ComputeNormals(pos,sea.getIndices(),nrm);

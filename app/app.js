@@ -8,7 +8,7 @@ const ANIM_ASSET = './assets/models/animations/kaykit/';
 const TILE_ASSET = './assets/models/tiles/';
 const DETAIL_NORMAL = './assets/textures/detail_clay_n.png';
 const GEEBR_ASSET = './assets/models/characters/generated/';
-const WORLD = { size: 14, half: 7, w: 14, h: 12, halfW: 7, halfH: 6 };
+const WORLD = { size: 12, half: 6, w: 12, h: 10, halfW: 6, halfH: 5 };
 const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
@@ -2298,9 +2298,9 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     // Tilt-shift depth of field. The old comment promised this but it was never
     // enabled. Focus tracks the camera target so the island centre stays sharp.
     rp.depthOfFieldEnabled=true;
-    rp.depthOfFieldBlurLevel=BABYLON.DepthOfFieldEffectBlurLevel.Low;
-    rp.depthOfField.focalLength=42;
-    rp.depthOfField.fStop=2.4;
+    rp.depthOfFieldBlurLevel=BABYLON.DepthOfFieldEffectBlurLevel.Medium;
+    rp.depthOfField.focalLength=50;
+    rp.depthOfField.fStop=1.4;
     scene.onBeforeRenderObservable.add(()=>{
       // focusDistance is in millimetres
       rp.depthOfField.focusDistance=BABYLON.Vector3.Distance(camera.position,camera.target)*1000;
