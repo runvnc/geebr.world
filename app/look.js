@@ -55,7 +55,7 @@
       m.useRoughnessFromMetallicTextureAlpha = false;
       m.roughness = o.rough;
       m.environmentIntensity = o.envIntensity;
-      m.specularIntensity = 1.0;
+      m.specularIntensity = 0.5;
       if (o.detail > 0) {
         const t = detailNormal(scene);
         m.detailMap.texture = t;
@@ -69,7 +69,7 @@
     } else if (m instanceof BABYLON.StandardMaterial) {
       // StandardMaterial ignores the IBL for diffuse so it can never fully
       // match a PBR asset. At minimum kill the plastic highlight.
-      m.specularColor = new BABYLON.Color3(1, 1, 1);
+      m.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
       m.specularPower = 128;
     }
     return m;

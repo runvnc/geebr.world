@@ -2156,7 +2156,7 @@ function makeCampfire(scene,x=1.8,z=2.6){
   const flame=BABYLON.MeshBuilder.CreateCylinder('campfire_flame',{diameterTop:0,diameterBottom:.20,height:.38,tessellation:7},scene);
   flame.position.set(x,.24,z); flame.material=flameM; flame.isPickable=false;
   const light=new BABYLON.PointLight('campfire_light',new BABYLON.Vector3(x,.8,z),scene);
-  light.diffuse=new BABYLON.Color3(1,.46,.13); light.intensity=5.2; light.range=6.2; light.radius=.18;
+  light.diffuse=new BABYLON.Color3(1,.54,.18); light.intensity=8.4; light.range=6.2; light.radius=.18;
   // A small cubemap is enough for this short-range, flickering practical light.
   // Register the current scene and let addShadow() add future dynamic meshes.
   const fireShadow=new BABYLON.ShadowGenerator(512,light);
@@ -2170,7 +2170,7 @@ function makeCampfire(scene,x=1.8,z=2.6){
   }
   state.extraShadows ||= [];
   state.extraShadows.push(fireShadow);
-  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=4.9+Math.sin(t*3.1)*.45; });
+  scene.onBeforeRenderObservable.add(()=>{ const t=performance.now()*.004; const f=1+Math.sin(t)*.08+Math.sin(t*2.7)*.05; flame.scaling.set(f,1+Math.sin(t*1.7)*.12,f); light.intensity=8.0+Math.sin(t*3.1)*.75; });
 }
 function makeSelectionRing(scene){
   const m=new BABYLON.StandardMaterial('sel_ring_mat',scene);
@@ -2262,7 +2262,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Its finite range equals the island's 14-unit width.
   const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(-1.0,5.0,10.5),scene); cornerKey.name='tree_key_moved';
   cornerKey.diffuse=new BABYLON.Color3(1,.82,.55); cornerKey.specular=new BABYLON.Color3(.34,.26,.17);
-  cornerKey.intensity=100; cornerKey.range=46; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
+  cornerKey.intensity=200; cornerKey.range=46; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
   // Point-light shadows render a cubemap (six directions), so keep this at
   // 1024 rather than duplicating the old 2048 directional-map cost sixfold.
   const cornerShadow=new BABYLON.ShadowGenerator(1024,cornerKey);
@@ -2335,9 +2335,9 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
       material.useRoughnessFromMetallicTextureAlpha=false;
       material.roughness=.24;
       material.environmentIntensity=Math.max(.85,material.environmentIntensity||0);
-      material.specularIntensity=1;
+      material.specularIntensity=material.name.includes('water') || material.name.includes('sea') ? 1 : .5;
     } else if(material instanceof BABYLON.StandardMaterial){
-      material.specularColor=new BABYLON.Color3(1,1,1);
+      material.specularColor=(material.name.includes('water') || material.name.includes('sea')) ? new BABYLON.Color3(1,1,1) : new BABYLON.Color3(.5,.5,.5);
       material.specularPower=128;
     }
   }
