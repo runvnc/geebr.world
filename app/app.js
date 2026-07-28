@@ -358,7 +358,7 @@ function updateProceduralEmote(g,dt){
 async function createKayKitGeebr(scene,id,pos,file,label){
   const res=await BABYLON.SceneLoader.ImportMeshAsync('',CHAR_ASSET,file,scene);
   const root=new BABYLON.TransformNode(id,scene);
-  root.position.copyFrom(pos); root.scaling.setAll(.86);
+  root.position.copyFrom(pos); root.scaling.setAll(1.29);
   const importedRoot=res.meshes.find(m=>m.name==='__root__') || res.meshes[0];
   importedRoot.parent=root; importedRoot.position.set(0,0,0); importedRoot.rotationQuaternion=null; importedRoot.rotation.set(0,Math.PI,0);
   for(const mesh of res.meshes){ mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh); }
@@ -380,7 +380,7 @@ async function createGeneratedGeebr(scene,id,pos){
   // second container and retargeted by matching the generated skeleton node names.
   const idleRes=await BABYLON.SceneLoader.ImportMeshAsync('',GEEBR_ASSET,'geebr_rigged.glb',scene);
   const root=new BABYLON.TransformNode(id,scene);
-  root.position.copyFrom(pos); root.scaling.setAll(.58);
+  root.position.copyFrom(pos); root.scaling.setAll(.87);
   const importedRoot=idleRes.meshes.find(m=>m.name==='__root__') || idleRes.meshes[0];
   // New imported PBR materials arrive after startup's global material pass.
   // Keep their shader layout conservative too. Four is Babylon's portable
@@ -512,7 +512,7 @@ function lowPolyBlob(name,scene,rx=.5,ry=.6,rz=.4,rings=5,seg=8){ const position
 function createCrystal(name,scene,height=1.1,radius=.25){ const pts=[],idx=[],uv=[],seg=6; pts.push(0,height/2,0); uv.push(.5,0); pts.push(0,-height/2,0); uv.push(.5,1); for(let i=0;i<seg;i++){ const th=i/seg*Math.PI*2; pts.push(Math.cos(th)*radius,0,Math.sin(th)*radius); uv.push(i/seg,.5); } for(let i=0;i<seg;i++){ const a=2+i,b=2+(i+1)%seg; idx.push(0,a,b,1,b,a); } const normals=[]; BABYLON.VertexData.ComputeNormals(pts,idx,normals); const vd=new BABYLON.VertexData(); vd.positions=pts; vd.indices=idx; vd.normals=normals; vd.uvs=uv; const m=new BABYLON.Mesh(name,scene); vd.applyToMesh(m); return m; }
 function addToScene(mesh,material,body={}){ if(material) mesh.material=material; if(body.shape) addBody(mesh,body.motion||'dynamic',body.shape,body.mass??1,body); addShadow(mesh); return mesh; }
 function createGeebr(scene,id,pos,palette,style='goblin'){
-  const root=new BABYLON.TransformNode(id,scene); root.position.copyFrom(pos);
+  const root=new BABYLON.TransformNode(id,scene); root.position.copyFrom(pos); root.scaling.setAll(1.5);
   const clay=palette.clay||state.materials.geebr;
   // A compact, deliberate silhouette: pear body, clear face, grounded feet.
   const body=lowPolyBlob(id+'_body',scene,.37,.43,.31,5,9); body.parent=root; body.position.y=.49; body.material=clay; addShadow(body);

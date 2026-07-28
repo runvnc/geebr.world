@@ -558,6 +558,26 @@
         groups[key].push(box);
       }
     }
+    // Front cap under the point light (+Z): continue the top grass out over
+    // the new cliff expansion instead of leaving a bare stone shelf. The cap
+    // follows each front profile cell, so it preserves the lopsided outline.
+    if(grassProto){
+      for(const c of edgeProfile().cells){
+        if(c.axis!=='x' || c.side!==1 || c.shapeOut<=.05) continue;
+        const rows=Math.max(1,Math.ceil(c.shapeOut));
+        for(let row=1;row<=rows;row++){
+          const outward=WORLD.halfH+Math.min(c.shapeOut,row-.35);
+          const box=grassProto.clone('hd_grass_front_cap');
+          box.setEnabled(true); box.isVisible=true; box.isPickable=false;
+          box.rotation.y=Math.floor(yawRnd()*4)*Math.PI/2;
+          box.scaling.x=(yawRnd()<.5?-1:1)*1.006;
+          box.scaling.z=(yawRnd()<.5?-1:1)*1.006; box.scaling.y=1.006;
+          box.position.set(c.along,.010,outward);
+          groups.grass.push(box);
+        }
+      }
+    }
+
     // Grass cascade. The reference plateau does not stop at a line: part of
     // the perimeter steps down and outward one or two tiles before the stone
     // takes over. These are real grass_v7 clones, not boxes, so they carry the
