@@ -2259,9 +2259,9 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   sun.setEnabled(false);
   // Broad point source at the front-left corner, opposite the house.
   // Its finite range equals the island's 14-unit width.
-  const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(1.0,2.6,1.6),scene); cornerKey.name='tree_key_moved';
+  const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(-1.0,5.0,10.5),scene); cornerKey.name='tree_key_moved';
   cornerKey.diffuse=new BABYLON.Color3(1,.82,.55); cornerKey.specular=new BABYLON.Color3(.34,.26,.17);
-  cornerKey.intensity=100; cornerKey.range=40; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
+  cornerKey.intensity=100; cornerKey.range=46; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
   // Point-light shadows render a cubemap (six directions), so keep this at
   // 1024 rather than duplicating the old 2048 directional-map cost sixfold.
   const cornerShadow=new BABYLON.ShadowGenerator(1024,cornerKey);
