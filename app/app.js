@@ -2259,9 +2259,9 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   sun.setEnabled(false);
   // Broad point source at the front-left corner, opposite the house.
   // Its finite range equals the island's 14-unit width.
-  const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(-4.9,4.0,4.2),scene);
+  const cornerKey=new BABYLON.PointLight('composition_opposite_corner_point',new BABYLON.Vector3(1.0,2.6,1.6),scene); cornerKey.name='tree_key_moved';
   cornerKey.diffuse=new BABYLON.Color3(1,.82,.55); cornerKey.specular=new BABYLON.Color3(.34,.26,.17);
-  cornerKey.intensity=7.5; cornerKey.range=WORLD.size*3; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
+  cornerKey.intensity=100; cornerKey.range=40; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
   // Point-light shadows render a cubemap (six directions), so keep this at
   // 1024 rather than duplicating the old 2048 directional-map cost sixfold.
   const cornerShadow=new BABYLON.ShadowGenerator(1024,cornerKey);
@@ -2329,7 +2329,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Babylon otherwise takes the first N scene lights, so the late-created
   // campfire/lantern lose to broad fill lights. Put practicals first; material
   // shaders then get both practical pools plus the shared key/rim within four.
-  const lightPriority={campfire_light:0,hd_lantern_light:1,composition_opposite_corner_point:2,teal_rim:3,sky_dome_light:4,cool_fill:5};
+  const lightPriority={campfire_light:0,hd_lantern_light:1,tree_key_moved:2,composition_opposite_corner_point:2,teal_rim:3,sky_dome_light:4,cool_fill:5};
   scene.lights.sort((a,b)=>(lightPriority[a.name]??50)-(lightPriority[b.name]??50));
   // Keep PBR light shaders within WebGPU's portable uniform-buffer budget.
   // Four slots are sufficient once the disabled sun is removed and practical
