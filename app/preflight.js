@@ -35,7 +35,7 @@
     ['tts/tts-ui.js'],
     ['look.js'],
     ['terrain-hd.js'],
-    ['app.js'],
+    ['app.js?v=20260727a'],
     ['llm_js/world-integration.js', 'module'],
   ];
 
