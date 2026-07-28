@@ -560,16 +560,14 @@
         groups[key].push(box);
       }
     }
-    // Annotated front-left grass shelf over the cliff rollers. Keep this
-    // compact and local; it is not the full front edge expansion from the prior
-    // interpretation.
+    // One whole grass tile over the annotated front shelf. It deliberately
+    // replaces the exposed top row of stone here rather than merely sitting
+    // beside it or covering the area with several narrow strips.
     if(grassProto){
-      for(const [x,z,yaw] of [[-3.25,WORLD.halfH-.04,-.02],[-2.35,WORLD.halfH+.03,.02],[-1.45,WORLD.halfH-.02,-.03]]){
-        const box=grassProto.clone('hd_grass_front_terrace');
-        box.setEnabled(true); box.isVisible=true; box.isPickable=false;
-        box.rotation.y=yaw; box.scaling.x=1.006; box.scaling.z=1.006; box.scaling.y=1.006;
-        box.position.set(x,.010,z); groups.grass.push(box);
-      }
+      const box=grassProto.clone('hd_grass_front_terrace');
+      box.setEnabled(true); box.isVisible=true; box.isPickable=false;
+      box.rotation.y=0; box.scaling.set(1.006,1.006,1.006);
+      box.position.set(-2.35,.010,WORLD.halfH+.03); groups.grass.push(box);
     }
 
     // Grass cascade. The reference plateau does not stop at a line: part of
@@ -795,11 +793,11 @@
           const d=out+1.06+rnd()*.16;
           // Seam must be wide enough for SSAO to resolve at review distance;
           // at 0.04 it was finer than the sample radius and contributed nothing.
-          const w=(col.wide?.84:.37)+rnd()*.04;
+          const w=(col.wide?.92:.48)+rnd()*.10;
           // Recessed courses take an extra tone cut: a block set back behind
           // its neighbours is in their shadow and the render should say so.
           const recess=Math.max(0,Math.min(1,(col.out-out)*2.2));
-          put(blocks,'hd_cliff_block',c,col.along+(rnd()-.5)*.03,
+          put(blocks,'hd_cliff_block',c,col.along+((ci&1)?.15:-.15)+(rnd()-.5)*.10,
             outHalf+out,w,h,d,top,depthTone(top,recess));
           top-=h; ci++;
         }
@@ -856,24 +854,28 @@
       }
     }
 
-    // Front-left grass shelf (annotated target). The visible structure is a
-    // broad green cap with only a short stone fascia beneath it; the previous
-    // full-height roller columns hanging into the water are deliberately gone.
-    const terraceCaps=[];
-    for(const [x,z,yaw] of [[-3.25,WORLD.halfH-.04,-.02],[-2.35,WORLD.halfH+.03,.02],[-1.45,WORLD.halfH-.02,-.03]]){
-      const h=.42+rnd()*.04;
-      blocks.push(stoneBox(scene,'hd_cliff_terrace_fascia',.84,h,.72,
-        x,TOP_Y-GRASS_LIP-h*.5,z,stone,depthTone(TOP_Y-GRASS_LIP),yaw));
-      terraceCaps.push({x,z});
-    }
-    API.state.frontGrassTerrace=terraceCaps;
+    // The annotated front shelf is grass-only at its top. Do not add the
+    // former side-by-side stone fascia here; adjacent staggered cliff blocks
+    // support it from below and behind without recreating the crossed-out row.
+    API.state.frontGrassTerrace=[{x:-2.35,z:WORLD.halfH+.03}];
 
     // Solid core. Set well back from the shallowest cube: flush with them it
     // reads as a continuous wall behind the seams, whereas at this depth the
     // seams go dark and the cubes separate. Toned down for the same reason.
-    const coreInX=Math.min(coreX,WORLD.halfW-.95), coreInZ=Math.min(coreZ,WORLD.halfH-.95);
+    const coreInX=Math.min(coreX+.38,WORLD.halfW-.42), coreInZ=Math.min(coreZ+.38,WORLD.halfH-.42);
     blocks.push(stoneBox(scene,'hd_cliff_core',coreInX*2,TERRACE_TOP-BOT,coreInZ*2,
       0,(TERRACE_TOP+BOT)*.5,0,stone,.30));
+    // Secondary staggered infill sits behind every other perimeter cell.
+    // It closes the unnatural full-height slots while retaining a voxel edge
+    // and irregular shallow seams between individual stones.
+    for(const c of E.cells){
+      if(c.corner || (Math.floor(c.along+20)&1)) continue;
+      const outHalf=c.axis==='x'?WORLD.halfH:WORLD.halfW;
+      const h=.72+rnd()*.34, top=TOP_Y-GRASS_LIP-.24-rnd()*.18;
+      const out=c.shapeOut-.30+rnd()*.18, d=.82+rnd()*.18, w=.72+rnd()*.20;
+      put(blocks,'hd_cliff_infill',c,c.along+.28+(rnd()-.5)*.12,
+        outHalf+out,w,h,d,top,depthTone(top,.45));
+    }
 
     // Shallow-water stones so the shoreline is not a clean rectangle meeting a
     // flat plane.
