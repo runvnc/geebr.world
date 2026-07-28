@@ -560,14 +560,15 @@
         groups[key].push(box);
       }
     }
-    // One whole grass tile over the annotated front shelf. It deliberately
-    // replaces the exposed top row of stone here rather than merely sitting
-    // beside it or covering the area with several narrow strips.
+    // The three specifically annotated front-shelf cells are complete grass
+    // tiles: two across the upper row and one directly below the left tile.
     if(grassProto){
-      const box=grassProto.clone('hd_grass_front_terrace');
-      box.setEnabled(true); box.isVisible=true; box.isPickable=false;
-      box.rotation.y=0; box.scaling.set(1.006,1.006,1.006);
-      box.position.set(-2.35,.010,WORLD.halfH+.03); groups.grass.push(box);
+      for(const [x,z] of [[-2.85,WORLD.halfH+.03],[-1.85,WORLD.halfH+.03],[-2.85,WORLD.halfH+1.03]]){
+        const box=grassProto.clone('hd_grass_front_terrace');
+        box.setEnabled(true); box.isVisible=true; box.isPickable=false;
+        box.rotation.y=0; box.scaling.set(1.006,1.006,1.006);
+        box.position.set(x,.010,z); groups.grass.push(box);
+      }
     }
 
     // Grass cascade. The reference plateau does not stop at a line: part of
@@ -857,7 +858,7 @@
     // The annotated front shelf is grass-only at its top. Do not add the
     // former side-by-side stone fascia here; adjacent staggered cliff blocks
     // support it from below and behind without recreating the crossed-out row.
-    API.state.frontGrassTerrace=[{x:-2.35,z:WORLD.halfH+.03}];
+    API.state.frontGrassTerrace=[{x:-2.85,z:WORLD.halfH+.03},{x:-1.85,z:WORLD.halfH+.03},{x:-2.85,z:WORLD.halfH+1.03}];
 
     // Solid core. Set well back from the shallowest cube: flush with them it
     // reads as a continuous wall behind the seams, whereas at this depth the
