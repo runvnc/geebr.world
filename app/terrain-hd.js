@@ -1071,6 +1071,13 @@
       }
     }
 
+    // Remove the two unsupported vegetation clumps at the annotated front
+    // shelf. They were generated from edge/seam scatter and visibly floated
+    // over the cliff; no replacement tile is wanted here.
+    const floatingFrontPatch=m=>m.position.z>WORLD.halfH-.35 && m.position.z<WORLD.halfH+1.35 && m.position.x>-4.35 && m.position.x<-2.15;
+    for(let i=tufts.length-1;i>=0;i--) if(floatingFrontPatch(tufts[i])) tufts.splice(i,1)[0].dispose();
+    for(let i=daisies.length-1;i>=0;i--) if(floatingFrontPatch(daisies[i])) daisies.splice(i,1)[0].dispose();
+
     tuftProto.dispose(); daisyProto.dispose();
     // Keep transformed clones separate. Mesh.MergeMeshes was flattening the
     // imported GLB clones without preserving their authored rotations, making
