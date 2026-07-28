@@ -329,9 +329,11 @@
     m.useRoughnessFromMetallicTextureGreen=true;
     m.useRoughnessFromMetallicTextureAlpha=false;
     m.useAmbientOcclusionFromMetallicTextureRed=true;
-    m.metallic=0; m.roughness=1;
-    m.environmentIntensity=.55;
-    m.specularIntensity=.5;
+    m.metallic=0; m.roughness=.24;
+    m.useRoughnessFromMetallicTextureGreen=false;
+    m.useRoughnessFromMetallicTextureAlpha=false;
+    m.environmentIntensity=.85;
+    m.specularIntensity=1;
     cache.set(key,m);
     return m;
   }
@@ -558,23 +560,15 @@
         groups[key].push(box);
       }
     }
-    // Front cap under the point light (+Z): continue the top grass out over
-    // the new cliff expansion instead of leaving a bare stone shelf. The cap
-    // follows each front profile cell, so it preserves the lopsided outline.
+    // Annotated front-left grass shelf over the cliff rollers. Keep this
+    // compact and local; it is not the full front edge expansion from the prior
+    // interpretation.
     if(grassProto){
-      for(const c of edgeProfile().cells){
-        if(c.axis!=='x' || c.side!==1 || c.shapeOut<=.05) continue;
-        const rows=Math.max(1,Math.ceil(c.shapeOut));
-        for(let row=1;row<=rows;row++){
-          const outward=WORLD.halfH+Math.min(c.shapeOut,row-.35);
-          const box=grassProto.clone('hd_grass_front_cap');
-          box.setEnabled(true); box.isVisible=true; box.isPickable=false;
-          box.rotation.y=Math.floor(yawRnd()*4)*Math.PI/2;
-          box.scaling.x=(yawRnd()<.5?-1:1)*1.006;
-          box.scaling.z=(yawRnd()<.5?-1:1)*1.006; box.scaling.y=1.006;
-          box.position.set(c.along,.010,outward);
-          groups.grass.push(box);
-        }
+      for(const [x,z,yaw] of [[-2.87,WORLD.halfH-.05,-.03],[-2.10,WORLD.halfH+.12,.04],[-1.37,WORLD.halfH-.02,-.06]]){
+        const box=grassProto.clone('hd_grass_front_terrace');
+        box.setEnabled(true); box.isVisible=true; box.isPickable=false;
+        box.rotation.y=yaw; box.scaling.x=1.006; box.scaling.z=1.006; box.scaling.y=1.006;
+        box.position.set(x,.010,z); groups.grass.push(box);
       }
     }
 
@@ -862,26 +856,31 @@
       }
     }
 
-    // Two compact stepped outcrops break the flat lid. Keep every block seated
-    // on the plateau or on the block below: the former vertical random walk
-    // created a floating Jenga column of separated cubes.
-    for(const site of [[-1,'x',-1.6],[1,'z',2.4]]){
-      const [side,axis,along]=site;
-      const outHalf=axis==='x'?WORLD.halfH:WORLD.halfW;
-      const place=(da,off,w,h,d,base,rot=0)=>{
-        const outward=outHalf+off;
-        const x=axis==='x'?along+da:side*outward;
-        const z=axis==='x'?side*outward:along+da;
-        blocks.push(stoneBox(scene,'hd_cliff_stack',w,h,d,x,base+h*.5,z,
-          stone,tone(),rot));
-      };
-      const h0=COURSE*.72;
-      // Broad two-block footing straddles the lip and reads as an outcrop.
-      place(-.18,-.34,.43,h0,.42,TOP_Y,.05);
-      place( .20,-.28,.39,h0*.91,.40,TOP_Y,-.08);
-      // One smaller cap bridges the footing, with no air gap or tall pillar.
-      place(.01,-.31,.34,h0*.78,.34,TOP_Y+h0*.91,.12);
+    // Front-left stepped terrace (annotated target): a broad grass-covered
+    // ledge supported by the cliff rollers/courses. This replaces the former
+    // pair of small stone-only outcrops, especially the unwanted right-hand one.
+    // The three staggered cap tiles sit at plateau height and visibly bridge
+    // the cliff expansion instead of exposing bare grey top faces.
+    const terraceAxis='x', terraceSide=1, terraceAlong=-2.15;
+    const terraceHalf=WORLD.halfH;
+    const terraceCaps=[];
+    for(const [da,off,yaw] of [[-.72,-.05,-.03],[.05,.12,.04],[.78,-.02,-.06]]){
+      const x=terraceAlong+da, z=terraceHalf+off;
+      const supportTop=TOP_Y-GRASS_LIP-rnd()*.05;
+      let top=supportTop, ci=0;
+      while(top>BOT+.10){
+        const last=(top-COURSE)<=BOT+.10;
+        const h=last?top-BOT:COURSE*(.94+rnd()*.10);
+        const depth=1.18+off-ci*.045+rnd()*.10;
+        blocks.push(stoneBox(scene,'hd_cliff_terrace_support',.56+rnd()*.05,h,depth,
+          x,top-h*.5,z,stone,depthTone(top,ci*.08),yaw));
+        top-=h; ci++;
+      }
+      // The cap itself is created in buildIslandTop from the real grass asset;
+      // retain this metadata for diagnostics and shoreline dressing.
+      terraceCaps.push({x,z});
     }
+    API.state.frontGrassTerrace=terraceCaps;
 
     // Solid core. Set well back from the shallowest cube: flush with them it
     // reads as a continuous wall behind the seams, whereas at this depth the

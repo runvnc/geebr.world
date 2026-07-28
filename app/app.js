@@ -395,9 +395,9 @@ async function createGeneratedGeebr(scene,id,pos){
     mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh); applyClayLook(mesh.material,scene);
     if(mesh.material){
       // Keep the clay matte, but avoid forcing it so rough that every highlight disappears.
-      if('roughness' in mesh.material) mesh.material.roughness=.7;
+      if('roughness' in mesh.material) mesh.material.roughness=.24;
       if('metallic' in mesh.material) mesh.material.metallic=0;
-      if('environmentIntensity' in mesh.material) mesh.material.environmentIntensity=.35;
+      if('environmentIntensity' in mesh.material) mesh.material.environmentIntensity=.85;
       if('directIntensity' in mesh.material) mesh.material.directIntensity=1.0;
       // Clamp any baked emissive (the cyan ear-arcs glow like neon under night lighting)
       if('emissiveColor' in mesh.material && mesh.material.emissiveColor){ const e=mesh.material.emissiveColor; e.scaleToRef(0.12,e); }
@@ -2329,7 +2329,17 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // Four slots are sufficient once the disabled sun is removed and practical
   // lights are explicitly prioritized per mesh.
   for(const material of scene.materials){
-    if(material instanceof BABYLON.PBRMaterial) material.maxSimultaneousLights=4;
+    if(material instanceof BABYLON.PBRMaterial){
+      material.maxSimultaneousLights=4;
+      material.useRoughnessFromMetallicTextureGreen=false;
+      material.useRoughnessFromMetallicTextureAlpha=false;
+      material.roughness=.24;
+      material.environmentIntensity=Math.max(.85,material.environmentIntensity||0);
+      material.specularIntensity=1;
+    } else if(material instanceof BABYLON.StandardMaterial){
+      material.specularColor=new BABYLON.Color3(1,1,1);
+      material.specularPower=128;
+    }
   }
   // Imported grass slabs have their visible top around y=.30. Gameplay and
   // legacy scenery were authored for y=0, which buried characters, fences,

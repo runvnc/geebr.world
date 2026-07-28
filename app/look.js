@@ -27,10 +27,10 @@
 
   const DEFAULTS = {
     detailNormalUrl: './assets/textures/detail_clay_n.png',
-    rough: 0.88,        // matte clay target; only used when there is no ORM tex
+    rough: 0.24,        // deliberately glossy global finish
     detail: 0.11,       // locked subtle clay tooth; >0.3 reads as crusty sand
     detailScale: 5,     // detail map UV tiling per unit tile
-    envIntensity: 0.12
+    envIntensity: 0.85
   };
 
   let _detailTex = null;
@@ -49,10 +49,13 @@
     const o = Object.assign({}, DEFAULTS, opts || {});
     if (m instanceof BABYLON.PBRMaterial) {
       m.metallic = 0;
-      m.useMetallnessFromMetallicTextureBlue = false;  // stray non-zero pixels
-      if (o.rough >= 0 && !m.metallicTexture) m.roughness = o.rough;
+      m.useMetallnessFromMetallicTextureBlue = false;
+      // The requested global wet/glazed finish overrides baked ORM roughness.
+      m.useRoughnessFromMetallicTextureGreen = false;
+      m.useRoughnessFromMetallicTextureAlpha = false;
+      m.roughness = o.rough;
       m.environmentIntensity = o.envIntensity;
-      m.specularIntensity = 0.5;
+      m.specularIntensity = 1.0;
       if (o.detail > 0) {
         const t = detailNormal(scene);
         m.detailMap.texture = t;
@@ -61,13 +64,13 @@
         m.detailMap.isEnabled = true;
         m.detailMap.bumpLevel = o.detail;
         m.detailMap.diffuseBlendLevel = 0;
-        m.detailMap.roughnessBlendLevel = o.detail * 0.35;
+        m.detailMap.roughnessBlendLevel = 0;
       }
     } else if (m instanceof BABYLON.StandardMaterial) {
       // StandardMaterial ignores the IBL for diffuse so it can never fully
       // match a PBR asset. At minimum kill the plastic highlight.
-      m.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
-      m.specularPower = 32;
+      m.specularColor = new BABYLON.Color3(1, 1, 1);
+      m.specularPower = 128;
     }
     return m;
   }
