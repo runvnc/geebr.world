@@ -2267,7 +2267,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   const cornerShadow=new BABYLON.ShadowGenerator(1024,cornerKey);
   cornerShadow.usePercentageCloserFiltering=true;
   cornerShadow.filteringQuality=BABYLON.ShadowGenerator.QUALITY_MEDIUM;
-  cornerShadow.bias=.0018; cornerShadow.normalBias=.018; cornerShadow.darkness=.38;
+  cornerShadow.bias=.0004; cornerShadow.normalBias=.004; cornerShadow.darkness=.38;
   const rim=new BABYLON.DirectionalLight('teal_rim',new BABYLON.Vector3(.62,-.34,-.68),scene);
   rim.intensity=.22; rim.diffuse=new BABYLON.Color3(.34,.72,.82); rim.specular=new BABYLON.Color3(.20,.42,.48);
   const fill=new BABYLON.PointLight('cool_fill',new BABYLON.Vector3(-9,5,7),scene);
