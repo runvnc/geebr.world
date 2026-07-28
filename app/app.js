@@ -38,7 +38,7 @@ function mat(scene,name,texture,opts={}){
   tx.anisotropicFilteringLevel=8; tx.uScale=opts.uScale||1; tx.vScale=opts.vScale||1;
   m.albedoTexture=tx;
   m.metallic=0; m.roughness=opts.roughness??.88;
-  m.environmentIntensity=.55; m.specularIntensity=opts.specularIntensity??.18;
+  m.environmentIntensity=.55; m.specularIntensity=opts.specularIntensity??.5;
   if(opts.diffuse) m.albedoColor=opts.diffuse;
   if(opts.emissive) m.emissiveColor=opts.emissive;
   if(opts.alpha!==undefined){ m.alpha=opts.alpha; tx.hasAlpha=true; }
@@ -51,7 +51,7 @@ const LOOK = () => window.GEEBR_LOOK;
 function applyClayLook(m,scene,opts){ return LOOK()?.applyClayLook(m,scene,opts) ?? m; }
 function applyClayLookToMeshes(meshes,scene,opts){ LOOK()?.applyClayLookToMeshes(meshes,scene,opts); }
 
-function colorMat(scene,name,color,emissive=null){ const m=new BABYLON.PBRMaterial(name,scene); m.albedoColor=color; m.metallic=0; m.roughness=.90; m.environmentIntensity=.55; m.specularIntensity=.16; if(emissive) m.emissiveColor=emissive; return applyClayLook(m,scene,{detail:.11}); }
+function colorMat(scene,name,color,emissive=null){ const m=new BABYLON.PBRMaterial(name,scene); m.albedoColor=color; m.metallic=0; m.roughness=.90; m.environmentIntensity=.55; m.specularIntensity=.5; if(emissive) m.emissiveColor=emissive; return applyClayLook(m,scene,{detail:.11}); }
 
 function makeWaterMaterial(scene){
   const m=mat(scene,'water_soft','water_painterly.png',{uScale:4.5,vScale:4.5,alpha:.72,roughness:.24,detail:0,emissive:new BABYLON.Color3(.006,.022,.028)});
@@ -133,7 +133,7 @@ function makeVertexTerrain(scene){
   BABYLON.VertexData.ComputeNormals(positions,indices,vd.normals=[]); vd.applyToMesh(mesh,true);
   mesh.receiveShadows=true; mesh.isPickable=false;
   const material=new BABYLON.StandardMaterial('terrain_vertex_paint',scene);
-  material.diffuseColor=new BABYLON.Color3(1,1,1); material.specularColor=new BABYLON.Color3(.012,.012,.01);
+  material.diffuseColor=new BABYLON.Color3(1,1,1); material.specularColor=new BABYLON.Color3(.5,.5,.5);
   material.useVertexColor=true; material.backFaceCulling=false;
   mesh.material=material;
   return mesh;
@@ -667,7 +667,7 @@ function makeNote(scene,x,z,html='<p>empty note</p>'){
   m.position.set(x,.5,z);
   const mat=new BABYLON.StandardMaterial('note_mat',scene);
   const tex=renderNoteTexture(scene,html);
-  mat.diffuseTexture=tex; mat.emissiveTexture=tex; mat.specularColor=new BABYLON.Color3(.02,.02,.02);
+  mat.diffuseTexture=tex; mat.emissiveTexture=tex; mat.specularColor=new BABYLON.Color3(.5,.5,.5);
   mat.emissiveColor=new BABYLON.Color3(1,1,1);
   m.material=mat;
   addToScene(m,mat,{shape:'BOX',mass:.2,restitution:.05,friction:.6});
@@ -1149,8 +1149,8 @@ function proceduralTerrainAt(x,z){
   // the concept art's natural silhouette rather than a square.
   const nx=x/WORLD.halfW, nz=z/WORLD.halfH;
   const d=Math.sqrt(nx*nx+nz*nz);
-  const wobble=hashNoise(x*2.1,z*2.3)*.08+hashNoise(x*5.7,z*4.3)*.04;
-  if(d>0.98+wobble) return 'water';
+  const wobble=hashNoise(x*2.1,z*2.3)*.22+hashNoise(x*5.7,z*4.3)*.10+hashNoise(x*9.3,z*7.1)*.05;
+  if(d>0.88+wobble) return 'water';
   return 'grass';
 }
 function baseGlyphForTile(x,z){
@@ -1870,7 +1870,7 @@ function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t
 
 // v12 terrain patch: avoid WebGPU vertex-color/material weirdness and water z-fighting.
 // Uses simple StandardMaterial colored meshes at separated Y heights.
-function terrainMat(scene,name,color,spec=.018,emissive=null,alpha=1){
+function terrainMat(scene,name,color,spec=.5,emissive=null,alpha=1){
   const m=new BABYLON.StandardMaterial(name,scene);
   m.diffuseColor=color;
   m.specularColor=new BABYLON.Color3(spec,spec,spec);
@@ -2078,7 +2078,7 @@ function makeVoxelIsland(scene){
   const m=new BABYLON.StandardMaterial('voxel_mat',scene);
   const detail=makeMicroNoiseTexture(scene);
   m.diffuseTexture=detail; m.bumpTexture=detail; m.bumpTexture.level=.5;
-  m.diffuseColor=new BABYLON.Color3(1,1,1); m.specularColor=new BABYLON.Color3(.012,.012,.010); m.useVertexColor=true;
+  m.diffuseColor=new BABYLON.Color3(1,1,1); m.specularColor=new BABYLON.Color3(.5,.5,.5); m.useVertexColor=true;
   const merged=BABYLON.Mesh.MergeMeshes(tiles,true,true,undefined,false,false);
   merged.name='voxel_island';
   if(merged && merged.getVerticesData(BABYLON.VertexBuffer.ColorKind)){

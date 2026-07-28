@@ -331,7 +331,7 @@
     m.useAmbientOcclusionFromMetallicTextureRed=true;
     m.metallic=0; m.roughness=1;
     m.environmentIntensity=.55;
-    m.specularIntensity=.35;
+    m.specularIntensity=.5;
     cache.set(key,m);
     return m;
   }
@@ -936,7 +936,7 @@
     m.diffuseTexture=tex; m.opacityTexture=tex;
     m.useAlphaFromDiffuseTexture=true;
     m.diffuseTexture.hasAlpha=true;
-    m.specularColor=C3(.02,.02,.02);
+    m.specularColor=C3(.5,.5,.5);
     m.backFaceCulling=false;
     m.transparencyMode=BABYLON.Material.MATERIAL_ALPHATESTANDBLEND;
     m.alphaCutOff=.34;
@@ -1065,11 +1065,11 @@
   async function buildFlora(scene){
     const { WORLD } = API;
     const leafA=new BABYLON.PBRMaterial('hd_leaf_a',scene);
-    leafA.albedoColor=C3(.175,.235,.098); leafA.metallic=0; leafA.roughness=.94;
+    leafA.albedoColor=C3(.175,.235,.098); leafA.metallic=0; leafA.roughness=.94; leafA.specularIntensity=.5;
     const leafB=new BABYLON.PBRMaterial('hd_leaf_b',scene);
-    leafB.albedoColor=C3(.115,.155,.068); leafB.metallic=0; leafB.roughness=.92;
+    leafB.albedoColor=C3(.115,.155,.068); leafB.metallic=0; leafB.roughness=.92; leafB.specularIntensity=.5;
     const rockM=new BABYLON.PBRMaterial('hd_boulder',scene);
-    rockM.albedoColor=C3(.22,.215,.205); rockM.metallic=0; rockM.roughness=.88;
+    rockM.albedoColor=C3(.22,.215,.205); rockM.metallic=0; rockM.roughness=.88; rockM.specularIntensity=.5;
 
     const leavesA=[], leavesB=[], rocks=[], trees=[];
 
@@ -1188,67 +1188,17 @@
     if(window.GEEBR_STILL_MODE) waveStep(0);
     else scene.onBeforeRenderObservable.add(()=>waveStep(performance.now()*.001));
 
-    // foam collar hugging the island so the silhouette pops off the dark water
-    const S=512, cv=HD.canvasOf(S,S), ctx=cv.getContext('2d');
-    ctx.clearRect(0,0,S,S);
-    let s=1337; const rnd=()=>{ s=(s*16807)%2147483647; return s/2147483647; };
-    for(let i=0;i<520;i++){
-      const x=rnd()*S, y=S*.5+(rnd()-.5)*S*.55, r=4+rnd()*22;
-      const g=ctx.createRadialGradient(x,y,1,x,y,r);
-      g.addColorStop(0,'rgba(226,246,255,'+(.28+rnd()*.5).toFixed(2)+')');
-      g.addColorStop(1,'rgba(226,246,255,0)');
-      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
-    }
-    const foamTx=HD.dyn(scene,'hd_foam_tex',cv,{wrap:true,aniso:4});
-    foamTx.hasAlpha=true;
-    const foamM=new BABYLON.StandardMaterial('hd_foam_mat',scene);
-    foamM.diffuseTexture=foamTx; foamM.opacityTexture=foamTx;
-    foamM.emissiveColor=C3(.40,.56,.62); foamM.diffuseColor=C3(0,0,0);
-    foamM.disableLighting=true; foamM.backFaceCulling=false; foamM.alpha=.9;
-    const bw=.62;
-    const strips=[];
-    const mk=(w,h,x,z,ry)=>{ const f=BABYLON.MeshBuilder.CreateGround('foam',{ width:w, height:h },scene); f.position.set(x,SEA_Y+.055,z); if(ry) f.rotation.y=ry; strips.push(f); };
-    // Hug the actual waterline. These used to sit at halfH-2.3, which was well
-    // inside the island and therefore buried under it.
-    const fo=.62;
-    mk(WORLD.w+1.3,bw,0,-(WORLD.halfH+fo));
-    mk(WORLD.w+1.3,bw,0, (WORLD.halfH+fo));
-    mk(WORLD.h+1.3,bw,-(WORLD.halfW+fo),0,Math.PI/2);
-    mk(WORLD.h+1.3,bw, (WORLD.halfW+fo),0,Math.PI/2);
-    const foam=merge(strips,'hd_foam_collar',foamM,{shadows:false});
-    if(foam) foam.alphaIndex=6;
-    if(window.GEEBR_STILL_MODE){ foamM.alpha=.46; }
-    else scene.onBeforeRenderObservable.add(()=>{
-      const t=performance.now()*.001;
-      foamTx.uOffset=(t*.05)%1; foamTx.vOffset=Math.sin(t*.4)*.04;
-      foamM.alpha=.42+Math.sin(t*1.1)*.10;
-    });
-
-    // expanding ripple rings for life on the open water
-    for(let i=0;i<7;i++){
-      const rm=new BABYLON.StandardMaterial('hd_ripple_'+i,scene);
-      rm.emissiveColor=C3(.26,.50,.62); rm.diffuseColor=C3(0,0,0); rm.disableLighting=true; rm.alpha=.3;
-      const ring=BABYLON.MeshBuilder.CreateTorus('hd_ripple',{ diameter:1, thickness:.028, tessellation:44 },scene);
-      ring.rotation.x=Math.PI/2; ring.material=rm; ring.isPickable=false;
-      const a=i*1.21+.4, r=10+((i*2.3)%6);
-      ring.position.set(Math.cos(a)*r,SEA_Y+.03,Math.sin(a)*r*.85);
-      let sc=.4+i*.5; const sp=.10+i*.015;
-      ring.scaling.set(sc,sc,1); rm.alpha=.30*(1-sc/3.8);
-      if(!window.GEEBR_STILL_MODE)
-        scene.onBeforeRenderObservable.add(()=>{ sc+=sp*.016; if(sc>3.6) sc=.4; ring.scaling.set(sc,sc,1); rm.alpha=.30*(1-sc/3.8); });
-    }
-
     // Layered water: concentric depth rings around the island, lighter toward
     // the shore, darker out to sea. Matches the concept's painted strata.
     const layerM=[];
     for(let i=0;i<4;i++){
       const lm=new BABYLON.PBRMaterial('hd_water_layer_'+i,scene);
       const t=i/3;
-      lm.albedoColor=C3(.012+.028*t,.048+.052*t,.078+.068*t);
-      lm.metallic=.10; lm.roughness=.28;
-      lm.emissiveColor=C3(.004+.006*t,.014+.012*t,.026+.018*t);
-      lm.environmentIntensity=.42;
-      lm.alpha=.72-.12*i;
+      lm.albedoColor=C3(.018+.042*t,.068+.072*t,.108+.088*t);
+      lm.metallic=.06; lm.roughness=.22;
+      lm.emissiveColor=C3(.006+.010*t,.022+.020*t,.038+.028*t);
+      lm.environmentIntensity=.58;
+      lm.alpha=.88-.08*i;
       layerM.push(lm);
     }
     const layerR=[WORLD.halfW+2.2, WORLD.halfW+4.8, WORLD.halfW+8.2, WORLD.halfW+13.0];
@@ -1260,23 +1210,31 @@
 
     // Lily pads scattered on the water near the island edge.
     const lilyM=new BABYLON.PBRMaterial('hd_lily_mat',scene);
-    lilyM.albedoColor=C3(.09,.24,.10); lilyM.metallic=0; lilyM.roughness=.72;
+    lilyM.albedoColor=C3(.09,.24,.10); lilyM.metallic=0; lilyM.roughness=.72; lilyM.specularIntensity=.5;
     lilyM.emissiveColor=C3(.01,.04,.01);
+    const lilyStemM=new BABYLON.PBRMaterial('hd_lily_stem_mat',scene);
+    lilyStemM.albedoColor=C3(.06,.16,.06); lilyStemM.metallic=0; lilyStemM.roughness=.82; lilyStemM.specularIntensity=.5;
     let lilySeed=0xbeef42;
     const lilyRnd=()=>{ lilySeed=(lilySeed*1664525+1013904223)>>>0; return lilySeed/4294967296; };
     for(let i=0;i<18;i++){
       const a=lilyRnd()*Math.PI*2;
       const r=WORLD.halfW+1.2+lilyRnd()*5.5;
       const x=Math.cos(a)*r, z=Math.sin(a)*r*.85;
-      const pad=BABYLON.MeshBuilder.CreateDisc('hd_lily_pad',{ radius:.16+lilyRnd()*.22, tessellation:8 },scene);
-      pad.rotation.x=Math.PI/2; pad.rotation.z=lilyRnd()*Math.PI*2;
-      pad.position.set(x,SEA_Y+.02,z);
+      const padR=.16+lilyRnd()*.22;
+      // Pad: a low cylinder so it has thickness and catches light on its rim
+      const pad=BABYLON.MeshBuilder.CreateCylinder('hd_lily_pad',{ diameter:padR*2, height:.028, tessellation:10 },scene);
+      pad.rotation.y=lilyRnd()*Math.PI*2;
+      pad.position.set(x,SEA_Y+.014,z);
       pad.material=lilyM; pad.isPickable=false;
-      // notch: a small darker disc on top reads as the classic lily-pad split
+      // Stem: a thin cylinder dropping into the water
+      const stem=BABYLON.MeshBuilder.CreateCylinder('hd_lily_stem',{ diameter:.024, height:.22, tessellation:5 },scene);
+      stem.position.set(x,SEA_Y-.10,z);
+      stem.material=lilyStemM; stem.isPickable=false;
+      // Notch: a small wedge cut out of the pad rim
       if(lilyRnd()<.55){
-        const notch=BABYLON.MeshBuilder.CreateDisc('hd_lily_notch',{ radius:pad.radius*.42, tessellation:6 },scene);
-        notch.rotation.x=Math.PI/2; notch.position.set(x+pad.radius*.38,SEA_Y+.022,z);
-        notch.material=lilyM; notch.isPickable=false;
+        const notch=BABYLON.MeshBuilder.CreateCylinder('hd_lily_notch',{ diameter:padR*.84, height:.030, tessellation:6 },scene);
+        notch.position.set(x+padR*.38,SEA_Y+.015,z);
+        notch.material=lilyStemM; notch.isPickable=false;
       }
     }
     return sea;
