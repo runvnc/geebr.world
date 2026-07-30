@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniCPM5-1B &middot; Browser Demo</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title">
+      <h1>MiniCPM5-1B</h1>
+      <span class="subtitle">100% in-browser &middot; no server &middot; llama.cpp WASM</span>
+    </div>
+    <div class="header-controls">
+      <label class="think-toggle" title="Think mode: model reasons in &lt;think&gt; tags before answering">
+        <input type="checkbox" id="thinkToggle">
+        <span>Think mode</span>
+      </label>
+      <button id="settingsBtn" title="Settings">&#9881;</button>
+    </div>
+  </header>
+
+  <div id="modelBar">
+    <div id="modelStatus" class="status-idle">Model not loaded</div>
+    <span id="engineBadge" class="hidden"></span>
+    <button id="loadBtn">Load model</button>
+  </div>
+  <div id="progressWrap" class="hidden">
+    <div id="progressBar"></div>
+    <div id="progressText"></div>
+  </div>
+
+  <div id="settingsPanel" class="hidden">
+    <div class="setting">
+      <label for="engineSelect">Engine</label>
+      <select id="engineSelect">
+        <option value="auto">Auto (GPU if available)</option>
+        <option value="tjs">GPU · WebGPU (transformers.js ONNX q4)</option>
+        <option value="wllama">CPU · WASM (wllama GGUF)</option>
+      </select>
+    </div>
+    <div class="setting" id="quantRow">
+      <label for="quantSelect">Quantization (GGUF engine only)</label>
+      <select id="quantSelect">
+        <option value="Q4_K_M" selected>Q4_K_M &middot; 688 MB (recommended)</option>
+        <option value="Q8_0">Q8_0 &middot; 1.15 GB (higher quality)</option>
+      </select>
+    </div>
+    <div class="setting">
+      <label for="ctxSize">Context size <span id="ctxVal">4096</span></label>
+      <input type="range" id="ctxSize" min="1024" max="16384" step="1024" value="4096">
+    </div>
+    <div class="setting">
+      <label for="tempSlider">Temperature <span id="tempVal">0.7</span></label>
+      <input type="range" id="tempSlider" min="0" max="1.5" step="0.05" value="0.7">
+    </div>
+    <div class="setting">
+      <label for="maxTokens">Max new tokens <span id="maxTokVal">512</span></label>
+      <input type="range" id="maxTokens" min="64" max="4096" step="64" value="512">
+    </div>
+    <div class="setting">
+      <label for="sysPrompt">System prompt</label>
+      <textarea id="sysPrompt" rows="2" placeholder="You are a helpful assistant."></textarea>
+    </div>
+    <div class="setting-note">Changes to quantization / context apply on next model load.</div>
+  </div>
+
+  <main id="chatArea">
+    <div id="welcome" class="welcome">
+      <h2>MiniCPM5-1B, entirely in your browser</h2>
+      <p>This demo downloads the model once (cached by your browser) and runs it locally with
+         <a href="https://github.com/ngxson/wllama" target="_blank" rel="noopener">wllama</a>
+         (llama.cpp compiled to WebAssembly). Nothing you type leaves your machine.</p>
+      <ul>
+        <li><b>1B params</b> &middot; LlamaForCausalLM &middot; Apache-2.0 (OpenBMB)</li>
+        <li><b>Think / No-Think</b> hybrid reasoning modes from one checkpoint</li>
+        <li>Works best in Chrome/Edge with SIMD + threads; falls back to single-thread elsewhere</li>
+      </ul>
+      <p class="hint">Click <b>Load model</b> above to get started. First load downloads ~688 MB.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div id="inputWrap">
+      <textarea id="userInput" rows="1" placeholder="Message MiniCPM5&hellip;" disabled></textarea>
+      <button id="sendBtn" disabled title="Send">&#10148;</button>
+      <button id="stopBtn" class="hidden" title="Stop generation">&#9632;</button>
+    </div>
+    <div id="statsLine"></div>
+  </footer>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>
