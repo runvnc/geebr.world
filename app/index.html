@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20260731b" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -33,7 +33,7 @@
   <header id="topBar">
     <div class="brand">geebr.world</div>
     <div class="topbar-group topbar-brain">
-      <button id="loadBrains" type="button">load Gemma 4 E2B</button>
+      <button id="loadBrains" type="button">load LFM2.5-230M</button>
       <button id="startBrains" type="button" disabled>start</button>
       <button id="stepBrains" type="button" disabled>step</button>
       <button id="stopBrains" type="button" disabled>stop</button>
@@ -52,7 +52,7 @@
     <div id="modelLoadNotice" class="model-load-notice" role="status" aria-live="polite">
       <div class="model-load-head">
         <span class="model-load-icon" aria-hidden="true"></span>
-        <div><strong id="modelLoadTitle">Preparing local brain</strong><small>Gemma 4 E2B runs on this device</small></div>
+        <div><strong id="modelLoadTitle">Preparing local brain</strong><small>LFM2.5-230M runs on this device</small></div>
         <button id="dismissModelLoad" type="button" aria-label="Dismiss model status">×</button>
       </div>
       <div id="modelProgressTrack" class="model-progress-track" role="progressbar" aria-label="Local model download progress" aria-valuemin="0" aria-valuemax="100"><span id="modelProgressBar"></span></div>
@@ -69,6 +69,8 @@
       </div>
     </div>
   </div>
+
+  <div id="spatialDebug" style="position:fixed; right:14px; top:62px; z-index:75; pointer-events:none; font:10px/1.5 ui-monospace,monospace; color:#9fe8c8; background:rgba(8,14,12,.72); border:1px solid rgba(120,220,170,.25); border-radius:10px; padding:8px 10px; min-width:230px; white-space:pre; text-shadow:none; display:none;"></div>
 
   <nav id="rail" aria-label="panels">
     <button class="rail-btn" data-tab="world" type="button" title="World">🌍</button>

@@ -1,5 +1,6 @@
 import { createAgentBrainManager } from './agent-brain.js';
-import { clearModelCache, hasModelCached } from './model-loader-litert.js';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs.js';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -147,6 +148,20 @@ function setCacheStatus(text) {
   if (node) node.textContent = text;
 }
 
+function isLiteRTModel(manager) {
+  return manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.engine === 'litert-lm';
+}
+
+async function clearActiveModelCache(manager) {
+  if (isLiteRTModel(manager)) return clearLiteRTCache(manager.getModelKey());
+  return clearTJSCache(manager.getModelKey());
+}
+
+async function hasActiveModelCached(manager) {
+  if (isLiteRTModel(manager)) return hasLiteRTCached(manager.getModelKey());
+  return hasTJSCached(manager.getModelKey());
+}
+
 function showPrompt(agentId, prompt, systemMessage) {
   const out = document.getElementById('promptOut');
   if (!out) return;
@@ -235,7 +250,7 @@ async function main() {
   el('clearCache')?.addEventListener('click', async () => {
     setCacheStatus('clearing...');
     try {
-      await clearModelCache();
+      await clearActiveModelCache(manager);
       setCacheStatus('cache cleared');
       appendLog('model cache cleared');
       el('loadBrains').disabled = false;
@@ -247,7 +262,7 @@ async function main() {
   // Check if model is already cached
   let cached = false;
   try {
-    cached = await hasModelCached(manager.getModelKey());
+    cached = await hasActiveModelCached(manager);
     setCacheStatus(cached ? 'model cached' : 'not cached');
   } catch {}
 
@@ -298,7 +313,7 @@ async function main() {
 
   el('loadBrains')?.addEventListener('click', async () => {
     try {
-      const cachedNow = await hasModelCached(manager.getModelKey()).catch(() => false);
+      const cachedNow = await hasActiveModelCached(manager).catch(() => false);
       if (!cachedNow) {
         const approved = await waitForDownloadConsent(manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey());
         if (!approved) { showDownloadDeclined(); return; }

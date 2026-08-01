@@ -6,6 +6,12 @@
 import * as transformers from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0";
 
 const MODEL_CONFIG = {
+  'lfm2.5-230m': {
+    label: 'LFM2.5-230M (Transformers.js)',
+    modelId: 'LiquidAI/LFM2.5-230M-ONNX',
+    dtype: 'q4',       // 4-bit weights, 32-bit activations - safe for GPUs without shader-f16
+    vram: '~200MB',
+  },
   'gemma4-e2b': {
     label: 'Gemma 4 E2B (Transformers.js)',
     modelId: 'onnx-community/gemma-4-E2B-it-ONNX',
@@ -79,6 +85,8 @@ export async function loadModel(modelKey, onProgress) {
   onProgress?.('Loading Transformers.js v4...');
   onProgress?.(`Model: ${cfg.label} (dtype: ${dtype}${!hasShaderF16 ? ' [no shader-f16]' : ''})`);
 
+  const isGemma = modelKey === 'gemma4-e2b';
+  const modelClass = isGemma ? transformers.Gemma4ForConditionalGeneration : transformers.AutoModelForCausalLM;
   try {
     onProgress?.('Downloading processor/tokenizer...');
     processor = await transformers.AutoProcessor.from_pretrained(cfg.modelId, {
@@ -92,7 +100,7 @@ export async function loadModel(modelKey, onProgress) {
     });
 
     onProgress?.('Downloading model weights (this may take a while on first load)...');
-    model = await transformers.Gemma4ForConditionalGeneration.from_pretrained(cfg.modelId, {
+    model = await modelClass.from_pretrained(cfg.modelId, {
       dtype: dtype,
       device: 'webgpu',
       progress_callback: (info) => {
@@ -107,13 +115,13 @@ export async function loadModel(modelKey, onProgress) {
     });
 
     currentModel = modelKey;
-    onProgress?.('Gemma 4 E2B ready');
+    onProgress?.(`${cfg.label} ready`);
     return { model, processor };
   } catch (e) {
     // Try CPU fallback if WebGPU fails
     onProgress?.(`WebGPU failed: ${e.message}. Trying CPU (q4)...`);
     try {
-      model = await transformers.Gemma4ForConditionalGeneration.from_pretrained(cfg.modelId, {
+      model = await modelClass.from_pretrained(cfg.modelId, {
         dtype: 'q4',
         device: 'cpu',
         progress_callback: (info) => {
@@ -123,7 +131,7 @@ export async function loadModel(modelKey, onProgress) {
         },
       });
       currentModel = modelKey;
-      onProgress?.('Gemma 4 E2B ready (CPU fallback)');
+      onProgress?.(`${cfg.label} ready (CPU fallback)`);
       return { model, processor };
     } catch (e2) {
       throw new Error(`Failed to load model: ${e.message} / CPU fallback: ${e2.message}`);

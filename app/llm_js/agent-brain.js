@@ -7,8 +7,26 @@ import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversation
 import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js';
 
 const SUPPORTED_MODELS = {
+  'lfm2.5-230m': { label: 'LFM2.5-230M (Transformers.js)', engine: 'transformers.js' },
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm' },
 };
+
+// Default model is LFM2.5-230M. Toggle back to Gemma 4 E2B (LiteRT) with
+// ?model=gemma4-e2b-litert URL param or localStorage geebr_model flag.
+function resolveDefaultModel() {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const fromQs = qs.get('model');
+    if (fromQs && SUPPORTED_MODELS[fromQs]) return fromQs;
+    const stored = localStorage.getItem('geebr_model');
+    if (stored && SUPPORTED_MODELS[stored]) return stored;
+  } catch {}
+  return 'lfm2.5-230m';
+}
+
+function persistModelChoice(key) {
+  try { localStorage.setItem('geebr_model', key); } catch {}
+}
 
 function oneLine(s) {
   return String(s || '').replace(/\s+/g, ' ').trim();
@@ -32,7 +50,7 @@ function commandLines(text) {
 export function createAgentBrainManager(config = {}) {
   let engine = null;
   let loaded = false;
-  let currentModelKey = config.modelKey || 'gemma4-e2b-litert';
+  let currentModelKey = config.modelKey || resolveDefaultModel();
   const onStatus = config.onStatus || (() => {});
   const onDebug = config.onDebug || (() => {});
 
@@ -96,6 +114,7 @@ export function createAgentBrainManager(config = {}) {
       maxTokens: agent.maxTokens || 256, // room for long multi-line plans/poems
       temperature: agent.temperature ?? 0,
       frequencyPenalty: agent.frequencyPenalty ?? 0.15,
+      repetitionPenalty: agent.repetitionPenalty ?? 1.05,
       responseFormat,
       constraintInstruction,
       messages: agent.messages || [],
@@ -119,6 +138,7 @@ export function createAgentBrainManager(config = {}) {
       loaded = false;
     }
     currentModelKey = modelKey;
+    persistModelChoice(modelKey);
     return true;
   }
 

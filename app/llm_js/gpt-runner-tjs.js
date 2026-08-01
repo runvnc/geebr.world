@@ -23,6 +23,7 @@ export function createTJSEngine(model, processor) {
     const maxNewTokens = opts.max_tokens ?? 100;
     const temperature = opts.temperature ?? 0.7;
     const doSample = temperature > 0;
+    const repetitionPenalty = opts.repetition_penalty ?? 1.05;
     const enableThinking = opts.extra_body?.enable_thinking ?? false;
 
     // Convert messages to Gemma chat format
@@ -52,6 +53,7 @@ export function createTJSEngine(model, processor) {
       do_sample: doSample,
       temperature: temperature,
       top_p: 0.95,
+      repetition_penalty: repetitionPenalty,
     });
 
     // Decode output (skip the input prompt tokens)
@@ -73,6 +75,7 @@ export function createTJSEngine(model, processor) {
     const maxNewTokens = opts.max_tokens ?? 100;
     const temperature = opts.temperature ?? 0.7;
     const doSample = temperature > 0;
+    const repetitionPenalty = opts.repetition_penalty ?? 1.05;
     const enableThinking = opts.extra_body?.enable_thinking ?? false;
 
     const chatMessages = messages.map(m => {
@@ -109,6 +112,7 @@ export function createTJSEngine(model, processor) {
       do_sample: doSample,
       temperature: temperature,
       top_p: 0.95,
+      repetition_penalty: repetitionPenalty,
       streamer: streamer,
     });
 
@@ -159,6 +163,7 @@ export async function generate(engine, prompt, opts = {}) {
       max_tokens: maxTokens,
       temperature,
       top_p: 0.95,
+      repetition_penalty: opts.repetitionPenalty ?? 1.05,
     };
     if (!enableThinking) genConfig.extra_body = { enable_thinking: false };
 
@@ -187,6 +192,7 @@ export async function generate(engine, prompt, opts = {}) {
     max_tokens: maxTokens,
     temperature,
     top_p: 0.95,
+    repetition_penalty: opts.repetitionPenalty ?? 1.05,
   };
   if (!enableThinking) genConfig.extra_body = { enable_thinking: false };
 
