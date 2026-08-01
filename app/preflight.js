@@ -15,28 +15,30 @@
   // Still mode: no physics stepping, no per-frame CPU vertex animation.
   // Implied by art review mode; ?still=1 enables it on its own.
   window.GEEBR_STILL_MODE = _q.has('still') || window.GEEBR_ART_MODE;
+  // Hide the water entirely (?nowater=1) - sanity check for the water pass.
+  window.GEEBR_NOWATER = _q.has('nowater');
   if (window.GEEBR_ART_MODE) console.warn('GEEBR: art review mode - LLM and TTS disabled');
 
   const scripts = [
     ['https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako_deflate.min.js'],
     ['https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js'],
     ['https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'],
-    ['note-svg.js'],
-    ['recorder.js'],
-    ['confirm-dialog.js'],
-    ['toast.js'],
-    ['ui-polish.js'],
-    ['tabs.js'],
-    ['library.js'],
+    ['note-svg.js?v=20260731b'],
+    ['recorder.js?v=20260731b'],
+    ['confirm-dialog.js?v=20260731b'],
+    ['toast.js?v=20260731b'],
+    ['ui-polish.js?v=20260731b'],
+    ['tabs.js?v=20260731b'],
+    ['library.js?v=20260731b'],
     ['https://cdn.babylonjs.com/babylon.js'],
     ['https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js'],
     ['https://cdn.babylonjs.com/havok/HavokPhysics_umd.js'],
-    ['tts/pocket-tts-manager.js'],
-    ['tts/tts-ui.js'],
-    ['look.js'],
-    ['terrain-hd.js'],
-    ['app.js?v=20260727a'],
-    ['llm_js/world-integration.js', 'module'],
+    ['tts/pocket-tts-manager.js?v=20260731b'],
+    ['tts/tts-ui.js?v=20260731b'],
+    ['look.js?v=20260731b'],
+    ['terrain-hd.js?v=20260731b'],
+    ['app.js?v=20260731b'],
+    ['llm_js/world-integration.js?v=20260731b', 'module'],
   ];
 
   function browserSummary() {
