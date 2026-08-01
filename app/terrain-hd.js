@@ -1414,8 +1414,14 @@
         l.pad.rotation.z=Math.sin(t*.65+l.phase)*.035;
       }
     };
-    if(window.GEEBR_STILL_MODE) animate(0);
-    else scene.onBeforeRenderObservable.add(()=>animate(performance.now()*.001));
+    if(window.GEEBR_STILL_MODE){ animate(0); console.warn('[geebr-water] STILL MODE - wave animation frozen'); }
+    else {
+      let _warned=false;
+      scene.onBeforeRenderObservable.add(()=>{
+        if(!_warned){ _warned=true; console.log('[geebr-water] wave animation running (frame '+(performance.now()*.001).toFixed(2)+')'); }
+        animate(performance.now()*.001);
+      });
+    }
     return sea;
   }
 
