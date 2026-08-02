@@ -1,6 +1,6 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20260801d';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260801d';
-import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs.js?v=20260801d';
+import { createAgentBrainManager } from './agent-brain.js?v=20260802a';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260802a';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260802a';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -198,11 +198,56 @@ function saveSelectedBrainUI(world) {
   });
 }
 
+// Build the full agent prompt messages (system + history + command reminder +
+// pending chat), reusing world.buildAgentPrompt. Extracted from runOneAgentTurn
+// so the demo chat can build the same prompt without duplicating code.
+function buildAgentMessages(world, g, cfg) {
+  const { systemMessage, commandReminder } = world.buildAgentPrompt(g, cfg);
+  const messages = [{ role: 'system', content: systemMessage }];
+  // Seed the conversation with a real example of responding to speech with say()
+  // (teaches the small model not to echo the speaker attribution). Only prepend
+  // if the history doesn't already start with it.
+  const hist = cfg.messages || [];
+  const alreadySeeded = hist.some(m => m.role === 'user' && String(m.content).includes('Are you ready my son?'));
+  if (!alreadySeeded) {
+    messages.push({ role: 'user', content: 'God says: Are you ready my son?' });
+    messages.push({ role: 'assistant', content: 'say("Yes I am ready")' });
+  }
+  for (const m of hist) {
+    const last = messages[messages.length - 1];
+    if (last && last.role === m.role) {
+      last.content += '\n' + m.content;
+    } else {
+      messages.push({ role: m.role, content: m.content });
+    }
+  }
+  let chatSuffix = '';
+  if (cfg.pendingChat && cfg.pendingChat.length > 0) {
+    // Convert 'God says: <text>' -> '[God] <text>' so the model has no 'says'
+    // pattern to echo back (small models echo the prompt format).
+    const speech = cfg.pendingChat.map(line => {
+      const m = String(line).match(/^(.+?)\s+says:\s*(.*)$/);
+      return m ? `[${m[1].trim()}] ${m[2]}` : line;
+    }).join('\n');
+    chatSuffix = '\n\nNEW SPEECH ADDRESSED TO YOU:\n' + speech + '\nReply with say("...") using only your own words. Never include the speaker name.';
+    cfg.pendingChat = [];
+    world.setBrainConfig(g.id, cfg);
+  }
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg && lastMsg.role === 'user') {
+    lastMsg.content += '\n\n' + commandReminder + chatSuffix;
+  } else {
+    messages.push({ role: 'user', content: commandReminder + chatSuffix });
+  }
+  return { messages, chatSuffix };
+}
+
 async function main() {
   const world = await waitForWorld();
   el('dismissModelLoad')?.addEventListener('click', () => {
     el('modelLoadNotice')?.classList.add('hidden');
   });
+  world.buildAgentMessages = (g, cfg) => buildAgentMessages(world, g, cfg);
   const manager = createAgentBrainManager({
     onStatus: setStatus,
     onDebug: () => {},
@@ -368,31 +413,9 @@ async function main() {
           messages.push({ role: 'user', content: 'respond' });
         }
       } else {
-        const { systemMessage, commandReminder } = world.buildAgentPrompt(g, cfg);
-        // Build messages array: system + history + current command reminder
-        // Merge consecutive same-role messages to help the small model
-        messages = [{ role: 'system', content: systemMessage }];
-        const hist = cfg.messages || [];
-        for (const m of hist) {
-          const last = messages[messages.length - 1];
-          if (last && last.role === m.role) {
-            last.content += '\n' + m.content;
-          } else {
-            messages.push({ role: m.role, content: m.content });
-          }
-        }
-        // Merge command reminder with last user message if it's also user role
-        const lastMsg = messages[messages.length - 1];
-         if (cfg.pendingChat && cfg.pendingChat.length > 0) {
-          chatSuffix = '\n\nNEW SPEECH ADDRESSED TO YOU:\n' + cfg.pendingChat.join('\n') + '\nRespond to its meaning; do not repeat or quote the message.';
-          cfg.pendingChat = [];
-          world.setBrainConfig(g.id, cfg);
-        }
-        if (lastMsg && lastMsg.role === 'user') {
-          lastMsg.content += '\n\n' + commandReminder + chatSuffix;
-        } else {
-          messages.push({ role: 'user', content: commandReminder + chatSuffix });
-        }
+        const built = buildAgentMessages(world, g, cfg);
+        messages = built.messages;
+        chatSuffix = built.chatSuffix;
       }
       // Show in prompt panel
       let displayText = `[AGENT: ${g.id}]
@@ -406,6 +429,7 @@ async function main() {
       const promptOut = document.getElementById('promptOut');
       if (promptOut) promptOut.dataset.baseText = displayText;
       appendLog(g.id + ' sending ' + messages.length + ' messages to LLM (' + (cfg.messages||[]).length + ' history)' + (chatTestMode ? ' [CHAT TEST]' : ''));
+      console.log('[geebr-world] ABOUT TO CALL manager.decide for agent', g.id, 'with', messages.length, 'messages');
       const line = await manager.decide({
         agentId: g.id,
         messages,
@@ -414,6 +438,7 @@ async function main() {
         enableThinking: !!el('enableThinking')?.checked,
         temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
       });
+      console.log('[geebr-world] RAW LLM OUTPUT for agent', g.id, ':', line);
       const planLines = (typeof window.splitPlanLines==='function' ? window.splitPlanLines(line) : String(line || '').split('\n').map(l => l.trim()).filter(Boolean));
       const planCmds = planLines.map(l => world.parseLLMCommandLine(l)).filter(Boolean);
       // Bare continuation lines (e.g. poem lines without say()) right after a say are treated as more speech.
@@ -459,6 +484,8 @@ async function main() {
       }
       return true;
     } catch (err) {
+      console.error('[geebr-world] ERROR in runOneAgentTurn for agent', g.id, ':', err);
+      console.error('[geebr-world] STACK TRACE:', err && err.stack);
       appendLog(`${g.id} brain error: ${err.message}`);
       return false;
     }

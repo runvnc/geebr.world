@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20260801d" />
+  <link rel="stylesheet" href="style.css?v=20260802a" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -71,6 +71,22 @@
   </div>
 
   <div id="spatialDebug" style="position:fixed; right:14px; top:62px; z-index:75; pointer-events:none; font:10px/1.5 ui-monospace,monospace; color:#9fe8c8; background:rgba(8,14,12,.72); border:1px solid rgba(120,220,170,.25); border-radius:10px; padding:8px 10px; min-width:230px; white-space:pre; text-shadow:none; display:none;"></div>
+
+  <div id="demoPanel" class="demo-panel">
+    <div class="demo-panel-head">
+      <strong>LFM2.5-230M Chat</strong>
+      <span class="demo-small">LiquidAI/LFM2.5-230M-ONNX</span>
+    </div>
+    <div id="demoDeviceBadge" class="demo-device-badge" style="display:none;"></div>
+    <div id="demoStatus" class="demo-status">Not loaded. Click Load Model.</div>
+    <div class="demo-progress-track" id="demoProgressTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="demoProgressBar" class="demo-progress-bar"></span></div>
+    <div id="demoChat" class="demo-chat"></div>
+    <div class="demo-input-row">
+      <input id="demoInput" class="demo-input" placeholder="Type a message..." disabled />
+      <button id="demoSendBtn" class="demo-send-btn" disabled>Send</button>
+    </div>
+    <button id="demoLoadBtn" class="demo-load-btn">Load Model</button>
+  </div>
 
   <nav id="rail" aria-label="panels">
     <button class="rail-btn" data-tab="world" type="button" title="World">🌍</button>
@@ -175,6 +191,7 @@
       </div>
       <div class="section-subtitle">Brain options</div>
       <label class="spawn-mode-toggle"><input id="chatTestMode" type="checkbox" /> chat test mode (bare conversation, no perception)</label>
+      <label class="spawn-mode-toggle"><input id="antiEcho" type="checkbox" /> anti-echo instructions (off by default - small models can confuse negative prompts)</label>
       <label class="spawn-mode-toggle"><input id="enableThinking" type="checkbox" /> thinking mode (slower, smarter)</label>
       <div class="cache-controls">
         <label class="cache-backend-label">Cache <select id="cacheBackend"><option value="opfs" selected>OPFS</option></select></label>
@@ -184,7 +201,7 @@
       <div class="section-subtitle">Perception &amp; prompt</div>
       <div class="perception-controls">
         <label>Vision radius <select id="visionRadius"><option value="5">11×11</option><option value="7" selected>15×15</option><option value="8">17×17</option></select></label>
-        <label class="spawn-mode-toggle"><input id="showAsciiMap" type="checkbox" checked /> ASCII map</label>
+        <label class="spawn-mode-toggle"><input id="showAsciiMap" type="checkbox" /> ASCII map</label>
         <button id="refreshPerception" type="button">refresh</button>
         <button id="copyPerception" type="button">copy</button>
       </div>
@@ -206,6 +223,10 @@
     </div>
   </div>
   <div id="hint">Pick a character (🧝) to shape its mind, chat below, then start the local brain from the top bar.</div>
+  <script type="module">
+    import { initDemoChat } from './llm_js/demo-chat.js?v=20260802a';
+    initDemoChat();
+  </script>
   <script src="preflight.js"></script>
 </body>
 </html>

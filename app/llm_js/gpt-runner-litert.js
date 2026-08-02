@@ -107,22 +107,38 @@ export function createLiteRTEngine(litertEngine) {
 
     let fullText = '';
 
-    if (onToken) {
-      // Use streaming API
-      const stream = conversation.sendMessageStreaming(promptText);
-      for await (const chunk of stream) {
-        const text = chunk?.content?.[0]?.text || chunk?.content?.[0]?.content || '';
-        if (text) {
-          fullText += text;
-          onToken(fullText, true);
+    console.log('[geebr-litert] SENDING PROMPT TO LiteRT conversation', {
+      agentId: opts.agentId || 'default',
+      streaming: !!onToken,
+      promptText,
+      systemContent,
+      maxNewTokens,
+      temperature,
+    });
+
+    try {
+      if (onToken) {
+        // Use streaming API
+        const stream = conversation.sendMessageStreaming(promptText);
+        for await (const chunk of stream) {
+          const text = chunk?.content?.[0]?.text || chunk?.content?.[0]?.content || '';
+          if (text) {
+            fullText += text;
+            onToken(fullText, true);
+          }
         }
+      } else {
+        // Non-streaming
+        const response = await conversation.sendMessage(promptText);
+        fullText = response?.content?.[0]?.text || response?.content?.[0]?.content || '';
       }
-    } else {
-      // Non-streaming
-      const response = await conversation.sendMessage(promptText);
-      fullText = response?.content?.[0]?.text || response?.content?.[0]?.content || '';
+    } catch (err) {
+      console.error('[geebr-litert] ERROR FROM LiteRT conversation:', err);
+      console.error('[geebr-litert] STACK TRACE:', err && err.stack);
+      throw err;
     }
 
+    console.log('[geebr-litert] RAW LiteRT OUTPUT:', fullText);
     let text = stripThinkBlocks(fullText);
     return text;
   }

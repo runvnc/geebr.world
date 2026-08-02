@@ -235,3 +235,42 @@ code { color:#ffe0a0; }
 #hint { right:auto; left:50%; transform:translateX(-50%); bottom:14px; top:auto; max-width:420px; font-size:12px; text-align:center; }
 #compassHud { top:64px; }
 #toastStack { bottom:auto; top:120px; }
+
+/* LFM2.5-230M demo chat panel (copied from test demo) */
+.demo-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 90;
+  width: 420px;
+  max-width: 92vw;
+  max-height: 80vh;
+  background: rgba(17, 17, 17, 0.95);
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 14px;
+  color: #eee;
+  font-family: system-ui, sans-serif;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.demo-panel-head { display: flex; justify-content: space-between; align-items: baseline; }
+.demo-panel-head strong { font-size: 1.05em; }
+.demo-small { font-size: 0.75em; color: #999; }
+.demo-device-badge { padding: 4px 10px; border-radius: 6px; font-weight: bold; width: fit-content; font-size: 0.85em; }
+.demo-status { padding: 6px 10px; border-radius: 6px; background: #222; font-size: 0.85em; white-space: pre-wrap; min-height: 18px; }
+.demo-progress-track { height: 6px; border-radius: 3px; background: #333; overflow: hidden; }
+.demo-progress-bar { display: block; height: 100%; width: 0%; background: #2d6cdf; transition: width 0.2s; }
+.demo-chat { border: 1px solid #333; border-radius: 8px; padding: 10px; height: 260px; overflow-y: auto; background: #181818; display: flex; flex-direction: column; gap: 6px; }
+.demo-chat .msg { margin: 0; padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; font-size: 0.9em; }
+.demo-chat .user { background: #1e3a5f; text-align: right; align-self: flex-end; max-width: 85%; }
+.demo-chat .bot { background: #2a2a2a; align-self: flex-start; max-width: 85%; }
+.demo-chat .err { background: #5f1e1e; align-self: flex-start; max-width: 85%; }
+.demo-input-row { display: flex; gap: 8px; }
+.demo-input { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #222; color: #eee; }
+.demo-send-btn, .demo-load-btn { padding: 10px 16px; border-radius: 6px; border: none; background: #2d6cdf; color: #fff; cursor: pointer; }
+.demo-send-btn:disabled, .demo-load-btn:disabled { background: #444; cursor: not-allowed; }
+.demo-load-btn { width: 100%; }

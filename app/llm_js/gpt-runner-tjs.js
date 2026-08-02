@@ -2,7 +2,7 @@
 // to provide a WebLLM-compatible chat.completions.create() interface.
 // This allows agent-brain.js and gpt-runner.js to work with both engines.
 import * as transformers from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0";
-import { getCurrentModel } from './model-loader-tjs.js';
+import { getCurrentModel } from './model-loader-tjs-v2.js';
 
 function stripThinkBlocks(text) {
   return text
@@ -18,6 +18,16 @@ function stripThinkBlocks(text) {
 // calls Transformers.js model.generate().
 export function createTJSEngine(model, processor) {
   const tokenizer = processor.tokenizer;
+
+  // AutoTokenizer (LFM2.5) has no .tokenizer property - `processor` IS the
+  // tokenizer, and its _call signature is (text, options). AutoProcessor
+  // (Gemma) has .tokenizer and accepts (text, images, audio, options).
+  const isPlainTokenizer = !processor.tokenizer;
+  async function tokenize(prompt) {
+    return isPlainTokenizer
+      ? await processor(prompt, { add_special_tokens: false })
+      : await processor(prompt, null, null, { add_special_tokens: false });
+  }
 
   async function generateText(messages, opts = {}) {
     const maxNewTokens = opts.max_tokens ?? 100;
@@ -35,38 +45,52 @@ export function createTJSEngine(model, processor) {
       return m; // already structured
     });
 
-    // Apply chat template
-    const prompt = processor.apply_chat_template(chatMessages, {
-      enable_thinking: enableThinking,
-      add_generation_prompt: true,
+    console.log('[geebr-tjs] SENDING PROMPT TO Transformers.js', {
+      model: getCurrentModel(),
+      messageCount: messages.length,
+      maxNewTokens,
+      temperature,
+      enableThinking,
     });
 
-    // Prepare inputs (text-only for now; image/audio support can be added later)
-    const inputs = await processor(prompt, null, null, {
-      add_special_tokens: false,
-    });
+    let prompt, inputs, outputs, decoded;
+    try {
+      // Apply chat template
+      prompt = processor.apply_chat_template(chatMessages, {
+        enable_thinking: enableThinking,
+        add_generation_prompt: true,
+      });
 
-    // Generate
-    const outputs = await model.generate({
-      ...inputs,
-      max_new_tokens: maxNewTokens,
-      do_sample: doSample,
-      temperature: temperature,
-      top_p: 0.95,
-      repetition_penalty: repetitionPenalty,
-    });
+      // Prepare inputs (text-only for now; image/audio support can be added later)
+      inputs = await tokenize(prompt);
 
-    // Decode output (skip the input prompt tokens)
-    const inputLen = inputs.input_ids.dims.at(-1);
-    const decoded = processor.batch_decode(
-      outputs.slice(null, [inputLen, null]),
-      { skip_special_tokens: true },
-    );
+      // Generate
+      outputs = await model.generate({
+        ...inputs,
+        max_new_tokens: maxNewTokens,
+        do_sample: doSample,
+        temperature: temperature,
+        top_p: 0.95,
+        repetition_penalty: repetitionPenalty,
+      });
+
+      // Decode output (skip the input prompt tokens)
+      const inputLen = inputs.input_ids.dims.at(-1);
+      decoded = processor.batch_decode(
+        outputs.slice(null, [inputLen, null]),
+        { skip_special_tokens: true },
+      );
+    } catch (err) {
+      console.error('[geebr-tjs] ERROR FROM Transformers.js:', err);
+      console.error('[geebr-tjs] STACK TRACE:', err && err.stack);
+      throw err;
+    }
 
     let text = decoded[0] || '';
     if (!enableThinking) {
       text = stripThinkBlocks(text);
     }
+    console.log('[geebr-tjs] RAW Transformers.js OUTPUT:', text);
     return text;
   }
 
@@ -90,9 +114,7 @@ export function createTJSEngine(model, processor) {
       add_generation_prompt: true,
     });
 
-    const inputs = await processor(prompt, null, null, {
-      add_special_tokens: false,
-    });
+    const inputs = await tokenize(prompt);
 
     const inputLen = inputs.input_ids.dims.at(-1);
     let fullText = '';

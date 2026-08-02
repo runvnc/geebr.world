@@ -1,10 +1,10 @@
-import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260801d';
-import { generate as generateWebLLM } from './gpt-runner.js?v=20260801d';
-import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs.js?v=20260801d';
-import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260801d';
-import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260801d';
-import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260801d';
-import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260801d';
+import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260802a';
+import { generate as generateWebLLM } from './gpt-runner.js?v=20260802a';
+import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs-v2.js?v=20260802a';
+import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260802a';
+import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260802a';
+import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260802a';
+import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260802a';
 
 const SUPPORTED_MODELS = {
   'lfm2.5-230m': { label: 'LFM2.5-230M (Transformers.js)', engine: 'transformers.js' },
@@ -110,19 +110,38 @@ export function createAgentBrainManager(config = {}) {
       : getEngineType() === 'litert-lm' ? generateLiteRT
       : generateWebLLM;
 
-    const text = await generateFn(engine, '', {
-      maxTokens: agent.maxTokens || 256, // room for long multi-line plans/poems
-      temperature: agent.temperature ?? 0,
-      frequencyPenalty: agent.frequencyPenalty ?? 0.15,
-      repetitionPenalty: agent.repetitionPenalty ?? 1.05,
-      responseFormat,
-      constraintInstruction,
-      messages: agent.messages || [],
-      enableThinking: agent.enableThinking ?? false,
-      onToken: onToken,
-      debugLog: (msg, data) => onDebug(msg, data),
+    console.log('[geebr-brain] SENDING REQUEST TO LLM', {
       agentId: agent.agentId || 'default',
+      engineType: getEngineType(),
+      messageCount: (agent.messages || []).length,
+      messages: agent.messages || [],
+      maxTokens: agent.maxTokens || 256,
+      temperature: agent.temperature ?? 0,
+      enableThinking: agent.enableThinking ?? false,
+      useGrammar,
+      constraintInstruction,
     });
+    let text;
+    try {
+      text = await generateFn(engine, '', {
+        maxTokens: agent.maxTokens || 256, // room for long multi-line plans/poems
+        temperature: agent.temperature ?? 0,
+        frequencyPenalty: agent.frequencyPenalty ?? 0.15,
+        repetitionPenalty: agent.repetitionPenalty ?? 1.05,
+        responseFormat,
+        constraintInstruction,
+        messages: agent.messages || [],
+        enableThinking: agent.enableThinking ?? false,
+        onToken: onToken,
+        debugLog: (msg, data) => onDebug(msg, data),
+        agentId: agent.agentId || 'default',
+      });
+    } catch (err) {
+      console.error('[geebr-brain] ERROR AFTER SENDING REQUEST TO LLM:', err);
+      console.error('[geebr-brain] STACK TRACE:', err && err.stack);
+      throw err;
+    }
+    console.log('[geebr-brain] RAW LLM OUTPUT:', text);
     const line = commandLines(text);
     onDebug('decision', { agentId: agent.agentId, text, line });
     return line;
