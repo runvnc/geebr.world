@@ -89,7 +89,7 @@ export async function loadModel(modelKey, onProgress) {
   const modelClass = isGemma ? transformers.Gemma4ForConditionalGeneration : transformers.AutoModelForCausalLM;
   try {
     onProgress?.('Downloading processor/tokenizer...');
-    processor = await transformers.AutoProcessor.from_pretrained(cfg.modelId, {
+    processor = await (isGemma ? transformers.AutoProcessor : transformers.AutoTokenizer).from_pretrained(cfg.modelId, {
       progress_callback: (info) => {
         if (info.status === 'progress') {
           onProgress?.(`Tokenizer: ${Math.round(info.progress || 0)}%`);

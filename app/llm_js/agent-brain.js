@@ -1,10 +1,10 @@
-import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260801c';
-import { generate as generateWebLLM } from './gpt-runner.js?v=20260801c';
-import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs.js?v=20260801c';
-import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260801c';
-import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260801c';
-import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260801c';
-import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260801c';
+import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260801d';
+import { generate as generateWebLLM } from './gpt-runner.js?v=20260801d';
+import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs.js?v=20260801d';
+import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260801d';
+import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260801d';
+import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260801d';
+import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260801d';
 
 const SUPPORTED_MODELS = {
   'lfm2.5-230m': { label: 'LFM2.5-230M (Transformers.js)', engine: 'transformers.js' },

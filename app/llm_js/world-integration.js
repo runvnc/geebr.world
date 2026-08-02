@@ -1,6 +1,6 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20260801c';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260801c';
-import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs.js?v=20260801c';
+import { createAgentBrainManager } from './agent-brain.js?v=20260801d';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260801d';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs.js?v=20260801d';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
