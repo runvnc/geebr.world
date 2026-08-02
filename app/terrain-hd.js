@@ -1205,9 +1205,14 @@
       const y0=wr2()*bh, x0=wr2()*bw, len=40+wr2()*170, v=Math.floor(80+wr2()*130);
       bctx.strokeStyle='rgba('+v+','+v+','+v+','+(.4+wr2()*.6).toFixed(2)+')';
       bctx.lineWidth=1+wr2()*2.4;
-      bctx.beginPath(); bctx.moveTo(x0,y0);
-      for(let j=1;j<=6;j++) bctx.lineTo(x0+len*j/6, y0+Math.sin(j*1.2+wr2()*6)*7);
-      bctx.stroke();
+      // Draw each stroke at 3x3 offsets so the pattern wraps seamlessly in
+      // both U and V (the texture tiles 30x across the sea). Without this the
+      // canvas edges don't match and a seam shows at every wrap boundary.
+      for(const ox of [-bw,0,bw]) for(const oy of [-bh,0,bh]){
+        bctx.beginPath(); bctx.moveTo(x0+ox,y0+oy);
+        for(let j=1;j<=6;j++) bctx.lineTo(x0+ox+len*j/6, y0+oy+Math.sin(j*1.2+wr2()*6)*7);
+        bctx.stroke();
+      }
     }
     const bumpTex=HD.dyn(scene,'hd_sea_nrm',HD.normalFromCanvas(bcv,2.4));
     bumpTex.uScale=30.0; bumpTex.vScale=30.0;
