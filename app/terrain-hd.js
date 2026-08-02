@@ -1381,6 +1381,11 @@
 
     const animate=(t)=>{
       waveStep(t);
+      // Scroll the procedural bump map so the surface detail visibly travels
+      // with the swell. The vertex displacement alone is too subtle on a
+      // 180-unit sea; a static bump map reads as frozen water.
+      bumpTex.uOffset=(t*.012)%1;
+      bumpTex.vOffset=(t*.008)%1;
       foamMain.rebuild(t); foamWide.rebuild(t);
       foamMain.mat.alpha=.90+Math.sin(t*.9)*.08;
       foamWide.mat.alpha=.34+Math.sin(t*.7+2)*.10;
