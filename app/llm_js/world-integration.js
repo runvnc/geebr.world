@@ -1,6 +1,7 @@
 import { createAgentBrainManager } from './agent-brain.js?v=20260802a';
 import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260802a';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260802a';
+import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260802a';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -148,17 +149,21 @@ function setCacheStatus(text) {
   if (node) node.textContent = text;
 }
 
-function isLiteRTModel(manager) {
-  return manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.engine === 'litert-lm';
+function getActiveEngine(manager) {
+  return manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.engine;
 }
 
 async function clearActiveModelCache(manager) {
-  if (isLiteRTModel(manager)) return clearLiteRTCache(manager.getModelKey());
+  const engine = getActiveEngine(manager);
+  if (engine === 'litert-lm') return clearLiteRTCache(manager.getModelKey());
+  if (engine === 'wllama') return clearWllamaCache(manager.getModelKey());
   return clearTJSCache(manager.getModelKey());
 }
 
 async function hasActiveModelCached(manager) {
-  if (isLiteRTModel(manager)) return hasLiteRTCached(manager.getModelKey());
+  const engine = getActiveEngine(manager);
+  if (engine === 'litert-lm') return hasLiteRTCached(manager.getModelKey());
+  if (engine === 'wllama') return hasWllamaCached(manager.getModelKey());
   return hasTJSCached(manager.getModelKey());
 }
 

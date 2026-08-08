@@ -4,10 +4,12 @@ import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './mod
 import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260802a';
 import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260802a';
 import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260802a';
+import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from './model-loader-wllama.js?v=20260802a';
+import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260802a';
 import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260802a';
 
 const SUPPORTED_MODELS = {
-  'minicpm5-1b': { label: 'MiniCPM5-1B (WebLLM)', engine: 'webllm' },
+  'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama' },
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm' },
 };
 
@@ -64,12 +66,14 @@ export function createAgentBrainManager(config = {}) {
     console.log('[geebr-brain] load() starting, model:', currentModelKey, 'engine type:', getEngineType());
     const getCap = getEngineType() === 'transformers.js' ? getCapTJS
       : getEngineType() === 'litert-lm' ? getCapLiteRT
+      : getEngineType() === 'wllama' ? getCapWllama
       : getCapWebLLM;
     const cap = await getCap();
     if (!cap.webgpu) throw new Error('WebGPU unavailable; use Chrome/Edge with WebGPU enabled.');
 
     const loadFn = getEngineType() === 'transformers.js' ? loadModelTJS
       : getEngineType() === 'litert-lm' ? loadModelLiteRT
+      : getEngineType() === 'wllama' ? loadModelWllama
       : loadModelWebLLM;
     console.log('[geebr-brain] calling loadFn...');
     const result = await loadFn(currentModelKey, status => onStatus(status));
@@ -82,6 +86,10 @@ export function createAgentBrainManager(config = {}) {
       console.log('[geebr-brain] creating LiteRT engine wrapper...');
       engine = createLiteRTEngine(result);
       console.log('[geebr-brain] LiteRT engine wrapper created');
+    } else if (getEngineType() === 'wllama') {
+      console.log('[geebr-brain] creating wllama engine wrapper...');
+      engine = createWllamaEngine(result);
+      console.log('[geebr-brain] wllama engine wrapper created');
     } else {
       engine = result;
     }
@@ -108,6 +116,7 @@ export function createAgentBrainManager(config = {}) {
 
     const generateFn = getEngineType() === 'transformers.js' ? generateTJS
       : getEngineType() === 'litert-lm' ? generateLiteRT
+      : getEngineType() === 'wllama' ? generateWllama
       : generateWebLLM;
 
     console.log('[geebr-brain] SENDING REQUEST TO LLM', {
