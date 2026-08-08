@@ -1,7 +1,7 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20260802a';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260802a';
-import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260802a';
-import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260802a';
+import { createAgentBrainManager } from './agent-brain.js?v=20260808a';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260808a';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260808a';
+import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260808a';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
