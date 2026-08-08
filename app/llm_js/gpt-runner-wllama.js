@@ -31,6 +31,7 @@ export function createWllamaEngine(wllamaInstance) {
           const shouldAbort = config.shouldAbort ?? null;
 
           const prompt = buildPrompt(messages, enableThinking);
+          console.log('[geebr-wllama] SENDING PROMPT:', prompt.slice(0, 2000));
           const aborter = new AbortController();
           let full = "";
           const poll = setInterval(() => { if (shouldAbort?.()) aborter.abort(); }, 150);
@@ -49,6 +50,7 @@ export function createWllamaEngine(wllamaInstance) {
             clearInterval(poll);
           }
           const text = full.trim();
+          console.log('[geebr-wllama] RAW OUTPUT:', text);
           return { choices: [{ message: { content: text } }] };
         },
       },
@@ -82,6 +84,7 @@ export async function generate(engine, prompt, opts = {}) {
     };
 
     debugLog?.('wllama request config', { model: getCurrentModel(), max_tokens: maxTokens, temperature, message_count: opts.messages.length, streaming: !!onToken });
+    console.log('[geebr-wllama] generate() messages path, count:', opts.messages.length);
 
     if (dryRun) { debugLog?.('wllama dry run: generation skipped'); return ''; }
 
@@ -89,6 +92,7 @@ export async function generate(engine, prompt, opts = {}) {
     const result = await engine.chat.completions.create(genConfig);
     debugLog?.('wllama finished', { ms: Math.round(performance.now() - startedAt) });
     const text = result.choices[0]?.message?.content || '';
+    console.log('[geebr-wllama] generate() result:', text);
     return text;
   }
 
