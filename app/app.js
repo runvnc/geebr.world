@@ -1414,9 +1414,6 @@ function buildAgentPrompt(g, cfg) {
     ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
     'Messages in the form "NAME says ..." report speech addressed to you.',
     'Understand and answer the meaning of that speech; do not copy or quote it back.',
-    'For a question, use say() with a short direct answer. For a request, respond or take the requested action.',
-    'Never put the speaker attribution, such as "Tom says", inside say().',
-    'Example: Tom says "which is bigger, a dog or a whale?" -> say("A whale is much bigger.")',
     'Do not output anything except the command line.',
   ].join('\n');
   const commandReminder = [
