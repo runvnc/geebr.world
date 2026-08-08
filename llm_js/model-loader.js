@@ -10,6 +10,15 @@ const MODEL_VARIANTS = {
     f16: { modelId: 'Qwen3.5-0.8B-q4f16_1-MLC', vram: '1.6GB' },
     f32: { modelId: 'Qwen3.5-0.8B-q4f32_1-MLC', vram: '1.9GB' },
   },
+  'minicpm5-1b': {
+    label: 'MiniCPM5-1B',
+    custom: true,
+    modelId: 'minicpm5-q4f32_1-MLC',
+    vram: '1.2GB',
+    model: '/minicpm5/webllm/resolve/main/',
+    modelLib: '/minicpm5/webllm/minicpm5-q4f32_1-MLC-webgpu.wasm',
+    overrides: { context_window_size: 4096 },
+  },
 };
 
 let engine = null;
@@ -52,6 +61,7 @@ async function detectShaderF16() {
 function getBestVariant(modelKey) {
   const model = MODEL_VARIANTS[modelKey];
   if (!model) return null;
+  if (model.custom) return { ...model, variant: 'custom' };
   if (forceF32Mode()) return { ...model.f32, variant: 'f32' };
   return hasShaderF16 === true ? { ...model.f16, variant: 'f16' } : { ...model.f32, variant: 'f32' };
 }
@@ -59,13 +69,13 @@ function getBestVariant(modelKey) {
 function getFallbackVariant(modelKey) {
   const model = MODEL_VARIANTS[modelKey];
   if (!model) return null;
+  if (model.custom) return null;
   if (forceF32Mode()) return hasShaderF16 === true ? { ...model.f16, variant: 'f16' } : null;
   return hasShaderF16 === true ? { ...model.f32, variant: 'f32' } : { ...model.f16, variant: 'f16' };
 }
 
 export function getAvailableModels() {
-  const val = MODEL_VARIANTS['qwen3.5-0.8b'];
-  return [{ key: 'qwen3.5-0.8b', label: val.label }];
+  return Object.entries(MODEL_VARIANTS).map(([key, cfg]) => ({ key, label: cfg.label }));
 }
 
 export function getCurrentModel() {
@@ -91,6 +101,14 @@ export async function clearModelCache(modelKey) {
   const backend = getPreferredCacheBackend();
   const appConfig = webllm.prebuiltAppConfig;
   appConfig.cacheBackend = backend;
+  if (model.custom) {
+    try {
+      await webllm.deleteModelAllInfoInCache(model.modelId, appConfig);
+    } catch (e) {
+      console.warn('cache clear failed for', model.modelId, e);
+    }
+    return;
+  }
   // Clear both f16 and f32 variants
   for (const v of [model.f16, model.f32]) {
     try {
@@ -171,6 +189,18 @@ async function tryLoadVariant(variant, cacheBackend, onProgress) {
   appConfig.cacheBackend = cacheBackend;
   if (cacheBackend === 'opfs') {
     appConfig.opfsAccessMode = 'auto';
+  }
+  // For custom models, add the model record to the model list
+  if (variant.custom) {
+    const base = window.location.origin;
+    appConfig.model_list = [{
+      model: base + variant.model,
+      model_id: variant.modelId,
+      model_lib: base + variant.modelLib,
+      vram_required_MB: 1200,
+      low_resource_required: true,
+      overrides: variant.overrides || {},
+    }];
   }
   return await webllm.CreateMLCEngine(variant.modelId, {
     initProgressCallback: (progress) => { if (progress.text) onProgress?.(progress.text); },

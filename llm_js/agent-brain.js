@@ -8,6 +8,7 @@ import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } 
 
 const SUPPORTED_MODELS = {
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm' },
+  'minicpm5-1b': { label: 'MiniCPM5-1B (WebLLM)', engine: 'webllm' },
 };
 
 function oneLine(s) {

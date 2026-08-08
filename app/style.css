@@ -207,6 +207,7 @@ code { color:#ffe0a0; }
 #topBar .brand { margin:0; font-size:17px; flex:0 0 auto; }
 #topBar .topbar-group { display:flex; align-items:center; gap:6px; }
 #topBar .topbar-group button { flex:0 0 auto; padding:7px 12px; font-size:11px; }
+#topBar .topbar-model-select { flex:0 0 auto; padding:6px 8px; font-size:11px; background:rgba(10,18,16,.85); color:#cfe8dd; border:1px solid rgba(120,220,170,.35); border-radius:8px; max-width:150px; }
 #topBar .topbar-spacer { flex:1; }
 #topBar .top-pill { font:10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color:#ffe1a8; background:rgba(0,0,0,.30); border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:6px 10px; white-space:nowrap; }
 #topBar .top-toggle { display:flex; align-items:center; gap:5px; font-size:11px; font-weight:900; color:#ecf7df; white-space:nowrap; }

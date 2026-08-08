@@ -259,6 +259,7 @@ async function main() {
   // Populate model selector
   const modelSelect = el('modelSelect');
   if (modelSelect) {
+    modelSelect.textContent = '';
     for (const m of manager.getSupportedModels()) {
       const opt = document.createElement('option');
       opt.value = m.key;

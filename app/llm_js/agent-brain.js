@@ -7,11 +7,11 @@ import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversation
 import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260802a';
 
 const SUPPORTED_MODELS = {
-  'lfm2.5-230m': { label: 'LFM2.5-230M (Transformers.js)', engine: 'transformers.js' },
+  'minicpm5-1b': { label: 'MiniCPM5-1B (WebLLM)', engine: 'webllm' },
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm' },
 };
 
-// Default model is LFM2.5-230M. Toggle back to Gemma 4 E2B (LiteRT) with
+// Default model is MiniCPM5-1B. Toggle to Gemma 4 E2B (LiteRT) with
 // ?model=gemma4-e2b-litert URL param or localStorage geebr_model flag.
 function resolveDefaultModel() {
   try {
@@ -21,7 +21,7 @@ function resolveDefaultModel() {
     const stored = localStorage.getItem('geebr_model');
     if (stored && SUPPORTED_MODELS[stored]) return stored;
   } catch {}
-  return 'lfm2.5-230m';
+  return 'minicpm5-1b';
 }
 
 function persistModelChoice(key) {

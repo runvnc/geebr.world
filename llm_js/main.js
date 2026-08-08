@@ -39,7 +39,7 @@ for (const m of getAvailableModels()) {
   opt.textContent = m.label;
   modelSelect.appendChild(opt);
 }
-modelSelect.value = 'qwen3.5-0.8b';
+modelSelect.value = 'minicpm5-1b';
 
 for (const k of getGrammarKeys()) {
   const opt = document.createElement('option');
