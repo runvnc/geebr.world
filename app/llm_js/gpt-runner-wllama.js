@@ -7,11 +7,14 @@ import { getCurrentModel } from './model-loader-wllama.js';
 function buildPrompt(messages, think) {
   // BOS is required: this GGUF has add_bos_token=false, and without an explicit
   // <s> the model immediately emits the end-of-turn token (empty replies).
+  // Uses the MiniCPM5 ChatML template with the ٌ separator (from the
+  // working minicpm5 demo engine-wllama.js).
   let p = "<s>";
   for (const msg of messages) {
-    p += `${msg.role}\n${msg.content}\n`;
+    p += `<|im_start|>${msg.role}\n${msg.content}ٌ\n`;
   }
-  p += "assistant\n";
+  p += "<|im_start|>assistant\n";
+  p += think ? " thinking\n" : " thinking\n\n response\n\n";
   return p;
 }
 
@@ -35,6 +38,7 @@ export function createWllamaEngine(wllamaInstance) {
           console.log('[geebr-wllama] PROMPT PREVIEW:', prompt.slice(0, 1500));
           const aborter = new AbortController();
           let full = "";
+          let firstTokenLogged = false;
           const poll = setInterval(() => { if (shouldAbort?.()) aborter.abort(); }, 150);
           try {
             full = await wllamaInstance.createCompletion(prompt, {
@@ -42,15 +46,19 @@ export function createWllamaEngine(wllamaInstance) {
               abortSignal: aborter.signal,
               sampling: { temp: temperature, top_p: 0.95, top_k: 40, penalty_repeat: 1.1 },
               onNewToken: (token, piece, currentText, { abortSignal }) => {
+                if (!firstTokenLogged) {
+                  firstTokenLogged = true;
+                  console.log("[geebr-wllama] PREFILL DONE / first token at", new Date().toISOString(), "elapsed ms:", Math.round(performance.now() - t0));
+                }
                 full = currentText;
-                if (shouldAbort?.()) { abortSignal(); return; }
+                if (full.includes("ٌ") || shouldAbort?.()) { abortSignal(); return; }
                 onToken?.(full, true);
               },
             });
           } finally {
             clearInterval(poll);
           }
-          const text = full.trim();
+          const text = full.split("ٌ")[0].trim();
           console.log('[geebr-wllama] RAW OUTPUT at', new Date().toISOString(), 'elapsed ms:', Math.round(performance.now() - t0), 'chars:', text.length);
           console.log('[geebr-wllama] OUTPUT:', text);
           return { choices: [{ message: { content: text } }] };

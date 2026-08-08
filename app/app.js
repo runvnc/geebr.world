@@ -1414,13 +1414,10 @@ function buildAgentPrompt(g, cfg) {
     ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
     'Messages in the form "NAME says ..." report speech addressed to you.',
     'Understand and answer the meaning of that speech; do not copy or quote it back.',
-    'For a question, use say() with a short direct answer. For a request, say() a brief reply AND then take the requested action.',
+    'For a question, use say() with a short direct answer. For a request, respond or take the requested action.',
     'Never put the speaker attribution, such as "Tom says", inside say().',
     'Example: Tom says "which is bigger, a dog or a whale?" -> say("A whale is much bigger.")',
-    'Output 1-3 command lines, each on its own line; they run in order as one plan (for example: say("On it!") then walk(n) then carry()). Do not output anything except command lines.',
-    'When a request implies more than one step, prefer a multi-line plan instead of a single command.',
-    'Do not answer an action request with say() alone: after acknowledging, DO the thing (emote, walk, carry, push, build, spell, ...).',
-    'If you have already used say() several turns in a row, choose a non-say action next unless the newest message is purely conversational.',
+    'Do not output anything except the command line.',
   ].join('\n');
   const commandReminder = [
     'SYSTEM: ' + String(perception).slice(0, 2400),
