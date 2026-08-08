@@ -2368,7 +2368,8 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     refreshAgentSelect(); selectGeebr(g); saveWorldState();
     log('blank demo world ready with one Geebr');
   }
-  scene.onBeforeRenderObservable.add(()=>animate(engine.getDeltaTime()/1000)); engine.runRenderLoop(()=>{
+  scene.onBeforeRenderObservable.add(()=>{ if(!window.GEEBR_PAUSE_RENDER) animate(engine.getDeltaTime()/1000); }); engine.runRenderLoop(()=>{
+    if(window.GEEBR_PAUSE_RENDER) return;
     scene.render();
     const recorder=window.geebrFrameRecorder;
     if(recorder?.wantsFrame?.()) recorder.captureAfterRender(engine).catch(err=>recorder.fail?.(err));

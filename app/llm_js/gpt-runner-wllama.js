@@ -9,10 +9,9 @@ function buildPrompt(messages, think) {
   // <s> the model immediately emits the end-of-turn token (empty replies).
   let p = "<s>";
   for (const msg of messages) {
-    p += `<|im_start|>${msg.role}\n${msg.content}\n`;
+    p += `${msg.role}\n${msg.content}\n`;
   }
-  p += "<|im_start|>assistant\n";
-  p += think ? " thinking\n" : " thinking\n\n response\n\n";
+  p += "assistant\n";
   return p;
 }
 
@@ -31,7 +30,9 @@ export function createWllamaEngine(wllamaInstance) {
           const shouldAbort = config.shouldAbort ?? null;
 
           const prompt = buildPrompt(messages, enableThinking);
-          console.log('[geebr-wllama] SENDING PROMPT:', prompt.slice(0, 2000));
+          const t0 = performance.now();
+          console.log('[geebr-wllama] SENDING TO MODEL at', new Date().toISOString(), 'prompt chars:', prompt.length, 'maxTokens:', maxTokens);
+          console.log('[geebr-wllama] PROMPT PREVIEW:', prompt.slice(0, 1500));
           const aborter = new AbortController();
           let full = "";
           const poll = setInterval(() => { if (shouldAbort?.()) aborter.abort(); }, 150);
@@ -50,7 +51,8 @@ export function createWllamaEngine(wllamaInstance) {
             clearInterval(poll);
           }
           const text = full.trim();
-          console.log('[geebr-wllama] RAW OUTPUT:', text);
+          console.log('[geebr-wllama] RAW OUTPUT at', new Date().toISOString(), 'elapsed ms:', Math.round(performance.now() - t0), 'chars:', text.length);
+          console.log('[geebr-wllama] OUTPUT:', text);
           return { choices: [{ message: { content: text } }] };
         },
       },

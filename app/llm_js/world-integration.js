@@ -1,7 +1,7 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20260808b';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260808b';
-import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260808b';
-import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260808b';
+import { createAgentBrainManager } from './agent-brain.js?v=20260808c';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260808c';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260808c';
+import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260808c';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -435,16 +435,23 @@ async function main() {
       const promptOut = document.getElementById('promptOut');
       if (promptOut) promptOut.dataset.baseText = displayText;
       appendLog(g.id + ' sending ' + messages.length + ' messages to LLM (' + (cfg.messages||[]).length + ' history)' + (chatTestMode ? ' [CHAT TEST]' : ''));
-      console.log('[geebr-world] ABOUT TO CALL manager.decide for agent', g.id, 'with', messages.length, 'messages');
-      const line = await manager.decide({
-        agentId: g.id,
-        messages,
-        useGrammar: !chatTestMode,
-        allowedCommands: world.getAllowedCommands(),
-        enableThinking: !!el('enableThinking')?.checked,
-        temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
-      });
-      console.log('[geebr-world] RAW LLM OUTPUT for agent', g.id, ':', line);
+      console.log('[geebr-world] ABOUT TO CALL manager.decide for agent', g.id, 'with', messages.length, 'messages', 'at', new Date().toISOString());
+      const decideT0 = performance.now();
+      window.GEEBR_PAUSE_RENDER = true;
+      let line;
+      try {
+        line = await manager.decide({
+          agentId: g.id,
+          messages,
+          useGrammar: !chatTestMode,
+          allowedCommands: world.getAllowedCommands(),
+          enableThinking: !!el('enableThinking')?.checked,
+          temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
+        });
+      } finally {
+        window.GEEBR_PAUSE_RENDER = false;
+      }
+      console.log('[geebr-world] RAW LLM OUTPUT for agent', g.id, 'at', new Date().toISOString(), 'elapsed ms:', Math.round(performance.now() - decideT0), ':', line);
       const planLines = (typeof window.splitPlanLines==='function' ? window.splitPlanLines(line) : String(line || '').split('\n').map(l => l.trim()).filter(Boolean));
       const planCmds = planLines.map(l => world.parseLLMCommandLine(l)).filter(Boolean);
       // Bare continuation lines (e.g. poem lines without say()) right after a say are treated as more speech.

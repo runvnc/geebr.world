@@ -1,12 +1,12 @@
-import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260808b';
-import { generate as generateWebLLM } from './gpt-runner.js?v=20260808b';
-import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs-v2.js?v=20260808b';
-import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260808b';
-import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260808b';
-import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260808b';
-import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from './model-loader-wllama.js?v=20260808b';
-import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260808b';
-import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260808b';
+import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260808c';
+import { generate as generateWebLLM } from './gpt-runner.js?v=20260808c';
+import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs-v2.js?v=20260808c';
+import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260808c';
+import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260808c';
+import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260808c';
+import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from './model-loader-wllama.js?v=20260808c';
+import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260808c';
+import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260808c';
 
 const SUPPORTED_MODELS = {
   'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama' },
