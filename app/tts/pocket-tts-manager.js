@@ -98,7 +98,7 @@
       let alpha=null,beta=null,radius=null;
       if(cam&&cam.globalPosition){ const p=cam.globalPosition; L.x=p.x; L.y=p.y; L.z=p.z; }
       if(cam&&cam.target){ const dx=L.x-cam.target.x, dy=L.y-cam.target.y, dz=L.z-cam.target.z; const l=Math.hypot(dx,dy,dz)||1; F={x:dx/l,y:dy/l,z:dz/l}; }
-      R={x:F.z,y:0,z:-F.x}; const rl=Math.hypot(R.x,R.z)||1; R={x:R.x/rl,y:0,z:R.z/rl};
+      R={x:-F.z,y:0,z:F.x}; const rl=Math.hypot(R.x,R.z)||1; R={x:R.x/rl,y:0,z:R.z/rl};
       if(cam&&cam.alpha!==undefined){ alpha=+cam.alpha.toFixed(2); beta=+cam.beta.toFixed(2); radius=+cam.radius.toFixed(2); }
       const srcAgent=this.spatialSourceAgent();
       const sp=this.spatialSourcePos();
@@ -128,17 +128,15 @@
       const el=document.getElementById('spatialDebug'); if(!el)return;
       const d=this.spatialDebug; if(!d){ el.style.display='none'; return; }
       el.style.display='block';
-      const lines=[
-        'cam pos   '+d.camPos.join(', '),
-        'target    '+(d.camTarget?d.camTarget.join(', '):'n/a'),
-        'orbit a/b/r '+d.alpha+' / '+d.beta+' / '+d.radius,
-        'forward   '+d.forward.join(', '),
-        'right     '+d.right.join(', '),
-        'src       '+(d.src?d.src.join(', '):'none'),
-        'pan       '+d.pan+'  dist '+d.dist+'  gain '+d.gain,
-        'agent     '+(d.agent||'none')
-      ];
-      el.textContent=lines.join('\n');
+      const pct=Math.max(0,Math.min(100,(d.pan+1)/2*100));
+      el.innerHTML=
+        '<div style="display:flex;align-items:center;gap:8px;white-space:nowrap;">'+
+          '<span>L</span>'+
+          '<span style="position:relative;width:160px;height:4px;background:rgba(159,232,200,.25);border-radius:2px;">'+
+            '<span style="position:absolute;top:50%;left:'+pct+'%;width:10px;height:10px;border-radius:50%;background:#9fe8c8;transform:translate(-50%,-50%);box-shadow:0 0 4px rgba(159,232,200,.7);"></span>'+
+          '</span>'+
+          '<span>R</span>'+
+        '</div>';
     }    stop(){this.queue=[];try{this.worker?.postMessage({type:'stop'});this.pcmNode?.port.postMessage({type:'reset'});}catch{}this.finishCurrent(false);}
     unload(){this.stopSpatialTicker();this.stop();try{this.worker?.terminate();}catch{}this.worker=null;this.ready=false;this.loading=false;this.pendingLoad=null;this.pendingAudio=[];this.pending.clear();try{this.pcmNode?.disconnect();}catch{}try{this.gain?.disconnect();}catch{}try{this.audioCtx?.close();}catch{}this.pcmNode=null;this.gain=null;this.audioCtx=null;this.directPort=false;}
     async setLanguage(language){localStorage.setItem('geebrTtsLanguage',language);if(!this.worker)return;this.ready=false;this.status('Loading language…','loading');this.worker.postMessage({type:'set_language',data:{language}});}
