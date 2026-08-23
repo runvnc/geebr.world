@@ -18,6 +18,17 @@ const MODEL_CONFIG = {
     size: 688 * 1024 * 1024,
     vram: 'CPU · WASM',
   },
+  'minicpm5-1b-q8': {
+    // Prefill-speed experiment. Q4_K is a k-quant: every weight needs
+    // super-block dequantization (scales + mins + 6-bit sub-scales) before the
+    // dot product, which is expensive under WASM SIMD128. Q8_0 is a flat int8
+    // dot that vectorizes cleanly, so it often prefills FASTER than Q4_K_M in
+    // WASM despite being ~1.7x the download.
+    label: 'MiniCPM5-1B (CPU, Q8_0 - faster prefill?)',
+    file: 'MiniCPM5-1B-Q8_0.gguf',
+    size: 1150 * 1024 * 1024,
+    vram: 'CPU · WASM',
+  },
 };
 
 let wllama = null;
@@ -63,11 +74,27 @@ export async function loadModel(modelKey, onProgress) {
   onProgress?.('Loading MiniCPM5-1B (CPU / wllama)...');
   onProgress?.(`Model: ${cfg.label}`);
 
+  // llama.cpp is fastest at n_threads = PHYSICAL cores. hardwareConcurrency
+  // reports logical CPUs, so on a hyperthreaded chip (i7-10750H: 6 cores / 12
+  // threads) the old Math.min(8, 12)=8 oversubscribed the 6 real cores -
+  // sibling threads contend for the same SIMD units and prefill gets slower,
+  // not faster. Halve it as a physical-core estimate; ?threads=N overrides for
+  // benchmarking.
+  const qsThreads = Number(new URLSearchParams(location.search).get('threads'));
+  const logical = navigator.hardwareConcurrency || 4;
+  const wantThreads = Number.isFinite(qsThreads) && qsThreads > 0
+    ? qsThreads
+    : Math.max(1, Math.min(8, Math.floor(logical / 2)));
+  console.log('[geebr-wllama] load: crossOriginIsolated=', self.crossOriginIsolated,
+    'hardwareConcurrency=', navigator.hardwareConcurrency,
+    'requesting n_threads=', wantThreads,
+    '-> wasm build should be', self.crossOriginIsolated ? 'multi-thread' : 'single-thread (crossOriginIsolated is false, so multi-thread is unavailable regardless of n_threads)');
+
   try {
     wllama = new Wllama(CONFIG_PATHS, { allowOffline: false });
     await wllama.loadModelFromUrl(HF_BASE + cfg.file, {
       n_ctx: 4096,
-      n_threads: Math.min(8, navigator.hardwareConcurrency || 4),
+      n_threads: wantThreads,
       progressCallback: ({ loaded, total }) => {
         const totalBytes = total || cfg.size;
         const percent = totalBytes ? Math.min(100, (loaded / totalBytes) * 100) : null;
@@ -78,6 +105,12 @@ export async function loadModel(modelKey, onProgress) {
         });
       },
     });
+    try {
+      const loadedBuild = wllama.isMultithread?.() ?? wllama.multithread ?? wllama.config?.n_threads ?? 'unknown (no introspection API on this wllama version)';
+      console.log('[geebr-wllama] load: actual thread mode reported by wllama instance =', loadedBuild);
+    } catch (introErr) {
+      console.log('[geebr-wllama] load: could not introspect thread mode:', introErr?.message);
+    }
     currentModel = modelKey;
     loadedQuant = 'Q4_K_M';
     loadedCtx = 4096;

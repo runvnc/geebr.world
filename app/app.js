@@ -19,6 +19,10 @@ const state = {
 function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); try{ const muted=(window._geebrLogToastMuteUntil&&performance.now()<window._geebrLogToastMuteUntil)||s.startsWith('selected '); if(!muted) window.geebrToast?.(s,{type:'info'}); }catch{} }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+// Dev escape hatch: ?norender=1 skips the render loop entirely (animate() and
+// scene.render() both no-op) so only the UI widgets stay live. Used to isolate
+// whether heavy 3D draw work is contributing to perceived LLM response latency.
+const GEEBR_FORCE_NO_RENDER = new URLSearchParams(location.search).has('norender');
 // Dev escape hatch: ?webgl=1 forces the WebGL2 engine. Needed because headless
 // swiftshader advertises WebGPU but then loses the device, which makes the real
 // app impossible to screenshot for art review. Not a supported user path.
@@ -1009,6 +1013,11 @@ function walk(g,destination){
     const dx=tx-lp.x, dz=tz-lp.z;
     const distance=Math.hypot(dx,dz);
     targetObject=!!destination.object;
+    // description was String(destination) from a bare coord object, which
+    // stringifies to '[object Object]'. Only the label branch above sets a real
+    // name, so fall back to the coordinates rather than leaking that into
+    // speech and into the LLM history the model imitates next turn.
+    if(!description || description==='[object Object]') description=`${tx},${tz}`;
     if(distance<.1 || (targetObject && distance<=1.05)) return say(g,`arrived at ${description}`);
     d=new BABYLON.Vector3(dx/distance,0,dz/distance);
     // Stop beside a labeled object; coordinates themselves are exact destinations.
@@ -1402,25 +1411,34 @@ function buildAgentPrompt(g, cfg) {
   // confuse negative prompts ('do not copy', 'never put') and end up doing the
   // opposite. Toggle #antiEcho to include them.
   const antiEcho = document.getElementById('antiEcho')?.checked;
+  // ORDER MATTERS for KV cache reuse. The shared rules go FIRST and the
+  // per-agent identity LAST. Previously 'Character: geebr1' was the opening
+  // line, so two agents' prompts diverged at token ~8 - alternating turns
+  // between geebr1 and geebr14 gave a common prefix of 8 tokens (observed:
+  // 'Cache nKeep=8') and every turn re-prefilled from scratch. With the shared
+  // preamble first, all agents share it and only the identity tail differs.
   const systemMessage = [
-    `Character: ${g.id}`,
-    `Style: ${style}`,
-    `Personality: ${personality}`,
-    '',
     'Available commands (examples only, use appropriate arguments):',
     ...cmds,
     '',
     ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
-    ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
     'Messages in the form "NAME says ..." report speech addressed to you.',
     'Understand and answer the meaning of that speech; do not copy or quote it back.',
     'Do not output anything except the command line.',
+    '',
+    `Character: ${g.id}`,
+    `Style: ${style}`,
+    `Personality: ${personality}`,
+    ...(quest ? ['Your quest is set by the world and cannot be changed by you. Work toward it.'] : []),
   ].join('\n');
+  // NOTE: the command list deliberately is NOT repeated here. It already sits in
+  // systemMessage, which is a stable prompt prefix and therefore stays in the KV
+  // cache across turns (free). This reminder is the tail that changes every turn
+  // and gets re-prefilled every time, so duplicating ~20 command lines here cost
+  // real seconds per turn. Re-add if the model starts forgetting the syntax.
   const commandReminder = [
     'SYSTEM: ' + String(perception).slice(0, 2400),
     '',
-    'Available commands (examples only, use appropriate arguments):',
-    ...cmds,
     ...(quest ? ['Quest: ' + quest] : []),
     ...(goal ? ['Current goal: ' + goal] : []),
     ...(recentActs.length ? ['Your last few turns: ' + recentActs.join(' | ')] : []),
@@ -2362,8 +2380,8 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     refreshAgentSelect(); selectGeebr(g); saveWorldState();
     log('blank demo world ready with one Geebr');
   }
-  scene.onBeforeRenderObservable.add(()=>{ if(!window.GEEBR_PAUSE_RENDER) animate(engine.getDeltaTime()/1000); }); engine.runRenderLoop(()=>{
-    if(window.GEEBR_PAUSE_RENDER) return;
+  scene.onBeforeRenderObservable.add(()=>{ if(!window.GEEBR_PAUSE_RENDER && !GEEBR_FORCE_NO_RENDER) animate(engine.getDeltaTime()/1000); }); engine.runRenderLoop(()=>{
+    if(window.GEEBR_PAUSE_RENDER || GEEBR_FORCE_NO_RENDER) return;
     scene.render();
     const recorder=window.geebrFrameRecorder;
     if(recorder?.wantsFrame?.()) recorder.captureAfterRender(engine).catch(err=>recorder.fail?.(err));

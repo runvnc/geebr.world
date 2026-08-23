@@ -2,10 +2,17 @@
 // The simple command-spec mode compiles to a plain command DSL, not JSON.
 
 function stringRules() {
-  // Simple xgrammar-safe printable character set. This mirrors the first working
-  // command grammar style; avoid char? char? bounded expansion because that froze.
+  // Simple printable character set. This mirrors the first working command
+  // grammar style; avoid char? char? bounded expansion because that froze.
+  //
+  // The '-' MUST come first in the character class. It used to sit last
+  // ("...=-]"), which xgrammar tolerated as a literal but llama.cpp's GBNF
+  // parser does not: it reads '-' as a range operator, consumes the closing
+  // ']' as the range end, runs off the end of the class and fails with
+  // "failed to parse grammar". Leading '-' has no preceding char to form a
+  // range, so both parsers read it as a literal.
   return `string ::= "\\"" char* "\\""
-char ::= [A-Za-z0-9 .,!?;:'_<>/=-]`;
+char ::= [-A-Za-z0-9 .,!?;:'_<>/=]`;
 }
 
 const STRING_RULES = stringRules();

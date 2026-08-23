@@ -14,7 +14,12 @@ function buildPrompt(messages, think) {
     p += `<|im_start|>${msg.role}\n${msg.content}ٌ\n`;
   }
   p += "<|im_start|>assistant\n";
-  p += think ? " thinking\n" : " thinking\n\n response\n\n";
+  // These MUST be the literal <think></think> tags from MiniCPM5's chat
+  // template. They had been mangled into the bare words ' thinking' / ' response'
+  // (angle brackets stripped), so the model never saw a real think block - it
+  // responded by emitting stray closing </think> tags mid-answer and drifting
+  // out of command syntax entirely.
+  p += think ? "<think>\n" : "<think>\n\n</think>\n\n";
   return p;
 }
 
@@ -31,24 +36,55 @@ export function createWllamaEngine(wllamaInstance) {
           const enableThinking = config.extra_body?.enable_thinking ?? false;
           const onToken = config.onToken ?? null;
           const shouldAbort = config.shouldAbort ?? null;
+          // agent-brain.js builds a GBNF command grammar and passes it as
+          // responseFormat, but it was being dropped on the floor here - so the
+          // model was free-running and emitting 'Say: "Ready"' instead of
+          // say("Ready"), which the parser then logged as an unknown command.
+          // wllama's sampler takes GBNF directly as sampling.grammar.
+          const grammar = config.responseFormat?.type === 'grammar'
+            ? config.responseFormat.grammar
+            : null;
 
           const prompt = buildPrompt(messages, enableThinking);
           const t0 = performance.now();
-          console.log('[geebr-wllama] SENDING TO MODEL at', new Date().toISOString(), 'prompt chars:', prompt.length, 'maxTokens:', maxTokens);
+          console.log('[geebr-wllama] SENDING TO MODEL at', new Date().toISOString(), 'prompt chars:', prompt.length, 'maxTokens:', maxTokens, 'renderPaused:', !!window.GEEBR_PAUSE_RENDER);
           console.log('[geebr-wllama] PROMPT PREVIEW:', prompt.slice(0, 1500));
+          let promptTokenCount = null;
+          try {
+            const toks = await wllamaInstance.tokenize?.(prompt);
+            if (Array.isArray(toks)) promptTokenCount = toks.length;
+          } catch (tokErr) {
+            console.log('[geebr-wllama] tokenize() for prompt length unavailable:', tokErr?.message);
+          }
+          if (promptTokenCount != null) console.log('[geebr-wllama] prompt token count:', promptTokenCount);
           const aborter = new AbortController();
           let full = "";
-          let firstTokenLogged = false;
+          let firstTokenAt = null;
+          let genTokenCount = 0;
+          const cachedBefore = wllamaInstance.nCachedTokens ?? 0;
+          console.log('[geebr-wllama] KV cache holds', cachedBefore, 'tokens from the previous turn; only the diverging suffix will be prefilled');
           const poll = setInterval(() => { if (shouldAbort?.()) aborter.abort(); }, 150);
           try {
             full = await wllamaInstance.createCompletion(prompt, {
               nPredict: maxTokens,
               abortSignal: aborter.signal,
-              sampling: { temp: temperature, top_p: 0.95, top_k: 40, penalty_repeat: 1.1 },
+              // Reuse the KV cache across turns. Without this wllama calls
+              // kvClear() and re-prefills the entire ~900-token prompt every
+              // turn (~112s measured). Our prompt is [stable system][stable
+              // history][changing perception], so the common prefix is large
+              // and only the tail needs computing.
+              useCache: true,
+              sampling: {
+                temp: temperature, top_p: 0.95, top_k: 40, penalty_repeat: 1.1,
+                ...(grammar ? { grammar } : {}),
+              },
               onNewToken: (token, piece, currentText, { abortSignal }) => {
-                if (!firstTokenLogged) {
-                  firstTokenLogged = true;
-                  console.log("[geebr-wllama] PREFILL DONE / first token at", new Date().toISOString(), "elapsed ms:", Math.round(performance.now() - t0));
+                genTokenCount++;
+                if (firstTokenAt === null) {
+                  firstTokenAt = performance.now();
+                  const prefillMs = firstTokenAt - t0;
+                  const prefillRate = promptTokenCount != null ? (promptTokenCount / (prefillMs / 1000)).toFixed(1) + ' tok/s' : 'unknown (no token count)';
+                  console.log("[geebr-wllama] PREFILL DONE / first token at", new Date().toISOString(), "elapsed ms:", Math.round(prefillMs), "prefill rate:", prefillRate, "renderPaused:", !!window.GEEBR_PAUSE_RENDER);
                 }
                 full = currentText;
                 if (full.includes("ٌ") || shouldAbort?.()) { abortSignal(); return; }
@@ -59,7 +95,11 @@ export function createWllamaEngine(wllamaInstance) {
             clearInterval(poll);
           }
           const text = full.split("ٌ")[0].trim();
-          console.log('[geebr-wllama] RAW OUTPUT at', new Date().toISOString(), 'elapsed ms:', Math.round(performance.now() - t0), 'chars:', text.length);
+          const totalMs = performance.now() - t0;
+          const genMs = firstTokenAt !== null ? performance.now() - firstTokenAt : null;
+          console.log('[geebr-wllama] RAW OUTPUT at', new Date().toISOString(), 'elapsed ms:', Math.round(totalMs), 'chars:', text.length,
+            'genTokens:', genTokenCount, 'genRate:', (genMs && genTokenCount > 0) ? (genTokenCount / (genMs / 1000)).toFixed(1) + ' tok/s' : 'n/a',
+            'renderPaused:', !!window.GEEBR_PAUSE_RENDER);
           console.log('[geebr-wllama] OUTPUT:', text);
           return { choices: [{ message: { content: text } }] };
         },
@@ -90,6 +130,7 @@ export async function generate(engine, prompt, opts = {}) {
       top_p: 0.95,
       onToken: onToken,
       extra_body: { enable_thinking: enableThinking },
+      responseFormat: opts.responseFormat ?? null,
       shouldAbort: opts.shouldAbort ?? null,
     };
 
@@ -122,6 +163,7 @@ export async function generate(engine, prompt, opts = {}) {
     top_p: 0.95,
     onToken: onToken,
     extra_body: { enable_thinking: enableThinking },
+    responseFormat: opts.responseFormat ?? null,
     shouldAbort: opts.shouldAbort ?? null,
   };
 
