@@ -1,7 +1,8 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20260808e';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260808e';
-import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260808e';
-import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260808e';
+import { createAgentBrainManager } from './agent-brain.js?v=20260823q';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260823q';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260823q';
+import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
+import { clearModelCache as clearWllama3Cache, hasModelCached as hasWllama3Cached } from './model-loader-wllama3.js?v=20260823q';
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -77,10 +78,18 @@ function setStatus(status, noticeState = null) {
   else if (progress.phase || /load|download|cache|initializ|prepar|checking/i.test(text)) updateModelNotice(status, 'loading');
 }
 
-function showDownloadConsent(modelLabel) {
+function showDownloadConsent(modelLabel, modelSize) {
   const notice = el('modelLoadNotice');
   const consent = el('modelConsent');
   if (!notice || !consent) return;
+  // The subtitle and consent blurb used to be hardcoded to MiniCPM5-1B in
+  // index.html, so picking any other model still advertised a "~1.2 GB
+  // MiniCPM5-1B download". Drive both from the model actually selected.
+  if (el('modelLoadSubtitle')) el('modelLoadSubtitle').textContent = `${modelLabel} runs locally on this device`;
+  if (el('modelConsentText')) {
+    el('modelConsentText').innerHTML = '<strong>Run the characters locally?</strong> This needs a one-time '
+      + (modelSize ? `<b>${modelSize}</b> ` : '') + `${modelLabel} download.`;
+  }
   clearTimeout(modelNoticeDismissTimer);
   notice.classList.remove('hidden', 'ready', 'error', 'determinate', 'declined');
   notice.classList.add('consent');
@@ -101,12 +110,53 @@ function showDownloadDeclined() {
   if (el('brainStatus')) el('brainStatus').textContent = 'local brain not loaded';
 }
 
-function waitForDownloadConsent(modelLabel) {
-  showDownloadConsent(modelLabel);
+let pendingConsentResolve = null;
+function waitForDownloadConsent(modelLabel, modelSize) {
+  // A consent prompt from an earlier call may still be pending - e.g. startup
+  // auto-load asked about the model remembered in localStorage, then the user
+  // picked a different one from the dropdown and clicked load. The old
+  // {once:true} listeners were never removed, so a SINGLE click on
+  // "Download & run" resolved BOTH promises and started two concurrent
+  // manager.load() calls (two models in memory at once - the near-crash), while
+  // the stale path printed the old model's name. Settle any stale prompt as
+  // declined before opening a new one.
+  if (pendingConsentResolve) {
+    pendingConsentResolve(false);
+    pendingConsentResolve = null;
+  }
+  showDownloadConsent(modelLabel, modelSize);
   return new Promise(resolve => {
-    el('approveModelDownload')?.addEventListener('click', () => resolve(true), { once: true });
-    el('declineModelDownload')?.addEventListener('click', () => resolve(false), { once: true });
+    const approve = el('approveModelDownload');
+    const decline = el('declineModelDownload');
+    const cleanup = () => {
+      approve?.removeEventListener('click', onApprove);
+      decline?.removeEventListener('click', onDecline);
+    };
+    function onApprove() { pendingConsentResolve = null; cleanup(); resolve(true); }
+    function onDecline() { pendingConsentResolve = null; cleanup(); resolve(false); }
+    pendingConsentResolve = (v) => { cleanup(); resolve(v); };
+    approve?.addEventListener('click', onApprove);
+    decline?.addEventListener('click', onDecline);
   });
+}
+
+// Hard guard against two model loads running at once, whatever the trigger.
+// Loading two multi-hundred-MB models concurrently is what pushed the tab into
+// OOM territory.
+let loadInFlight = false;
+async function loadModelOnce(manager, onBusy) {
+  if (loadInFlight) {
+    console.warn('[geebr] load already in progress - ignoring duplicate request');
+    onBusy?.();
+    return false;
+  }
+  loadInFlight = true;
+  try {
+    await manager.load();
+    return true;
+  } finally {
+    loadInFlight = false;
+  }
 }
 
 function appendLog(text) {
@@ -157,6 +207,7 @@ async function clearActiveModelCache(manager) {
   const engine = getActiveEngine(manager);
   if (engine === 'litert-lm') return clearLiteRTCache(manager.getModelKey());
   if (engine === 'wllama') return clearWllamaCache(manager.getModelKey());
+  if (engine === 'wllama3') return clearWllama3Cache(manager.getModelKey());
   return clearTJSCache(manager.getModelKey());
 }
 
@@ -164,6 +215,7 @@ async function hasActiveModelCached(manager) {
   const engine = getActiveEngine(manager);
   if (engine === 'litert-lm') return hasLiteRTCached(manager.getModelKey());
   if (engine === 'wllama') return hasWllamaCached(manager.getModelKey());
+  if (engine === 'wllama3') return hasWllama3Cached(manager.getModelKey());
   return hasTJSCached(manager.getModelKey());
 }
 
@@ -327,8 +379,17 @@ async function main() {
     shouldLoad = false;
     setStatus('local brain disabled (art review mode)');
     appendLog('art review mode: LLM load skipped');
+  } else if (getActiveEngine(manager) === 'transformers.js' || getActiveEngine(manager) === 'wllama3') {
+    // GPU/WebGPU engines never auto-load, even if cached and even if this model
+    // was the last one selected (localStorage remembers it). WebGPU inference
+    // competes with the 3D renderer's own WebGPU context for GPU resources and
+    // has caused hard browser crashes on some hardware - always require an
+    // explicit click so a page refresh never silently triggers it.
+    shouldLoad = false;
+    setStatus(modelLabel + ' selected - click load to start (GPU engine, never auto-loads)');
+    appendLog('GPU engine selected: skipping auto-load, click load manually');
   } else if (!cached) {
-    shouldLoad = await waitForDownloadConsent(modelLabel);
+    shouldLoad = await waitForDownloadConsent(modelLabel, manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.size);
     if (!shouldLoad) {
       showDownloadDeclined();
       appendLog('local model download skipped');
@@ -336,9 +397,12 @@ async function main() {
   }
 
   if (shouldLoad) try {
-    setStatus('auto-loading ' + modelLabel + '...');
-    console.log(cached ? '[geebr] loading cached model...' : '[geebr] starting approved download...');
-    await manager.load();
+    // Re-read the label HERE rather than reusing the one captured before the
+    // consent prompt: the user may have changed the dropdown while it was open.
+    const liveLabel = manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey();
+    setStatus('auto-loading ' + liveLabel + '...');
+    console.log(cached ? '[geebr] loading cached model...' : '[geebr] starting approved download...', liveLabel);
+    if (!await loadModelOnce(manager)) return;
     console.log('[geebr] auto-load completed, enabling buttons...');
     el('startBrains').disabled = false;
     el('stepBrains').disabled = false;
@@ -366,13 +430,17 @@ async function main() {
     try {
       const cachedNow = await hasActiveModelCached(manager).catch(() => false);
       if (!cachedNow) {
-        const approved = await waitForDownloadConsent(manager.getSupportedModels().find(m => m.key === manager.getModelKey())?.label || manager.getModelKey());
+        const cur = manager.getSupportedModels().find(m => m.key === manager.getModelKey());
+        const approved = await waitForDownloadConsent(cur?.label || manager.getModelKey(), cur?.size);
         if (!approved) { showDownloadDeclined(); return; }
       }
       el('loadBrains').disabled = true;
       console.log('[geebr] manual load starting...');
       setStatus(cachedNow ? 'loading cached local brain...' : 'starting approved model download...');
-      await manager.load();
+      if (!await loadModelOnce(manager, () => setStatus('a model load is already running - wait for it to finish'))) {
+        el('loadBrains').disabled = false;
+        return;
+      }
       console.log('[geebr] manual load completed, enabling buttons...');
       el('startBrains').disabled = false;
       el('stepBrains').disabled = false;
@@ -438,6 +506,7 @@ async function main() {
       console.log('[geebr-world] ABOUT TO CALL manager.decide for agent', g.id, 'with', messages.length, 'messages', 'at', new Date().toISOString());
       const decideT0 = performance.now();
       window.GEEBR_PAUSE_RENDER = true;
+      console.log('[geebr-world] render paused at', new Date().toISOString());
       let line;
       try {
         line = await manager.decide({
@@ -450,6 +519,7 @@ async function main() {
         });
       } finally {
         window.GEEBR_PAUSE_RENDER = false;
+        console.log('[geebr-world] render resumed at', new Date().toISOString());
       }
       console.log('[geebr-world] RAW LLM OUTPUT for agent', g.id, 'at', new Date().toISOString(), 'elapsed ms:', Math.round(performance.now() - decideT0), ':', line);
       const planLines = (typeof window.splitPlanLines==='function' ? window.splitPlanLines(line) : String(line || '').split('\n').map(l => l.trim()).filter(Boolean));

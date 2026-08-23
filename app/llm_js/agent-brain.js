@@ -1,16 +1,22 @@
-import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260808e';
-import { generate as generateWebLLM } from './gpt-runner.js?v=20260808e';
-import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs-v2.js?v=20260808e';
-import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260808e';
-import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260808e';
-import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260808e';
-import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from './model-loader-wllama.js?v=20260808e';
-import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260808e';
-import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260808e';
+import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from './model-loader.js?v=20260823q';
+import { generate as generateWebLLM } from './gpt-runner.js?v=20260823q';
+import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs-v2.js?v=20260823q';
+import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260823q';
+import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20260823q';
+import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20260823q';
+import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from './model-loader-wllama.js?v=20260823q';
+import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260823q';
+import { loadModel as loadModelWllama3, getCapabilityInfo as getCapWllama3 } from './model-loader-wllama3.js?v=20260823q';
+import { generate as generateWllama3, createWllama3Engine } from './gpt-runner-wllama3.js?v=20260823q';
+import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20260823q';
 
 const SUPPORTED_MODELS = {
-  'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama' },
-  'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm' },
+  'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama', size: '~690 MB' },
+  'minicpm5-1b-q8': { label: 'MiniCPM5-1B (CPU, Q8_0)', engine: 'wllama', size: '~1.15 GB' },
+  'minicpm5-1b-wgpu': { label: 'MiniCPM5-1B (WebGPU GGUF)', engine: 'wllama3', size: '~690 MB' },
+  'minicpm5-1b-wgpu-q8': { label: 'MiniCPM5-1B (WebGPU GGUF Q8_0)', engine: 'wllama3', size: '~1.15 GB' },
+  'minicpm5-1b-gpu': { label: 'MiniCPM5-1B (GPU/WebGPU)', engine: 'transformers.js', size: '~1.4 GB' },
+  'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm', size: '~2 GB' },
 };
 
 // Default model is MiniCPM5-1B. Toggle to Gemma 4 E2B (LiteRT) with
@@ -67,6 +73,7 @@ export function createAgentBrainManager(config = {}) {
     const getCap = getEngineType() === 'transformers.js' ? getCapTJS
       : getEngineType() === 'litert-lm' ? getCapLiteRT
       : getEngineType() === 'wllama' ? getCapWllama
+      : getEngineType() === 'wllama3' ? getCapWllama3
       : getCapWebLLM;
     const cap = await getCap();
     if (!cap.webgpu) throw new Error('WebGPU unavailable; use Chrome/Edge with WebGPU enabled.');
@@ -74,6 +81,7 @@ export function createAgentBrainManager(config = {}) {
     const loadFn = getEngineType() === 'transformers.js' ? loadModelTJS
       : getEngineType() === 'litert-lm' ? loadModelLiteRT
       : getEngineType() === 'wllama' ? loadModelWllama
+      : getEngineType() === 'wllama3' ? loadModelWllama3
       : loadModelWebLLM;
     console.log('[geebr-brain] calling loadFn...');
     const result = await loadFn(currentModelKey, status => onStatus(status));
@@ -90,6 +98,10 @@ export function createAgentBrainManager(config = {}) {
       console.log('[geebr-brain] creating wllama engine wrapper...');
       engine = createWllamaEngine(result);
       console.log('[geebr-brain] wllama engine wrapper created');
+    } else if (getEngineType() === 'wllama3') {
+      console.log('[geebr-brain] creating wllama3 (WebGPU) engine wrapper...');
+      engine = createWllama3Engine(result);
+      console.log('[geebr-brain] wllama3 engine wrapper created');
     } else {
       engine = result;
     }
@@ -103,7 +115,17 @@ export function createAgentBrainManager(config = {}) {
   async function decide(agent) {
     if (!engine) await load();
     const onToken = agent.onToken ?? null;
-    const useGrammar = agent.useGrammar !== false;
+    // Constrained decoding (GBNF) is OFF by default. It only ever applied to the
+    // wllama engines; the Transformers.js and LiteRT paths ignore responseFormat
+    // entirely, so for Gemma 4 E2B this is inert either way. Turning it off
+    // keeps the prompt free of the extra constraint instruction and removes a
+    // whole class of "failed to parse grammar" sampler errors.
+    // Re-enable with ?grammar=1 if you want to experiment with it again.
+    const grammarEnabled = (() => {
+      try { return new URLSearchParams(window.location.search).has('grammar'); }
+      catch { return false; }
+    })();
+    const useGrammar = grammarEnabled && agent.useGrammar !== false;
     let responseFormat = null;
     let constraintInstruction = '';
     if (useGrammar) {
@@ -117,6 +139,7 @@ export function createAgentBrainManager(config = {}) {
     const generateFn = getEngineType() === 'transformers.js' ? generateTJS
       : getEngineType() === 'litert-lm' ? generateLiteRT
       : getEngineType() === 'wllama' ? generateWllama
+      : getEngineType() === 'wllama3' ? generateWllama3
       : generateWebLLM;
 
     console.log('[geebr-brain] SENDING REQUEST TO LLM', {
@@ -181,7 +204,7 @@ export function createAgentBrainManager(config = {}) {
     isLoaded: () => loaded,
     setModel,
     getModelKey,
-    getSupportedModels: () => Object.entries(SUPPORTED_MODELS).map(([key, cfg]) => ({ key, label: cfg.label })),
+    getSupportedModels: () => Object.entries(SUPPORTED_MODELS).map(([key, cfg]) => ({ key, label: cfg.label, engine: cfg.engine, size: cfg.size })),
     clearConversations: (agentId = null) => clearLiteRTConversations(agentId),
   };
 }
