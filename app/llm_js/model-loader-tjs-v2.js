@@ -23,6 +23,17 @@ const MODEL_CONFIG = {
     vram: '~2GB',
     device: 'webgpu',
   },
+  'minicpm5-1b-gpu': {
+    label: 'MiniCPM5-1B (GPU/WebGPU)',
+    modelId: 'skjortan/MiniCPM5-1B-ONNX',
+    // skjortan export: q4 weights + FP32 activations (model_q4.onnx) - runs on
+    // WebGPU WITHOUT shader-f16, unlike the Mike0021 export (fp16 Gather) that
+    // geebr.world's earlier WebLLM/MLC attempt couldn't get working on this
+    // RTX 2060. Verified working in /files/minicpm5's standalone demo.
+    dtype: 'q4',
+    vram: '~1.4GB',
+    device: 'webgpu',
+  },
 };
 
 let processor = null;
@@ -122,16 +133,29 @@ export async function loadModel(modelKey, onProgress) {
     // NOTE: For AutoTokenizer (LFM2.5), `processor` IS the tokenizer, so the
     // template lives at processor.chat_template. For AutoProcessor (Gemma),
     // it lives at processor.tokenizer.chat_template. Handle both.
-    const tplHolder = processor?.chat_template ? processor
-      : (processor?.tokenizer?.chat_template ? processor.tokenizer : null);
-    if (tplHolder) {
+    const tplHolder = processor?.tokenizer ?? processor;
+    if (!tplHolder.chat_template) {
+      // Some repos (e.g. skjortan/MiniCPM5-1B-ONNX) ship chat_template.jinja as a
+      // separate file; Transformers.js only reads tokenizer_config.json, so fetch
+      // and assign it manually. Matches /files/minicpm5's engine-tjs.js approach.
+      try {
+        const resp = await fetch(`https://huggingface.co/${cfg.modelId}/raw/main/chat_template.jinja`);
+        if (resp.ok) {
+          tplHolder.chat_template = await resp.text();
+          console.log('[geebr-tjs] fetched chat_template.jinja from model repo');
+        } else {
+          console.warn('[geebr-tjs] no chat_template on processor and chat_template.jinja fetch failed:', resp.status);
+        }
+      } catch (fetchErr) {
+        console.warn('[geebr-tjs] could not fetch chat_template.jinja:', fetchErr?.message);
+      }
+    }
+    if (tplHolder.chat_template) {
       const original = tplHolder.chat_template;
       const cleaned = sanitizeChatTemplate(original);
       if (cleaned !== original) {
         tplHolder.chat_template = cleaned;
         console.log('[geebr-tjs] sanitized chat_template: removed generation block tags');
-      } else {
-        console.log('[geebr-tjs] chat_template had no generation block tags to strip');
       }
     } else {
       console.warn('[geebr-tjs] could not locate chat_template for sanitization');
@@ -191,15 +215,35 @@ export function unloadModel() {
   currentModel = null;
 }
 
-export async function clearModelCache() {
-  // Transformers.js uses browser cache automatically; no explicit cache clear API
-  // Could use caches.delete() but that's browser-specific
-  console.log('Transformers.js cache clear not implemented - browser manages cache');
+// Transformers.js caches downloaded weight files in the Cache Storage API under
+// this fixed cache name (verified against the library source), keyed by the
+// original download URL. We can check/clear it directly instead of guessing.
+const TJS_CACHE_NAME = 'transformers-cache';
+
+export async function clearModelCache(modelKey) {
+  const cfg = MODEL_CONFIG[modelKey];
+  if (!cfg || !('caches' in self)) return;
+  try {
+    const cache = await caches.open(TJS_CACHE_NAME);
+    const keys = await cache.keys();
+    const matches = keys.filter(req => req.url.includes(cfg.modelId));
+    await Promise.all(matches.map(req => cache.delete(req)));
+    console.log('[geebr-tjs] cleared', matches.length, 'cached file(s) for', cfg.modelId);
+  } catch (e) {
+    console.warn('[geebr-tjs] cache clear failed:', e.message);
+  }
 }
 
-export async function hasModelCached() {
-  // Transformers.js doesn't expose a simple cache check
-  return false;
+export async function hasModelCached(modelKey) {
+  const cfg = MODEL_CONFIG[modelKey];
+  if (!cfg || !('caches' in self)) return false;
+  try {
+    const cache = await caches.open(TJS_CACHE_NAME);
+    const keys = await cache.keys();
+    return keys.some(req => req.url.includes(cfg.modelId));
+  } catch {
+    return false;
+  }
 }
 
 export function getCacheBackend() {
