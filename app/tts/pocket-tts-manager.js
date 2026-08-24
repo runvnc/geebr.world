@@ -10,17 +10,30 @@
 
   const DB='geebr-pocket-tts', STORE='voices';
   const CACHE_MARKER='geebrTtsModelCached';
-  const settings=()=>({enabled:localStorage.getItem('geebrTtsEnabled')==='1',language:localStorage.getItem('geebrTtsLanguage')||'english_2026-04',volume:Number(localStorage.getItem('geebrTtsVolume')||.85)});
+  const settings=()=>({enabled:localStorage.getItem('geebrTtsEnabled')==='1',language:localStorage.getItem('geebrTtsLanguage')||'english_2026-04',volume:Number(localStorage.getItem('geebrTtsVolume')||.85),bufferMs:clamp(Number(localStorage.getItem('geebrTtsBufferMs')||350),150,1500)});
   class PocketTTSManager extends EventTarget {
-    constructor(){ super(); this.worker=null; this.ready=false; this.loading=false; this.queue=[]; this.running=false; this.audioCtx=null; this.gain=null; this.pcmNode=null; this.directPort=false; this.sampleRate=24000; this.receivedSamples=0; this.pendingAudio=[]; this.pendingStreamEnd=false; this.custom=new Map(); this.pending=new Map(); this.spatial=true; this.panner=null; this.stereoPanner=null; this.spatialAgent=null; this.spatialRAF=null; this.spatialDebug=null; this.telemetry={backend:'WASM CPU',isolated:false,threads:1,hardwareConcurrency:navigator.hardwareConcurrency||0,bufferedMs:0,underruns:0,minBufferedMs:null,chunks:0,lastChunkRtfx:0,rtfx:0,firstAudioMs:null,audioArrivalMs:null,playbackStartMs:null}; this.loadCustomIndex(); }
+    constructor(){ super(); this.worker=null; this.ready=false; this.loading=false; this.queue=[]; this.running=false; this.audioCtx=null; this.gain=null; this.pcmNode=null; this.directPort=false; this.sampleRate=24000; this.receivedSamples=0; this.pendingAudio=[]; this.pendingStreamEnd=false; this.custom=new Map(); this.pending=new Map(); this.spatial=true; this.panner=null; this.stereoPanner=null; this.spatialAgent=null; this.spatialRAF=null; this.spatialDebug=null; this.showPanDebug=false; this.telemetry={backend:'WASM CPU',isolated:false,threads:1,hardwareConcurrency:navigator.hardwareConcurrency||0,bufferedMs:0,underruns:0,resumeCount:0,minBufferedMs:null,chunks:0,lastChunkRtfx:0,rtfx:0,firstAudioMs:null,audioArrivalMs:null,playbackStartMs:null}; this.loadCustomIndex(); }
     status(text,state='idle'){ this.dispatchEvent(new CustomEvent('status',{detail:{text,state}})); }
     wasLoaded(){return localStorage.getItem(CACHE_MARKER)==='1';}
     async loadCustomIndex(){ for(const v of await this.dbAll().catch(()=>[])) this.custom.set(v.id,v); this.dispatchEvent(new Event('voiceschanged')); }
     voices(){ return BUILTINS.map(id=>({id:`builtin:${id}`,name:id})).concat([...this.custom.values()].map(v=>({id:`custom:${v.id}`,name:`custom: ${v.name}`}))); }
     async ensureAudio(){ if(!this.audioCtx){
-      this.audioCtx=new (AudioContext||webkitAudioContext)({sampleRate:24000,latencyHint:'interactive'});
-      await this.audioCtx.audioWorklet.addModule('./tts/pcm-worklet.js?v=20260731b');
-      this.pcmNode=new AudioWorkletNode(this.audioCtx,'pocket-pcm-processor',{processorOptions:{minBufferSamples:Math.floor(this.audioCtx.sampleRate*.35),targetBufferSamples:Math.floor(this.audioCtx.sampleRate*.60),bufferSize:this.audioCtx.sampleRate*60}});
+      // 'interactive' asks Chrome for the smallest possible hardware audio
+      // buffer (lowest latency, e.g. for synths/games where every ms
+      // matters) - it's also the most prone to glitching whenever the OS
+      // misses a real-time audio deadline under system load. This sits
+      // below our own JS ring buffer (pcm-worklet.js) in the pipeline, so a
+      // full software buffer doesn't protect against a too-thin hardware
+      // buffer. 'playback' trades a bit more fixed startup latency for a
+      // much more glitch-resistant buffer - the right trade for narration.
+      this.audioCtx=new (AudioContext||webkitAudioContext)({sampleRate:24000,latencyHint:'playback'});
+      await this.audioCtx.audioWorklet.addModule('./tts/pcm-worklet.js?v=20260824a');
+      // targetBufferSamples keeps the ~1.7x ratio the defaults (350ms/600ms) had;
+      // it's the throttle-back point the worker watches via the capacity message,
+      // not a hard requirement, so it just needs to stay comfortably above min.
+      const bufferMs=settings().bufferMs;
+      const minBufferSamples=Math.floor(this.audioCtx.sampleRate*bufferMs/1000);
+      this.pcmNode=new AudioWorkletNode(this.audioCtx,'pocket-pcm-processor',{processorOptions:{minBufferSamples,targetBufferSamples:Math.floor(minBufferSamples*1.714),bufferSize:this.audioCtx.sampleRate*60}});
       this.gain=this.audioCtx.createGain();
       this.stereoPanner=this.audioCtx.createStereoPanner();
       this.stereoPanner.pan.value=0;
@@ -35,7 +48,7 @@
         this.directPort=true;
       }
       this.pcmNode.port.onmessage=e=>{const m=e.data||{};
-        if(m.type==='playback-started'&&this.current)this.telemetry.playbackStartMs=performance.now()-this.current.speakAt;
+        if(m.type==='playback-started'){ if(m.resumed) this.telemetry.resumeCount=(this.telemetry.resumeCount||0)+1; else if(this.current) this.telemetry.playbackStartMs=performance.now()-this.current.speakAt; }
         if(m.type==='stats'){this.telemetry.bufferedMs=m.bufferedMs;this.telemetry.underruns=m.underruns;this.telemetry.minBufferedMs=this.telemetry.minBufferedMs==null?m.bufferedMs:Math.min(this.telemetry.minBufferedMs,m.bufferedMs);}
         if(m.type==='drained'&&this.running)this.finishCurrent(true);
         // Fallback capacity messages for legacy path (no direct port)
@@ -43,9 +56,9 @@
       };
       this.audioCtx.onstatechange=()=>{if(this.audioCtx.state==='suspended')this.status('Click anywhere once to enable speech','error');};
     } if(this.audioCtx.state==='suspended') await this.audioCtx.resume(); this.gain.gain.value=settings().volume; }
-    async load(){ if(this.ready)return; if(this.loading)return this.pendingLoad; this.loading=true; this.status(this.wasLoaded()?'Auto-loading cached Pocket-TTS…':'Downloading Pocket-TTS model…','loading'); if(this.worker){try{this.worker.terminate();}catch{}this.worker=null;} this.pendingLoad=new Promise((resolve,reject)=>{ const worker=new Worker('./tts/inference-worker.js?v=20260731b',{type:'module'}); this.worker=worker; worker.onmessage=e=>this.onMessage(e.data,resolve,reject); worker.onerror=e=>{if(this.worker===worker){try{worker.terminate();}catch{}this.worker=null;}this.loading=false;this.pendingLoad=null;reject(e);this.status('Pocket-TTS failed: '+e.message,'error');}; worker.postMessage({type:'load',data:{language:settings().language}}); }); return this.pendingLoad; }
+    async load(){ if(this.ready)return; if(this.loading)return this.pendingLoad; this.loading=true; this.status(this.wasLoaded()?'Auto-loading cached Pocket-TTS…':'Downloading Pocket-TTS model…','loading'); if(this.worker){try{this.worker.terminate();}catch{}this.worker=null;} this.pendingLoad=new Promise((resolve,reject)=>{ const worker=new Worker('./tts/inference-worker.js?v=20260824a',{type:'module'}); this.worker=worker; worker.onmessage=e=>this.onMessage(e.data,resolve,reject); worker.onerror=e=>{if(this.worker===worker){try{worker.terminate();}catch{}this.worker=null;}this.loading=false;this.pendingLoad=null;reject(e);this.status('Pocket-TTS failed: '+e.message,'error');}; worker.postMessage({type:'load',data:{language:settings().language}}); }); return this.pendingLoad; }
     async onMessage(m,resolve,reject){ if(m.type==='runtime_info')Object.assign(this.telemetry,m.data||{}); if(m.type==='bundle_loaded')this.sampleRate=m.sampleRate||24000; if(m.type==='voices_loaded'||m.type==='loaded'){ if(!this.ready){this.ready=true;this.loading=false;localStorage.setItem(CACHE_MARKER,'1');this.status('Pocket-TTS ready (WASM CPU)','ready');resolve?.(); await this.restoreCustomVoices();} }
-      if(m.type==='generation_started'){this.receivedSamples=0;this.pendingAudio=[];this.pendingStreamEnd=false;this.telemetry={...this.telemetry,bufferedMs:0,underruns:0,minBufferedMs:null,chunks:0,lastChunkRtfx:0,rtfx:0,firstAudioMs:null,audioArrivalMs:null,playbackStartMs:null};if(!this.directPort)this.pcmNode?.port.postMessage({type:'reset'});}
+      if(m.type==='generation_started'){this.receivedSamples=0;this.pendingAudio=[];this.pendingStreamEnd=false;this.telemetry={...this.telemetry,bufferedMs:0,underruns:0,resumeCount:0,minBufferedMs:null,chunks:0,lastChunkRtfx:0,rtfx:0,firstAudioMs:null,audioArrivalMs:null,playbackStartMs:null};if(!this.directPort)this.pcmNode?.port.postMessage({type:'reset'});}
       // Direct-port path: worker sends audio_chunk_meta (no audio data) for telemetry
       if(m.type==='audio_chunk_meta'){this.receivedSamples++;this.telemetry.chunks++;this.telemetry.lastChunkRtfx=Number(m.metrics?.chunkRtfx)||0;if(!this.telemetry.audioArrivalMs&&this.current)this.telemetry.audioArrivalMs=performance.now()-this.current.speakAt;}
       // Legacy fallback path: worker sends audio_chunk with actual audio data
@@ -91,6 +104,11 @@
       return null;
     }
     updateSpatial(){
+      window.GeebrPerf?.begin('tts.spatial');
+      this._updateSpatial();
+      window.GeebrPerf?.end('tts.spatial');
+    }
+    _updateSpatial(){
       if(!this.stereoPanner||!this.audioCtx)return;
       const sc=window.GEEBR_STATE?.scene;
       const cam=sc?.activeCamera;
@@ -126,6 +144,11 @@
       };
     }    renderDebug(){
       const el=document.getElementById('spatialDebug'); if(!el)return;
+      // Retired now that 3D positional audio is confirmed working correctly
+      // (see the updateSpatial() right-vector fix). Left in place, gated off,
+      // in case spatial-audio debugging is needed again later: flip
+      // window.geebrTTS.showPanDebug=true in devtools to bring the L/R bar back.
+      if(!this.showPanDebug){ el.style.display='none'; return; }
       const d=this.spatialDebug; if(!d){ el.style.display='none'; return; }
       el.style.display='block';
       const pct=Math.max(0,Math.min(100,(d.pan+1)/2*100));
@@ -142,6 +165,7 @@
     async setLanguage(language){localStorage.setItem('geebrTtsLanguage',language);if(!this.worker)return;this.ready=false;this.status('Loading language…','loading');this.worker.postMessage({type:'set_language',data:{language}});}
     setEnabled(v){localStorage.setItem('geebrTtsEnabled',v?'1':'0');if(!v)this.stop();}
     setVolume(v){localStorage.setItem('geebrTtsVolume',String(v));if(this.gain)this.gain.gain.value=Number(v);}
+    setBufferMs(v){localStorage.setItem('geebrTtsBufferMs',String(v));}
     async addVoice(name,file){await this.ensureAudio();const ab=await file.arrayBuffer(), decoded=await this.audioCtx.decodeAudioData(ab), mono=this.toMono(decoded), audio0=this.resample(mono,decoded.sampleRate,24000);let audio=audio0.length>MAX_CUSTOM_VOICE_SAMPLES?audio0.slice(0,MAX_CUSTOM_VOICE_SAMPLES):audio0;if((audio=audio.slice(0,audio.length-audio.length%CUSTOM_FRAME)).length===0)audio=new Float32Array(1);let peak=0;for(const x of audio)peak=Math.max(peak,Math.abs(x));if(peak>.001){const k=Math.min(1.8,.9/peak);for(let i=0;i<audio.length;i++)audio[i]*=k;}const id=crypto.randomUUID();const rec={id,name:name||file.name.replace(/\\.[^.]+$/,''),audio:Array.from(audio),created:Date.now()};await this.dbPut(rec);this.custom.set(id,rec);this.dispatchEvent(new Event('voiceschanged'));if(this.ready)await this.encode(rec);return id;}
     toMono(b){const out=new Float32Array(b.length);for(let c=0;c<b.numberOfChannels;c++){const d=b.getChannelData(c);for(let i=0;i<out.length;i++)out[i]+=d[i]/b.numberOfChannels;}return out;}
     resample(a,ir,or){if(ir===or)return a.slice();const n=Math.round(a.length*or/ir),o=new Float32Array(n),r=ir/or;for(let i=0;i<n;i++){const p=i*r,j=Math.floor(p),f=p-j;o[i]=(a[j]||0)*(1-f)+(a[Math.min(j+1,a.length-1)]||0)*f;}return o;}

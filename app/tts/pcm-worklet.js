@@ -5,11 +5,19 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     this.bufferSize = opts.bufferSize || sampleRate * 60;
     this.minBufferSamples = opts.minBufferSamples || Math.floor(sampleRate * 0.35);
     this.targetBufferSamples = opts.targetBufferSamples || this.minBufferSamples * 2;
+    // Separate, much shorter threshold for resuming after a mid-stream
+    // underrun. minBufferSamples is a cold-start cushion (nothing has played
+    // yet, so a bigger buffer is worth the wait); once already speaking, we
+    // just want playback to pick back up as soon as anything is there rather
+    // than re-waiting for the full cold-start amount again, which turned a
+    // brief gap into a much longer audible stutter.
+    this.resumeBufferSamples = opts.resumeBufferSamples || Math.floor(sampleRate * 0.02);
     this.ring = new Float32Array(this.bufferSize);
     this.readPos = 0;
     this.writePos = 0;
     this.buffered = 0;
     this.started = false;
+    this.everStarted = false; // false only before the very first cold start of this stream
     this.streamEnded = false;
     this.underruns = 0;
     this.samplesPlayed = 0;
@@ -42,6 +50,7 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     this.writePos = 0;
     this.buffered = 0;
     this.started = false;
+    this.everStarted = false;
     this.streamEnded = false;
     this.underruns = 0;
     this.samplesPlayed = 0;
@@ -71,9 +80,11 @@ class PocketPCMProcessor extends AudioWorkletProcessor {
     }
 
     if (!this.started) {
-      if (this.buffered >= this.minBufferSamples || (this.streamEnded && this.buffered > 0)) {
-        this.port.postMessage({ type: 'playback-started', buffered: this.buffered });
+      const threshold = this.everStarted ? this.resumeBufferSamples : this.minBufferSamples;
+      if (this.buffered >= threshold || (this.streamEnded && this.buffered > 0)) {
+        this.port.postMessage({ type: 'playback-started', buffered: this.buffered, resumed: this.everStarted });
         this.started = true;
+        this.everStarted = true;
       } else {
         out.fill(0);
         this.report();

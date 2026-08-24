@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20260823q" />
+  <link rel="stylesheet" href="style.css?v=20260823t" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -85,6 +85,7 @@
     <button class="rail-btn" data-tab="character" type="button" title="Character">🧝</button>
     <button class="rail-btn" data-tab="library" type="button" title="Library">📖</button>
     <button class="rail-btn" data-tab="voice" type="button" title="Voice">🔊</button>
+    <button class="rail-btn" data-tab="graphics" type="button" title="Graphics">🎛️</button>
     <button class="rail-btn" data-tab="debug" type="button" title="Debug">🐞</button>
   </nav>
 
@@ -164,7 +165,9 @@
       <div class="custom-grid">
         <label>Language <select id="ttsLanguage"><option value="english_2026-04">English</option><option value="german">German</option><option value="italian">Italian</option><option value="portuguese">Portuguese</option><option value="spanish">Spanish</option></select></label>
         <label>Volume <input id="ttsVolume" type="range" min="0" max="1" step=".05" value=".85" /></label>
+        <label>Buffering <input id="ttsBufferMs" type="range" min="150" max="1500" step="50" value="350" title="Lower = speech starts sooner but stutters more easily under load. Higher = more delay before speech starts, but far more resistant to glitches." /></label>
       </div>
+      <small class="tts-note">Buffering trades startup delay for glitch resistance. Takes effect the next time speech starts fresh in this tab (reload if you've already spoken this session).</small>
       <div id="ttsStatus">Pocket-TTS off</div>
       <div id="ttsTelemetry">backend: WASM CPU · waiting for speech metrics</div>
       <div class="section-subtitle">Custom voice sample</div>
@@ -172,6 +175,26 @@
       <input id="customVoiceFile" type="file" accept="audio/*" />
       <div class="row"><button id="addCustomVoice" type="button">add uploaded sample</button><button id="recordCustomVoice" type="button">record sample</button></div>
       <small class="tts-note">Use roughly 5–15 seconds of clean speech. Samples stay in this browser.</small>
+    </section>
+
+    <section class="pane" id="pane-graphics">
+      <h2 class="pane-title">Graphics</h2>
+      <p class="pane-note">Everything below defaults to the original look. Turning things down trades a little visual fidelity for smoother frames - worth trying if the world feels heavy or you notice audio glitching while things render.</p>
+      <div class="section-subtitle">Shadows</div>
+      <div class="custom-grid">
+        <label class="spawn-mode-toggle"><input id="gfxKeyShadowEnabled" type="checkbox" checked /> key light shadows (island)</label>
+        <label>Refresh every <input id="gfxKeyShadowEvery" type="number" min="1" max="10" value="1" style="width:52px" /> frame(s)</label>
+        <label class="spawn-mode-toggle"><input id="gfxCampfireShadowEnabled" type="checkbox" checked /> campfire shadows</label>
+        <label>Refresh every <input id="gfxCampfireShadowEvery" type="number" min="1" max="10" value="1" style="width:52px" /> frame(s)</label>
+      </div>
+      <small class="pane-note">Each is a real-time point-light shadow (renders 6 cubemap faces every refresh). "Refresh every 2 frames" halves that cost; disabling stops the map updating entirely.</small>
+      <div class="section-subtitle">Sea</div>
+      <div class="custom-grid">
+        <label class="spawn-mode-toggle"><input id="gfxSeaWaveEnabled" type="checkbox" checked /> wave animation (vertex displacement)</label>
+        <label class="spawn-mode-toggle"><input id="gfxSeaFoamEnabled" type="checkbox" checked /> shoreline foam ribbons</label>
+      </div>
+      <small class="pane-note">Both rebuild geometry on the CPU every frame. Foam is the cheaper/less-noticeable of the two if you just want to shave a little cost.</small>
+      <button id="gfxResetDefaults" type="button" class="danger-btn">reset graphics settings to defaults</button>
     </section>
 
     <section class="pane" id="pane-debug">
@@ -198,6 +221,13 @@
         <button id="copyPerception" type="button">copy</button>
       </div>
       <pre id="promptOut" spellcheck="false">Load brain and step to see prompt...</pre>
+      <div class="section-subtitle">Performance</div>
+      <div class="row setup-row">
+        <label class="spawn-mode-toggle"><input id="perfLive" type="checkbox" /> live updates</label>
+        <button id="copyPerfProfile" type="button">copy profile</button>
+        <button id="resetPerfProfile" type="button">reset</button>
+      </div>
+      <pre id="perfOut" spellcheck="false">perf monitor idle - check "live updates" to sample</pre>
       <div class="section-subtitle">History</div>
       <div id="log"></div>
     </section>

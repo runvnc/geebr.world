@@ -1384,16 +1384,51 @@
       lilies.push({pad,stem,x,z,phase:wrnd()*6.28});
     }
 
+    // PERF NOTE: this whole animate() runs every frame on the main thread and
+    // is the single heaviest per-frame CPU cost in the scene (?norender=1
+    // skips it entirely, which is why that flag makes the audio glitches go
+    // away). Two sub-costs stand out as optimization candidates, left as-is
+    // for now per request - not touching behavior yet:
+    //   - waveStep(): CPU-displaces every vertex of a 72x72 (~5.3k vert)
+    //     ground mesh AND calls BABYLON.VertexData.ComputeNormals over its
+    //     ~10.4k triangles, every frame. This is classic vertex-shader work
+    //     being done on the CPU; it could move into a custom vertex shader /
+    //     material plugin (GPU) with no visual change, or run at a lower
+    //     fixed rate (e.g. every 2nd frame) with interpolation.
+    //   - foamMain.rebuild()/foamWide.rebuild(): allocates brand-new P/I/C
+    //     JS arrays and a new VertexData every frame for two ribbon meshes.
+    //     That's continuous GC churn (likely a contributor to audio
+    //     glitching - major GC pauses can stall the AudioWorklet too), and
+    //     it's unnecessary: the ribbon topology (I) never changes, so P/C
+    //     could be preallocated Float32Arrays reused in place via
+    //     updateVerticesData() instead of vd.applyToMesh() every frame.
+    // Both of these are now user-toggleable from the Graphics tab
+    // (graphics-settings.js -> window.GEEBR_GFX.seaWaveEnabled/seaFoamEnabled)
+    // as a direct, reversible way to test whether they're contributing to
+    // the audio glitch on a given machine, without editing code.
     const animate=(t)=>{
-      waveStep(t);
+      const gfx=window.GEEBR_GFX;
+      if(!gfx || gfx.seaWaveEnabled!==false){
+        window.GeebrPerf?.begin('sea.wave');
+        waveStep(t);
+        window.GeebrPerf?.end('sea.wave');
+      }
       // Scroll the procedural bump map so the surface detail visibly travels
       // with the swell. The vertex displacement alone is too subtle on a
       // 180-unit sea; a static bump map reads as frozen water.
       bumpTex.uOffset=(t*.05)%1;
       bumpTex.vOffset=(t*.035)%1;
-      foamMain.rebuild(t); foamWide.rebuild(t);
-      foamMain.mat.alpha=.90+Math.sin(t*.9)*.08;
-      foamWide.mat.alpha=.34+Math.sin(t*.7+2)*.10;
+      if(!gfx || gfx.seaFoamEnabled!==false){
+        foamMain.mesh.setEnabled(true); foamWide.mesh.setEnabled(true);
+        window.GeebrPerf?.begin('sea.foam');
+        foamMain.rebuild(t); foamWide.rebuild(t);
+        window.GeebrPerf?.end('sea.foam');
+        foamMain.mat.alpha=.90+Math.sin(t*.9)*.08;
+        foamWide.mat.alpha=.34+Math.sin(t*.7+2)*.10;
+      } else {
+        foamMain.mesh.setEnabled(false); foamWide.mesh.setEnabled(false);
+      }
+      window.GeebrPerf?.begin('sea.misc');
       for(let i=0;i<currentMeshes.length;i++){
         currentMeshes[i].position.x=Math.sin(t*.07+i*2.1)*.55;
         currentMeshes[i].position.z=Math.cos(t*.055+i)*.35;
@@ -1423,6 +1458,7 @@
         l.pad.position.y=SEA_Y+.045+y; l.stem.position.y=SEA_Y-.08+y;
         l.pad.rotation.z=Math.sin(t*.65+l.phase)*.035;
       }
+      window.GeebrPerf?.end('sea.misc');
     };
     if(window.GEEBR_STILL_MODE){ animate(0); console.warn('[geebr-water] STILL MODE - wave animation frozen'); }
     else {

@@ -2281,6 +2281,17 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   cornerKey.intensity=200; cornerKey.range=46; cornerKey.radius=4.5; cornerKey.falloffType=BABYLON.Light.FALLOFF_GLTF;
   // Point-light shadows render a cubemap (six directions), so keep this at
   // 1024 rather than duplicating the old 2048 directional-map cost sixfold.
+  // PERF NOTE: this is a real-time ShadowGenerator (default refreshRate),
+  // so those 6 cubemap faces re-render every frame even though almost
+  // nothing in the scene moves out of shadow frame-to-frame (camera pans
+  // are the main exception). makeCampfire() below adds a second point-light
+  // cubemap shadow (512, QUALITY_LOW) on top of this one - so every frame
+  // pays for 12 extra shadow-map passes combined. Candidates worth
+  // measuring later: RenderTargetTexture.refreshRate = REFRESHRATE_RENDER_ONCE
+  // (or every Nth frame) on generators whose casters aren't moving much, or
+  // swapping this key light for a DirectionalLight shadow (1 pass instead
+  // of 6) since it's meant to read as a fixed diorama key, not an
+  // omnidirectional source.
   const cornerShadow=new BABYLON.ShadowGenerator(1024,cornerKey);
   cornerShadow.usePercentageCloserFiltering=true;
   cornerShadow.filteringQuality=BABYLON.ShadowGenerator.QUALITY_MEDIUM;
@@ -2380,7 +2391,7 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     refreshAgentSelect(); selectGeebr(g); saveWorldState();
     log('blank demo world ready with one Geebr');
   }
-  scene.onBeforeRenderObservable.add(()=>{ if(!window.GEEBR_PAUSE_RENDER && !GEEBR_FORCE_NO_RENDER) animate(engine.getDeltaTime()/1000); }); engine.runRenderLoop(()=>{
+  scene.onBeforeRenderObservable.add(()=>{ if(!window.GEEBR_PAUSE_RENDER && !GEEBR_FORCE_NO_RENDER){ window.GeebrPerf?.begin('animate.geebrs'); animate(engine.getDeltaTime()/1000); window.GeebrPerf?.end('animate.geebrs'); } }); engine.runRenderLoop(()=>{
     if(window.GEEBR_PAUSE_RENDER || GEEBR_FORCE_NO_RENDER) return;
     scene.render();
     const recorder=window.geebrFrameRecorder;

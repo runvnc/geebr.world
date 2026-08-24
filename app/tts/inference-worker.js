@@ -510,8 +510,21 @@ async function loadOrt() {
     ort = ortModule.default || ortModule;
     ort.env.wasm.wasmPaths = cdnBase;
     ort.env.wasm.simd = true;
+    // Kyutai's own README for this model (kyutai-labs/pocket-tts) documents
+    // ~6x real-time on a MacBook Air M4 using only 2 CPU cores - it's a small
+    // (~100M param), batch-size-1 model that was never designed to scale
+    // across many threads. The min(hardwareConcurrency,8) this used to be
+    // came from generic onnxruntime-web demo boilerplate (present verbatim in
+    // both the community browser port this app is built on and the
+    // pocket_tts_min/ reference copy in this repo), not from any tuning for
+    // this specific model. Measured RTFx in this app was only ~1.03-1.08x
+    // (barely faster than real-time, vs. Kyutai's ~6x target) while pegging
+    // 7-8 of 12 CPU threads - a classic oversubscription signature for a
+    // small, tightly-coupled model: more threads fighting over cache/
+    // scheduler time than there's real parallel work to hand them. Matching
+    // Kyutai's own number as an experiment; revisit if RTFx doesn't improve.
     const threads = self.crossOriginIsolated
-        ? Math.min(navigator.hardwareConcurrency || 4, 8)
+        ? Math.min(navigator.hardwareConcurrency || 4, 2)
         : 1;
     ort.env.wasm.numThreads = threads;
     postMessage({ type: "runtime_info", data: { backend: "WASM CPU", isolated: self.crossOriginIsolated, threads, hardwareConcurrency: navigator.hardwareConcurrency || 0 } });

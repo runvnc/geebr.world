@@ -3,12 +3,12 @@
   if(!tts)return;
   let recorder=null, recorded=[], stream=null;
   function refreshVoices(){const sel=$('agentTtsVoice');if(!sel)return;const chosen=window.geebrWorld?.getBrainConfig?.(window.geebrWorld?.getSelectedAgent?.()?.id)?.ttsVoiceId||sel.value||'builtin:alba';sel.textContent='';for(const v of tts.voices()){const o=document.createElement('option');o.value=v.id;o.textContent=v.name;sel.appendChild(o);}sel.value=[...sel.options].some(o=>o.value===chosen)?chosen:'builtin:alba';}
-  function sync(){const enabled=localStorage.getItem('geebrTtsEnabled')==='1';$('ttsEnabled').checked=enabled;$('ttsLanguage').value=localStorage.getItem('geebrTtsLanguage')||'english_2026-04';$('ttsVolume').value=localStorage.getItem('geebrTtsVolume')||'.85';refreshVoices();}
+  function sync(){const enabled=localStorage.getItem('geebrTtsEnabled')==='1';$('ttsEnabled').checked=enabled;$('ttsLanguage').value=localStorage.getItem('geebrTtsLanguage')||'english_2026-04';$('ttsVolume').value=localStorage.getItem('geebrTtsVolume')||'.85';$('ttsBufferMs').value=localStorage.getItem('geebrTtsBufferMs')||'350';refreshVoices();}
   tts.addEventListener('status',e=>{if($('ttsStatus'))$('ttsStatus').textContent=e.detail.text;});
   tts.addEventListener('telemetry',e=>{
     const m=e.detail||{}, node=$('ttsTelemetry'); if(!node)return;
     const fmt=v=>Number.isFinite(Number(v))?Number(v).toFixed(2):'—';
-    node.textContent=`backend: ${m.backend||'WASM CPU'} · isolated: ${m.isolated?'yes':'NO'} · threads: ${m.threads||1}/${m.hardwareConcurrency||'?'} · aggregate RTFx: ${fmt(m.rtfx)} · latest chunk RTFx: ${fmt(m.lastChunkRtfx)} · worker first audio: ${m.firstAudioMs==null?'—':Math.round(m.firstAudioMs)+' ms'} · say→arrival: ${m.audioArrivalMs==null?'—':Math.round(m.audioArrivalMs)+' ms'} · say→playback: ${m.playbackStartMs==null?'—':Math.round(m.playbackStartMs)+' ms'} · buffer: ${Math.round(m.bufferedMs||0)} ms · minimum: ${m.minBufferedMs==null?'—':Math.round(m.minBufferedMs)+' ms'} · underruns: ${m.underruns||0} · chunks: ${m.chunks||0}`;
+    node.textContent=`backend: ${m.backend||'WASM CPU'} · isolated: ${m.isolated?'yes':'NO'} · threads: ${m.threads||1}/${m.hardwareConcurrency||'?'} · aggregate RTFx: ${fmt(m.rtfx)} · latest chunk RTFx: ${fmt(m.lastChunkRtfx)} · worker first audio: ${m.firstAudioMs==null?'—':Math.round(m.firstAudioMs)+' ms'} · say→arrival: ${m.audioArrivalMs==null?'—':Math.round(m.audioArrivalMs)+' ms'} · say→playback: ${m.playbackStartMs==null?'—':Math.round(m.playbackStartMs)+' ms'} · buffer: ${Math.round(m.bufferedMs||0)} ms · minimum: ${m.minBufferedMs==null?'—':Math.round(m.minBufferedMs)+' ms'} · underruns: ${m.underruns||0} · resumes: ${m.resumeCount||0} · chunks: ${m.chunks||0}`;
   });
   tts.addEventListener('voiceschanged',refreshVoices);
   tts.addEventListener('status',e=>{
@@ -35,6 +35,7 @@
     $('stopTts').onclick=()=>tts.stop();
     $('ttsLanguage').onchange=e=>tts.setLanguage(e.target.value);
     $('ttsVolume').oninput=e=>tts.setVolume(e.target.value);
+    $('ttsBufferMs').oninput=e=>tts.setBufferMs(e.target.value);
     $('testAgentVoice').onclick=()=>{const g=window.geebrWorld?.getSelectedAgent?.();if(g){tts.setEnabled(true);$('ttsEnabled').checked=true;tts.speak(g,'Hello! This is my selected Pocket TTS voice.',$('agentTtsVoice').value);}};
     $('deleteCustomVoice').onclick=async()=>{const id=$('agentTtsVoice').value;if(!id.startsWith('custom:'))return window.geebrToast('Select a custom voice first.',{type:'warn'});if(await window.confirmDialog('Delete this custom voice from this browser?',{title:'Delete voice?',confirmText:'delete voice',danger:true}))await tts.deleteVoice(id.slice(7));};
     $('addCustomVoice').onclick=async()=>{const f=$('customVoiceFile').files?.[0];if(!f)return window.geebrToast('Choose an audio sample first.',{type:'warn'});$('ttsStatus').textContent='Processing voice sample…';try{await tts.load();const id=await tts.addVoice($('customVoiceName').value,f);refreshVoices();$('agentTtsVoice').value='custom:'+id;$('agentTtsVoice').dispatchEvent(new Event('change'));$('ttsStatus').textContent='Custom voice ready';}catch(e){$('ttsStatus').textContent='Custom voice failed: '+e.message;}};
