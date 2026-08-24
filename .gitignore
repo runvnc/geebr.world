@@ -1,3 +1,6 @@
 
 # Local API credentials
 .env
+
+# Claude Code local config
+.claude/
