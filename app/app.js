@@ -252,25 +252,116 @@ function playRig(g,mode,loop=true){
   g._lastRigAnimName = ag ? ag.name : null;
 }
 function debugRigAnims(g){ try{ console.log('[geebr rig]', g.id, 'clips:', Object.keys(g.rigAnims||{})); }catch{} }
-// Keep a carried prop glued to the geebr's grip hand while rigged, falling
-// back to the old float-in-front behavior for unrigged/boneless geebrs.
-const HELD_GRIP_OFFSET=new BABYLON.Vector3(0,-.04,.11);
-function positionHeldItem(g,dt){
-  const h=state.held.get(g.id); if(!h) return;
-  const hand=g.rigged ? (findBones(g).handR||findBones(g).handL) : null;
-  if(hand){
-    hand.computeWorldMatrix(true);
-    const m=hand.getWorldMatrix();
-    h.position.copyFrom(BABYLON.Vector3.TransformCoordinates(HELD_GRIP_OFFSET,m));
-    if(!h.rotationQuaternion) h.rotationQuaternion=new BABYLON.Quaternion();
-    const scl=new BABYLON.Vector3(); const rot=new BABYLON.Quaternion(); const pos=new BABYLON.Vector3();
-    m.decompose(scl,rot,pos);
-    h.rotationQuaternion.copyFrom(rot);
-  } else {
-    h.position=g.root.position.add(g.dir.scale(.72));
-    h.position.y=.98+Math.sin(g.t*7)*.04;
-    h.rotation.y+=dt*1.2;
+// Carrying: the object stays upright and is held in both hands. Small things
+// ride in front at chest height; anything wider than the carrier's torso
+// (barrels, crates, chests) is hoisted overhead, since geebr arms are far too
+// short to reach around it. Arms are aimed at grip points from bone world
+// positions rather than per-rig axis conventions, so the same code works on the
+// Meshy and KayKit skeletons, layered on top of whatever clip is playing.
+const CARRY_LIFT_TIME=.35, CARRY_BLEND_IN=.3, CARRY_BLEND_OUT=.25, CARRY_OVERHEAD_HALF_WIDTH=.2, CARRY_OVERHEAD_HALF_HEIGHT=.24;
+function beginCarry(g,h){
+  h.computeWorldMatrix(true);
+  const {min,max}=h.getHierarchyBoundingVectors(true);
+  const pos=h.getAbsolutePosition();
+  const r=Math.max(max.x-min.x,max.z-min.z)/2, halfH=(max.y-min.y)/2;
+  const itemYaw=h.rotationQuaternion ? h.rotationQuaternion.toEulerAngles().y : (h.rotation?.y||0);
+  if(!g._carryBodyTop){
+    // Top of the character (ears included) in root-relative units, measured once.
+    g.root.computeWorldMatrix(true);
+    const b=g.root.getHierarchyBoundingVectors(true, m=>m.isEnabled() && m.isVisible!==false && (m.getTotalVertices?.()||0)>0);
+    g._carryBodyTop=Math.max(.5,b.max.y-g.root.position.y);
   }
+  h._carry={ r, halfH, centerDy:(min.y+max.y)/2-pos.y, overhead:r>CARRY_OVERHEAD_HALF_WIDTH || halfH>CARRY_OVERHEAD_HALF_HEIGHT,
+    yawOffset:itemYaw-yawForDir(g.dir), from:pos.clone(), t:0 };
+}
+function endCarry(h,pos){
+  delete h._carry;
+  h.position.copyFrom(pos);
+  // Held items are kinematic and steered with target transforms; teleport the
+  // body to the drop point for one physics step before handing it back to the sim.
+  try{ h.physicsBody?.setPrestepType?.(BABYLON.PhysicsPrestepType.TELEPORT); }catch{}
+  h.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+  try{ h.physicsBody?.setLinearVelocity(BABYLON.Vector3.Zero()); h.physicsBody?.setAngularVelocity(BABYLON.Vector3.Zero()); }catch{}
+  state.scene.onAfterPhysicsObservable?.addOnce(()=>{ try{ h.physicsBody?.setPrestepType?.(BABYLON.PhysicsPrestepType.DISABLED); }catch{} });
+}
+// Refresh world matrices from the root down to `node` (animation writes local
+// transforms; cached world matrices lag until recomputed).
+function refreshChain(node){
+  const chain=[]; for(let n=node;n;n=n.parent) chain.push(n);
+  for(let i=chain.length-1;i>=0;i--) chain[i].computeWorldMatrix(true);
+}
+// Rotate `bone` so the direction toward `child` points at `target`, blended by w.
+function aimBoneAt(bone,child,target,w){
+  if(!bone?.parent || !child || !bone.rotationQuaternion) return;
+  // An earlier aim up the chain moved this bone; its child's cached world matrix is stale.
+  bone.computeWorldMatrix(true); child.computeWorldMatrix(true);
+  const inv=bone.parent.getWorldMatrix().clone().invert();
+  const bp=bone.getAbsolutePosition();
+  const cur=BABYLON.Vector3.TransformNormal(child.getAbsolutePosition().subtract(bp),inv).normalize();
+  const des=BABYLON.Vector3.TransformNormal(target.subtract(bp),inv).normalize();
+  const q=new BABYLON.Quaternion(); BABYLON.Quaternion.FromUnitVectorsToRef(cur,des,q);
+  const L=bone.rotationQuaternion;
+  bone.rotationQuaternion=BABYLON.Quaternion.Slerp(L,q.multiply(L),w);
+  bone.computeWorldMatrix(true); child.computeWorldMatrix(true);
+}
+function poseCarryArms(g,w){
+  const b=findBones(g);
+  for(const [arm,fore,hand] of [[b.armL,b.forearmL,b.handL],[b.armR,b.forearmR,b.handR]]){
+    if(!arm || !fore || !hand) continue;
+    refreshChain(hand);
+    // Pick the grip on whichever side of the body this arm actually is.
+    const sh=arm.getAbsolutePosition().clone(), el=fore.getAbsolutePosition(), wr=hand.getAbsolutePosition();
+    const side=BABYLON.Vector3.Dot(sh.subtract(g.root.position),g._carryRight)>=0 ? 1 : -1;
+    const target=g.root.position.add(side>0 ? g._carryGripR : g._carryGripL);
+    // Two-bone IK: bend the elbow (down, out, slightly back) when the grip is
+    // closer than full reach, instead of shoving a straight arm through the item.
+    const a=el.subtract(sh).length(), bl=wr.subtract(el).length();
+    const toT=target.subtract(sh); const d=clamp(toT.length(),Math.abs(a-bl)+1e-4,a+bl-1e-4); toT.normalize();
+    const pole=g._carryRight.scale(side*.6).add(BABYLON.Vector3.Down()).subtract(g._carryFwd.scale(.2));
+    const perp=pole.subtract(toT.scale(BABYLON.Vector3.Dot(pole,toT))).normalize();
+    const cosA=clamp((a*a+d*d-bl*bl)/(2*a*d),-1,1);
+    const elbow=sh.add(toT.scale(a*cosA)).add(perp.scale(a*Math.sqrt(1-cosA*cosA)));
+    aimBoneAt(arm,fore,elbow,w);
+    aimBoneAt(fore,hand,target,w);
+  }
+}
+function positionHeldItem(g,dt){
+  const h=state.held.get(g.id);
+  const c=h?._carry;
+  g._carryW=clamp((g._carryW||0)+(c ? dt/CARRY_BLEND_IN : -dt/CARRY_BLEND_OUT),0,1);
+  if(!h || !c){
+    // Ease the arms back down after a drop, using the last grip points.
+    if(g.rigged && g._carryW>0 && g._carryGripL) poseCarryArms(g,g._carryW*g._carryW*(3-2*g._carryW));
+    return;
+  }
+  const fwd=new BABYLON.Vector3(g.dir.x,0,g.dir.z).normalize();
+  const right=BABYLON.Vector3.Cross(BABYLON.Vector3.Up(),fwd);
+  const s=g.root.scaling.y/.87;
+  const walking=g.anim==='walk' || g.rigMode==='walk';
+  const bob=walking ? Math.abs(Math.sin(g.t*9))*.018 : Math.sin(g.t*2.2)*.006;
+  let center, gripL, gripR;
+  if(c.overhead){
+    // Resting on top of the head, palms up under its bottom rim.
+    center=new BABYLON.Vector3(0,g._carryBodyTop-.06*s+c.halfH+bob,0).add(fwd.scale(.03*s));
+    const rim=new BABYLON.Vector3(0,center.y-c.halfH+.02*s,0).add(fwd.scale(.03*s));
+    gripR=rim.add(right.scale(c.r*.6)); gripL=rim.subtract(right.scale(c.r*.6));
+  } else {
+    // Hugged against the chest, hands on either side.
+    const chestY=g._carryBodyTop*.5;
+    center=new BABYLON.Vector3(0,chestY+bob,0).add(fwd.scale(.1*s+c.r));
+    gripR=center.add(right.scale(c.r*.95)); gripL=center.subtract(right.scale(c.r*.95));
+  }
+  g._carryRight=right; g._carryFwd=fwd; g._carryGripL=gripL; g._carryGripR=gripR;
+  const want=g.root.position.add(center);
+  want.y-=c.centerDy;
+  // Lift from where it was sitting instead of teleporting into the hands.
+  c.t=Math.min(1,c.t+dt/CARRY_LIFT_TIME);
+  const k=c.t*c.t*(3-2*c.t);
+  const pos=k<1 ? BABYLON.Vector3.Lerp(c.from,want,k).add(new BABYLON.Vector3(0,Math.sin(k*Math.PI)*.12,0)) : want;
+  const yawQ=BABYLON.Quaternion.RotationYawPitchRoll(yawForDir(g.dir)+c.yawOffset,0,0);
+  h.rotationQuaternion=h.rotationQuaternion ? BABYLON.Quaternion.Slerp(h.rotationQuaternion,yawQ,Math.min(1,dt*12)) : yawQ;
+  forceBodyTransform(h,pos);
+  if(g.rigged) poseCarryArms(g,g._carryW*g._carryW*(3-2*g._carryW));
 }
 function findHeadNodes(g){
   if(g._headNodes) return g._headNodes;
@@ -1105,8 +1196,8 @@ function touch(g,targetId=''){
   else { damage(t,.35,'touch'); say(g,'texture report: probably real'); } 
 }
 function push(g,sign=1){ const t=nearestTarget(g); if(!t) return say(g,'nothing to shove'); const from=sign>0?g.root.position:t.position.add(g.root.position.subtract(t.position).scale(2)); impulse(t,from,sign>0?4.8:2.2,.18); const m=meta(t); if(m?.type==='barrel') { m.state='rolling'; emitBadge(t,'roll'); } if(m?.type==='mushroom') emitBadge(t,'boing'); damage(t,.25,'push'); g.anim='push'; playRig(g,'push',false); say(g,sign>0?'helpfully pushing the wrong thing':'pulling with moral uncertainty'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); },540); }
-function carry(g){ const t=nearestTarget(g,1.8); if(!t) return say(g,'arms found no object'); const m=meta(t); if(!m || ['wall','bakery','crystal'].includes(m.type)) return say(g,'too spiritually heavy'); if(state.held.get(g.id)) drop(g,false); state.held.set(g.id,t); playRig(g,'carry',true); t.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.ANIMATED); if(m.type==='note'){ const txt=(m.noteText||noteTextFromHtml(m.noteHtml||''))||'blank'; say(g,'the note says: '+txt); } else { say(g,'I am responsible for this now'); } }
-function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); h.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC); h.position=g.root.position.add(g.dir.scale(.95)); h.position.y=.65; if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
+function carry(g){ const t=nearestTarget(g,1.8); if(!t) return say(g,'arms found no object'); const m=meta(t); if(!m || ['wall','bakery','crystal'].includes(m.type)) return say(g,'too spiritually heavy'); if(state.held.get(g.id)) drop(g,false); state.held.set(g.id,t); playRig(g,'carry',true); t.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.ANIMATED); beginCarry(g,t); if(m.type==='note'){ const txt=(m.noteText||noteTextFromHtml(m.noteHtml||''))||'blank'; say(g,'the note says: '+txt); } else { say(g,'I am responsible for this now'); } }
+function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); const halfH=h._carry?.halfH ?? .3, dropAt=g.root.position.add(g.dir.scale(.95)); dropAt.y=(state.terrainTopY??0)+halfH-(h._carry?.centerDy??0)+.03; endCarry(h,thrown ? h.position.clone() : dropAt); if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
 function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),(state.terrainTopY??0)+.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); state.props.push(hole); say(g,'hole installed'); } }
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 
