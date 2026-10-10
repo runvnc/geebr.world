@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20260823t" />
+  <link rel="stylesheet" href="style.css?v=20261010a" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -63,7 +63,7 @@
         <div><strong id="modelLoadTitle">Preparing local brain</strong><small id="modelLoadSubtitle">runs locally on this device</small></div>
         <button id="dismissModelLoad" type="button" aria-label="Dismiss model status">×</button>
       </div>
-      <div id="modelProgressTrack" class="model-progress-track" role="progressbar" aria-label="Local model download progress" aria-valuemin="0" aria-valuemax="100"><span id="modelProgressBar"></span></div>
+      <div class="model-progress-row"><div id="modelProgressTrack" class="model-progress-track" role="progressbar" aria-label="Local model download progress" aria-valuemin="0" aria-valuemax="100"><span id="modelProgressBar"></span></div><span id="modelProgressPct" class="model-progress-pct"></span></div>
       <p id="modelLoadText">Checking local model cache…</p>
       <div id="modelConsent" class="model-consent" hidden>
         <p id="modelConsentText"><strong>Run the characters locally?</strong> This needs a one-time model download.</p>

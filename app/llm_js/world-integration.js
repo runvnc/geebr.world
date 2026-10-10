@@ -1,7 +1,7 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20260824c';
+import { createAgentBrainManager } from './agent-brain.js?v=20261010a';
 import { installDevConsole } from './dev-console.js?v=20260904a';
 import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260824c';
-import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260823q';
+import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20261010a';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
 import { clearModelCache as clearWllama3Cache, hasModelCached as hasWllama3Cached } from './model-loader-wllama3.js?v=20260823q';
 
@@ -18,6 +18,11 @@ async function waitForWorld() {
 function el(id) { return document.getElementById(id); }
 
 let modelNoticeDismissTimer = null;
+// Last real percent seen during the current load. Loaders interleave plain
+// text updates ("Model: ...", "initializing...") with percent updates; without
+// this, every text-only update snapped the bar back to the indeterminate
+// shuttle mid-download.
+let modelNoticePercent = null;
 
 function normalizeProgress(status) {
   if (status && typeof status === 'object') {
@@ -45,7 +50,13 @@ function updateModelNotice(status, state = 'loading') {
   clearTimeout(modelNoticeDismissTimer);
   notice.classList.remove('hidden', 'ready', 'error', 'determinate', 'consent', 'declined');
   if (state !== 'loading') notice.classList.add(state);
-  if (progress.percent !== null && state === 'loading') notice.classList.add('determinate');
+  if (state === 'loading') {
+    if (progress.percent !== null) modelNoticePercent = progress.percent;
+  } else {
+    modelNoticePercent = null;
+  }
+  const percent = state === 'loading' ? modelNoticePercent : null;
+  if (percent !== null) notice.classList.add('determinate');
 
   const title = el('modelLoadTitle');
   const detail = el('modelLoadText');
@@ -59,10 +70,13 @@ function updateModelNotice(status, state = 'loading') {
   if (detail) detail.textContent = text;
 
   if (bar) {
-    bar.style.width = progress.percent === null ? '18%' : `${progress.percent}%`;
-    bar.style.animation = progress.percent === null && state === 'loading' ? '' : 'none';
-    bar.parentElement?.setAttribute('aria-valuenow', progress.percent === null ? '' : String(Math.round(progress.percent)));
+    bar.style.width = percent === null ? '' : `${percent}%`;
+    const track = bar.parentElement;
+    if (percent === null) track?.removeAttribute('aria-valuenow');
+    else track?.setAttribute('aria-valuenow', String(Math.round(percent)));
   }
+  const pctLabel = el('modelProgressPct');
+  if (pctLabel) pctLabel.textContent = percent === null ? '' : `${Math.floor(percent)}%`;
   if (state === 'ready') {
     modelNoticeDismissTimer = setTimeout(() => notice.classList.add('hidden'), 3500);
   }
@@ -92,6 +106,7 @@ function showDownloadConsent(modelLabel, modelSize) {
       + (modelSize ? `<b>${modelSize}</b> ` : '') + `${modelLabel} download.`;
   }
   clearTimeout(modelNoticeDismissTimer);
+  modelNoticePercent = null;
   notice.classList.remove('hidden', 'ready', 'error', 'determinate', 'declined');
   notice.classList.add('consent');
   consent.hidden = false;

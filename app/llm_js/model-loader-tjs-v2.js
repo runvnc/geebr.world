@@ -120,7 +120,7 @@ export async function loadModel(modelKey, onProgress) {
     processor = await (isGemma ? transformers.AutoProcessor : transformers.AutoTokenizer).from_pretrained(cfg.modelId, {
       progress_callback: (info) => {
         if (info.status === 'progress') {
-          onProgress?.(`Tokenizer: ${Math.round(info.progress || 0)}%`);
+          onProgress?.({ phase: 'download', text: 'Downloading processor/tokenizer...' });
         } else if (info.status === 'ready') {
           onProgress?.('Tokenizer ready');
         }
@@ -176,14 +176,28 @@ export async function loadModel(modelKey, onProgress) {
     ];
     let lastErr = null;
     for (const attempt of attempts) {
-      onProgress?.(`Downloading model weights (${attempt.label})...`);
+      onProgress?.({ phase: 'download', percent: 0, text: `Downloading model weights (${attempt.label})...` });
+      // The weights arrive as several files, each reporting its own 0-100%.
+      // Sum bytes across files so the bar tracks the whole download instead of
+      // restarting per file.
+      const fileBytes = new Map();
       try {
         model = await modelClass.from_pretrained(cfg.modelId, {
           dtype: attempt.dtype,
           device: attempt.device,
           progress_callback: (info) => {
             if (info.status === 'progress') {
-              onProgress?.(`Model (${attempt.label}): ${Math.round(info.progress || 0)}%`);
+              if (info.file && info.total) fileBytes.set(info.file, { loaded: info.loaded || 0, total: info.total });
+              let loaded = 0, total = 0;
+              for (const f of fileBytes.values()) { loaded += f.loaded; total += f.total; }
+              const percent = total ? Math.min(100, (loaded / total) * 100) : (info.progress ?? null);
+              onProgress?.({
+                phase: 'download',
+                percent,
+                text: total
+                  ? `Model (${attempt.label}): ${percent.toFixed(1)}% · ${(loaded / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB`
+                  : `Model (${attempt.label}): ${Math.round(percent || 0)}%`,
+              });
             } else if (info.status === 'ready') {
               onProgress?.(`Model (${attempt.label}) ready`);
             } else if (info.status === 'initiate') {
