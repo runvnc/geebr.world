@@ -252,6 +252,26 @@ function playRig(g,mode,loop=true){
   g._lastRigAnimName = ag ? ag.name : null;
 }
 function debugRigAnims(g){ try{ console.log('[geebr rig]', g.id, 'clips:', Object.keys(g.rigAnims||{})); }catch{} }
+// Keep a carried prop glued to the geebr's grip hand while rigged, falling
+// back to the old float-in-front behavior for unrigged/boneless geebrs.
+const HELD_GRIP_OFFSET=new BABYLON.Vector3(0,-.04,.11);
+function positionHeldItem(g,dt){
+  const h=state.held.get(g.id); if(!h) return;
+  const hand=g.rigged ? (findBones(g).handR||findBones(g).handL) : null;
+  if(hand){
+    hand.computeWorldMatrix(true);
+    const m=hand.getWorldMatrix();
+    h.position.copyFrom(BABYLON.Vector3.TransformCoordinates(HELD_GRIP_OFFSET,m));
+    if(!h.rotationQuaternion) h.rotationQuaternion=new BABYLON.Quaternion();
+    const scl=new BABYLON.Vector3(); const rot=new BABYLON.Quaternion(); const pos=new BABYLON.Vector3();
+    m.decompose(scl,rot,pos);
+    h.rotationQuaternion.copyFrom(rot);
+  } else {
+    h.position=g.root.position.add(g.dir.scale(.72));
+    h.position.y=.98+Math.sin(g.t*7)*.04;
+    h.rotation.y+=dt*1.2;
+  }
+}
 function findHeadNodes(g){
   if(g._headNodes) return g._headNodes;
   const nodes=[];
@@ -900,9 +920,9 @@ function say(g,text,voiced=false){
   log(g.id+': '+text);
   const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86);
   document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8});
-  g.anim='talk'; playRig(g,'talk',true);
+  g.anim='talk'; playRig(g,'talk',true); g.speaking=true;
   const speechRequested=localStorage.getItem('geebrTtsEnabled')==='1' && getBrainConfig(g.id).ttsEnabled!==false;
-  setTimeout(()=>{ if(g.anim==='talk' && (!speechRequested || window.geebrTTS?.current?.agent!==g)){ g.anim='idle'; playRig(g,'idle',true); } },speechRequested?2000:900);
+  setTimeout(()=>{ if(g.anim==='talk' && (!speechRequested || window.geebrTTS?.current?.agent!==g)){ g.anim='idle'; playRig(g,'idle',true); g.speaking=false; if(g._headNodes)for(const h of g._headNodes)h.scaling.y=1; } },speechRequested?2000:900);
   if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; }
 }
 window.geebrTTS?.addEventListener('speechstart',e=>{ const g=e.detail.agent; if(g){g.speaking=true;g.anim='talk';playRig(g,'talk',true);} });
@@ -1875,7 +1895,7 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; } continue; } if(state.held.get(g.id)){ const h=state.held.get(g.id); h.position=g.root.position.add(g.dir.scale(.72)); h.position.y=.98+Math.sin(g.t*7)*.04; h.rotation.y+=dt*1.2; }
+function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } positionHeldItem(g,dt); continue; } positionHeldItem(g,dt);
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }

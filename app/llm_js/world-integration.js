@@ -1,4 +1,5 @@
 import { createAgentBrainManager } from './agent-brain.js?v=20260824c';
+import { installDevConsole } from './dev-console.js?v=20260904a';
 import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20260824c';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20260823q';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
@@ -309,6 +310,10 @@ async function main() {
     onStatus: setStatus,
     onDebug: () => {},
   });
+  // Let the console's llm()/genmap() piggyback on this manager when it's
+  // already sitting on the model they want, instead of loading a redundant
+  // second copy of the same multi-GB weights.
+  installDevConsole(() => manager);
   let running = false;
   let stepIndex = 0;
   window.addEventListener('geebr:clear-conversations', event => manager.clearConversations(event.detail?.agentId ?? null));

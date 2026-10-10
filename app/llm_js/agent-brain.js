@@ -174,7 +174,11 @@ export function createAgentBrainManager(config = {}) {
       throw err;
     }
     console.log('[geebr-brain] RAW LLM OUTPUT:', text);
-    const line = commandLines(text);
+    // Ad-hoc console callers (llm()/genmap()) want the model's exact text back
+    // (e.g. a fixed-width ASCII grid), not the command-line normalization that
+    // strips lines looking like pure markdown artifacts (a wall row of all
+    // '#' would otherwise be dropped).
+    const line = agent.raw ? String(text || '') : commandLines(text);
     onDebug('decision', { agentId: agent.agentId, text, line });
     return line;
   }
