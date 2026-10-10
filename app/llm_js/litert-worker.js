@@ -25,7 +25,9 @@ const engineLibReady = (async () => {
 const MODEL_CONFIG = {
   'gemma4-e2b-litert': {
     label: 'Gemma 4 E2B (LiteRT-LM)',
-    modelUrl: 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm',
+    // Mirrored on our R2 bucket (byte-identical to litert-community/gemma-4-E2B-it-litert-lm
+    // on Hugging Face, sha256 3a08e8d9...); HF's download speeds were too slow.
+    modelUrl: 'https://geebr-models.mindroot.io/gemma-4-E2B-it-web.litertlm',
     vram: '~0.8GB in-memory (PLE memory-mapped)',
   },
 };
