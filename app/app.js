@@ -2336,6 +2336,8 @@ function buildAgentPrompt(g, cfg) {
     ...cmds,
     '',
     ...(canGiveQuest ? ['Use give_quest() to bestow a quest on nearby agents.'] : []),
+    // Small models narrate hand-overs ("here it is") instead of doing them.
+    ...((state.allowed.has('give') || state.allowed.has('sell')) ? ['Things only happen through commands: saying "here it is" hands nothing over. To hand something over, use ' + [state.allowed.has('give') ? 'give(item)' : '', state.allowed.has('sell') ? 'sell(item, price)' : ''].filter(Boolean).join(' or ') + ' in the same reply.'] : []),
     'Messages in the form "NAME says ..." report speech addressed to you.',
     'Understand and answer the meaning of that speech; do not copy or quote it back.',
     'Do not output anything except the command line.',

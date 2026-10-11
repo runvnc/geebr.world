@@ -249,7 +249,14 @@ async function generateText(messages, opts, onToken) {
   const thinking = !!opts.extra_body?.enable_thinking;
   if (thinking) systemContent = '<|think|>' + (systemContent || '');
   const chatMessages = messages.filter(m => m.role !== 'system');
-  const promptText = chatMessages[chatMessages.length - 1]?.content || '';
+  // Send everything the game added since this character's last reply, not
+  // just the last message: action results, other characters' actions and
+  // feedback notes sit between them and were silently dropped before (the
+  // conversation only ever saw the final prompt).
+  let lastAssistant = -1;
+  for (let i = chatMessages.length - 1; i >= 0; i--) if (chatMessages[i].role === 'assistant') { lastAssistant = i; break; }
+  const fresh = chatMessages.slice(lastAssistant + 1).filter(m => m.role === 'user');
+  const promptText = (fresh.length ? fresh : chatMessages.slice(-1)).map(m => String(m.content || '')).join('\n\n');
   try {
     return await runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking);
   } catch (err) {

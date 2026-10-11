@@ -1,6 +1,6 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20261011d';
-import { installDevConsole } from './dev-console.js?v=20261011d';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261011b';
+import { createAgentBrainManager } from './agent-brain.js?v=20261011e';
+import { installDevConsole } from './dev-console.js?v=20261011e';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261011c';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20261010a';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
 import { clearModelCache as clearWllama3Cache, hasModelCached as hasWllama3Cached } from './model-loader-wllama3.js?v=20260823q';
@@ -309,7 +309,10 @@ function buildAgentMessages(world, g, cfg) {
       const m = String(line).match(/^(.+?)\s+says:\s*(.*)$/);
       return m ? `[${m[1].trim()}] ${m[2]}` : line;
     }).join('\n');
-    chatSuffix = '\n\nNEW SPEECH ADDRESSED TO YOU:\n' + speech + '\nReply with say("...") using only your own words. Never include the speaker name.';
+    // This used to say only 'Reply with say("...")', which told the model to
+    // answer with speech alone: characters agreed to hand things over or walk
+    // somewhere but never issued give()/walk(). Ask for the action too.
+    chatSuffix = '\n\nNEW SPEECH ADDRESSED TO YOU:\n' + speech + '\nAnswer with say("...") in your own words (never include the speaker name). If you agree to do something, also do it with the matching command on the next line.';
     cfg.pendingChat = [];
     world.setBrainConfig(g.id, cfg);
   }
@@ -598,6 +601,17 @@ async function main() {
       const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';
       const summary = formatActionSummary(resultDesc);
       cfg.messages = cfg.messages.concat([{ role: 'user', content: summary }]);
+      // Said it handed something over but issued no give()/sell(): tell it,
+      // so the next turn can actually do it (small models often narrate the
+      // hand-over instead of using the command).
+      const allowedNow = world.getAllowedCommands();
+      const saidNow = planCmds.filter(c => c.kind === 'say').map(c => c.text || '').join(' ');
+      const handedOver = planCmds.some(c => c.kind === 'give' || c.kind === 'sell');
+      if (!handedOver && (allowedNow.includes('give') || allowedNow.includes('sell'))
+          && /\b(here(?:'?s| is| it is| you (?:go|are)| ya go)\b|take (?:it|this|the)\b|(?:it'?s|it is|they'?re|they are) (?:all |now )?yours|(?:i'?ll|i will|let me|i'?m going to) (?:give|hand)|giving (?:it|you|the)|handing (?:it|you|the|over)|have it\b|hands? (?:it|you|over))/i.test(saidNow)) {
+        const how = [allowedNow.includes('give') ? 'give("item")' : '', allowedNow.includes('sell') ? 'sell("item", price)' : ''].filter(Boolean).join(' or ');
+        cfg.messages = cfg.messages.concat([{ role: 'user', content: `SYSTEM: You said you would hand something over, but nothing changed hands. Saying it does nothing; use ${how} to actually do it.` }]);
+      }
       // Retain enough ordinary conversation for multi-turn instructions to remain salient.
       if (cfg.messages.length > 40) cfg.messages = cfg.messages.slice(-40);
       world.setBrainConfig(g.id, cfg);
