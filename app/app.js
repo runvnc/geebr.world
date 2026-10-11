@@ -823,7 +823,7 @@ function endFall(g){
   saveWorldState();
 }
 // Fixed HD scenery that objects must not be placed into (scenario layout).
-const SCENERY_MESH=/^(hd_(house|tree|boulders|posts|rails|planks|decor_crate|edge_stones|leaves)|fire_|campfire)/;
+const SCENERY_MESH=/^(hd_(house|tree|boulders|posts|rails|planks|decor_crate|edge_stones)|fire_|campfire)/;
 const sceneryCache=new Map();
 function sceneryAt(x,z){
   const key=Math.round(x*4)+','+Math.round(z*4);
