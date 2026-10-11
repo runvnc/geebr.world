@@ -859,7 +859,11 @@ turns: 6`;
     const ex = $('scnExamples');
     if (ex) for (const [k, v] of Object.entries(EXAMPLES)) { const o = document.createElement('option'); o.value = k; o.textContent = v.title; ex.appendChild(o); }
     writeJson(EXAMPLES.shop);
-    $('scnLoadExample')?.addEventListener('click', () => { writeJson(EXAMPLES[ex.value] || EXAMPLES.shop); setStatus('example loaded; press play'); });
+    // Picking an example loads it straight into the editor (play always plays
+    // what's in the JSON box, so a pick that needed a second click was easy to miss).
+    const loadExample = () => { writeJson(EXAMPLES[ex.value] || EXAMPLES.shop); setStatus(`"${(EXAMPLES[ex.value] || EXAMPLES.shop).title}" loaded; press play`); };
+    ex?.addEventListener('change', loadExample);
+    $('scnLoadExample')?.addEventListener('click', loadExample);
     $('scnPlay')?.addEventListener('click', async () => {
       try { const o = syncMapIntoJson(); setStatus('building…'); const r = await playScenario(o); setStatus(`playing "${r.scenario.title}"`); }
       catch (e) { console.error(e); setStatus(e.message, true); }

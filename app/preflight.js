@@ -40,7 +40,7 @@
     ['graphics-settings.js?v=20260823u'],
     ['terrain-hd.js?v=20261011a'],
     ['app.js?v=20261011d'],
-    ['scenario.js?v=20261011d'],
+    ['scenario.js?v=20261011e'],
     ['llm_js/world-integration.js?v=20261011e', 'module'],
   ];
 
