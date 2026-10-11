@@ -52,6 +52,11 @@
   const ARRANGE = { row: 'row', line: 'row', rows: 'row', cluster: 'cluster', group: 'cluster', pile: 'cluster', stack: 'cluster', heap: 'cluster', scattered: 'scattered', scatter: 'scattered', around: 'around', ring: 'around', circle: 'around' };
   const RELWORDS = { beside: 'beside', by: 'beside', next: 'beside', alongside: 'beside', near: 'near', close: 'near', behind: 'behind', front: 'in_front_of', in_front_of: 'in_front_of', around: 'around', surrounding: 'around' };
 
+  const PAINT_MATS = ['stone', 'flagstone', 'dirt', 'wood', 'sand', 'grass', 'water', 'lava'];
+  const MAT_ALIASES = { cobble: 'stone', cobblestone: 'stone', cobbles: 'stone', tiles: 'stone', tile: 'stone', stones: 'stone', paving: 'flagstone', slabs: 'flagstone',
+    planks: 'wood', wooden: 'wood', boards: 'wood', pond: 'water', river: 'water', pool: 'water', mud: 'dirt', gravel: 'dirt', earth: 'dirt', path: 'dirt',
+    beach: 'sand', magma: 'lava', erase: 'none', none: 'none', clear: 'none' };
+  const matOf = w => PAINT_MATS.includes(w) ? w : (MAT_ALIASES[w] || null);
   function singular(w) {
     if (ALIASES[w]) return ALIASES[w];
     if (THINGS.includes(w)) return w;
@@ -80,14 +85,28 @@
       .replace(/weapon[ -]stand/g, 'weapon_stand').replace(/coin[ -]pile/g, 'coin_pile').replace(/(apple|carrot)[ -]crate/g, '$1_crate');
     const ids = agentIds.map(a => a.toLowerCase());
     const words = s.replace(/[^a-z0-9_ ]/g, ' ').split(/\s+/).filter(w => w && !['the', 'of', 'and', 'with', 'to_the'].includes(w));
-    const known = w => ids.includes(w) || THINGS.includes(singular(w)) || ['house', 'campfire'].includes(singular(w));
-    const resolveRef = w => ids.includes(w) ? agentIds[ids.indexOf(w)] : singular(w);
+    const known = w => ids.includes(w) || THINGS.includes(singular(w)) || ['house', 'campfire'].includes(singular(w)) || PAINT_MATS.includes(w) || ['pond', 'river', 'pool'].includes(w);
+    const resolveRef = w => ids.includes(w) ? agentIds[ids.indexOf(w)] : (PAINT_MATS.includes(w) || ['pond', 'river', 'pool'].includes(w)) ? (matOf(w) || w) : singular(w);
 
-    if (words[0] === 'path' || words[0] === 'road' || words[0] === 'trail') {
+    // floor <material>: the whole island
+    if (words[0] === 'floor' || (words[0] === 'paint' && words[1] === 'floor')) {
+      const mat = words.map(matOf).find(Boolean);
+      return mat ? { kind: 'floor', mat, raw } : { kind: 'bad', raw, why: 'floor needs a material (' + PAINT_MATS.join(', ') + ')' };
+    }
+    // "path from X to Y", also "stone path from ..." / "a dirt road from ..."
+    if (words.slice(0, 4).some(w => ['path', 'road', 'trail'].includes(w)) && words.includes('from')) {
       const fi = words.indexOf('from'), ti = words.lastIndexOf('to');
       const end = arr => { for (const w of arr) { const a = normArea(w); if (AREAS.has(a)) return { area: a }; if (known(w)) return { ref: resolveRef(w) }; } return null; };
       const from = end(words.slice(fi + 1, ti > fi ? ti : undefined)), to = end(words.slice(ti + 1));
-      return from && to ? { kind: 'path', from, to, raw } : { kind: 'bad', raw, why: 'path needs "from X to Y"' };
+      // optional material anywhere in the line ("stone path from ..."); dirt by default
+      const mat = words.filter(w => w !== 'path').map(w => PAINT_MATS.includes(w) ? w : (w !== 'path' && MAT_ALIASES[w]) || null).find(Boolean) || (words.includes('unpainted') ? 'none' : 'dirt');
+      return from && to ? { kind: 'path', from, to, mat, raw } : { kind: 'bad', raw, why: 'path needs "from X to Y"' };
+    }
+    // paint <material> [xN] <placement>: painted floor tiles, laid out like objects
+    if (words[0] === 'paint' || words[0] === 'pave') {
+      const mat = matOf(words[1] || '');
+      if (!mat) return { kind: 'bad', raw, why: 'paint needs a material (' + PAINT_MATS.join(', ') + ')' };
+      words.splice(0, 2, 'place', '__paint__');
     }
     let i = 0;
     while (['place', 'put', 'add', 'spawn', 'set', 'there', 'is', 'are'].includes(words[i])) i++;
@@ -105,6 +124,7 @@
         const m = w.match(/^x?(\d+)x?$/); if (m) { count = Math.max(1, Math.min(12, +m[1])); continue; }
         if (NUMWORDS[w]) { count = NUMWORDS[w]; continue; }
         if (ARRANGE[w] && ARRANGE[w] !== 'around') { arrangement = ARRANGE[w]; continue; }
+        if (w === '__paint__') { thing = 'paint'; continue; }
         if (ids.includes(w)) { thing = agentIds[ids.indexOf(w)]; isAgent = true; continue; }
         const t = singular(w); if (THINGS.includes(t)) { thing = t; continue; }
         if (!['in', 'a', 'an', 'some'].includes(w)) unknownNoun = unknownNoun || w;
@@ -134,7 +154,8 @@
     if (rel === 'against' && !edge) { rel = area ? 'at' : null; }
     if (rel && !['at', 'against'].includes(rel) && !ref) { rel = area ? 'at' : null; }
     if (isAgent) count = 1;
-    return { kind: 'place', thing, isAgent, count, text, rel, ref, area, edge, arrangement, raw };
+    const paintMat = thing === 'paint' ? matOf(String(raw).toLowerCase().match(/(?:paint|pave)\s+(\w+)/)?.[1] || '') : null;
+    return { kind: 'place', thing, isAgent, count, text, rel, ref, area, edge, arrangement, paintMat, raw };
   }
 
   // ---------- layout engine ----------
@@ -175,7 +196,7 @@
       if (!fc.length) fc = [[Math.round(p.x), Math.round(p.z)]];
       registry.set(name, { cells: fc, centre: ac, scenery: true });
     }
-    const out = { objects: [], agents: {}, warnings };
+    const out = { objects: [], agents: {}, paint: [], warnings };
     const interactive = [];  // cells that must keep a free neighbour
 
     function occupy(c, ent, isInteractive) { occupied.set(key(c[0], c[1]), ent); if (isInteractive) interactive.push(c); }
@@ -346,6 +367,20 @@
 
     function placeLine(p, ignoreRef = false) {
       const ref = (!ignoreRef && p.ref) ? registry.get(p.ref) : null;
+      if (p.thing === 'paint') {
+        // Painted cells don't occupy anything, except water/lava which block
+        // placement. Many cells default to one connected patch.
+        const q = ref ? p : { ...p, rel: p.rel && !['at', 'against'].includes(p.rel) ? (p.area ? 'at' : null) : p.rel };
+        const cellsP = placeGroup({ ...q, arrangement: p.arrangement || (p.count > 1 ? 'cluster' : null) }, ref, p.count);
+        if (!cellsP.length) { warnings.push(`"${p.raw.trim()}": nowhere to paint`); return; }
+        for (const c of cellsP) {
+          out.paint.push({ x: c[0], z: c[1], mat: p.paintMat });
+          if (['water', 'lava'].includes(p.paintMat)) blocked.add(key(c[0], c[1]));
+        }
+        const ent = { cells: cellsP, centre: [cellsP.reduce((a, c) => a + c[0], 0) / cellsP.length, cellsP.reduce((a, c) => a + c[1], 0) / cellsP.length] };
+        register(p.paintMat, ent);
+        return;
+      }
       const q = ref ? p : { ...p, rel: p.rel && !['at', 'against'].includes(p.rel) ? (p.area ? 'at' : null) : p.rel };
       const thing = p.thing;
       const groups = thing === 'counter' ? Array.from({ length: p.count }, () => ({ ...q, count: 3, arrangement: 'row' })) : [{ ...q }];
@@ -396,9 +431,15 @@
       const path = a && b ? astar(a, b) : null;
       if (!path) { warnings.push(`"${p.raw.trim()}": no route found`); return; }
       for (const c of path) reserved.add(key(c[0], c[1]));
+      if (p.mat && p.mat !== 'none') for (const c of path) out.paint.push({ x: c[0], z: c[1], mat: p.mat });
     }
 
-    // 2. explicit objects and fixed-position agents first
+    // 2. what's already in the world (e.g. a dungeon's rim walls), explicit
+    //    objects and fixed-position agents first
+    for (const o of (spec.existing || [])) {
+      const c = [Math.round(o.x), Math.round(o.z)];
+      if (!occupied.has(key(c[0], c[1]))) { const ent = { cells: [c], centre: c }; occupy(c, ent, o.type !== 'wall'); }
+    }
     for (const o of spec.objects || []) {
       const c = [Math.round(o.x), Math.round(o.z)];
       const ent = { cells: [c], centre: c };
@@ -417,6 +458,7 @@
       if (!p) continue;
       if (p.kind === 'bad') { warnings.push(`ignored "${String(l).trim()}": ${p.why}`); continue; }
       if (p.kind === 'place' && p.isAgent && (spec.agents || []).find(a => a.id === p.thing && Array.isArray(a.at))) continue;
+      if (p.kind === 'floor') { for (const c of [...cells, ...[...blocked].map(k => k.split(',').map(Number))]) out.paint.unshift({ x: c[0], z: c[1], mat: p.mat }); continue; }
       parsed.push(p);
     }
     for (const p of parsed) if (p.kind === 'place' && parsed.some(q => q.kind === 'place' && q.rel === 'behind' && q.ref === p.thing)) p.keepBehindFree = true;
@@ -517,7 +559,10 @@
       agents: (Array.isArray(s.agents) ? s.agents : []).filter(a => a && a.id).map(a => ({ ...a, id: String(a.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'geebr' })),
       objects: Array.isArray(s.objects) ? s.objects.filter(o => o && Number.isFinite(+o.x) && Number.isFinite(+o.z)) : [],
       map: Array.isArray(s.map) ? s.map.map(String) : (typeof s.map === 'string' ? s.map.split('\n') : []),
-      goal: s.goal && typeof s.goal === 'object' ? s.goal : null };
+      goal: s.goal && typeof s.goal === 'object' ? s.goal : null,
+      base: ['island', 'clearing', 'dungeon'].includes(s.base) ? s.base : 'island', walls: s.walls === 'block' ? 'block' : 'tabletop',
+      floor: PAINT_MATS.includes(s.floor) ? s.floor : null,
+      paint: Array.isArray(s.paint) ? s.paint.filter(c => c && Number.isFinite(+c.x) && Number.isFinite(+c.z) && (PAINT_MATS.includes(c.mat) || c.mat === 'none')) : [] };
     if (!out.agents.length) out.agents = [{ id: 'geebr1', personality: 'helpful and friendly' }];
     // Normalising twice (restart) must not wrap the turn limit again.
     if (out.goal?.maxTurns && !JSON.stringify(out.goal.lose || {}).includes('turns_over')) {
@@ -545,7 +590,9 @@
     const scn = normalizeScenario(input);
     stopChecker();
     w.state.saveKey = SCENARIO_KEY;
+    w.setWallStyle?.(scn.walls);
     w.clearWorld();
+    w.setBaseMap?.(scn.base);
     w.state.globalHistory = [];
     w.setAllowed(scn.allowed);
     w.setLighting?.(scn.lighting === 'night' ? 'night' : 'bright');
@@ -553,14 +600,17 @@
     // Never start already won: if the layout satisfies the win condition at
     // turn 0 (e.g. "get Pip to the campfire" with Pip placed by the fire),
     // re-roll with the next seeds.
-    let plan = layout(scn);
+    const existing = w.getObjects().map(o => ({ type: o.type, x: o.x, z: o.z }));
+    const spec = { ...scn, existing, map: [...(scn.floor ? ['floor ' + scn.floor] : []), ...scn.map] };
+    let plan = layout(spec);
     if (scn.goal?.win && !opts.keepSeed) {
       for (let k = 1; k <= 8 && evalCond(scn.goal.win, planContext(scn, plan)); k++) {
-        plan = layout({ ...scn, seed: scn.seed + k });
+        plan = layout({ ...spec, seed: scn.seed + k });
         plan.warnings.unshift(`layout seed ${scn.seed} would have started already won; used seed ${scn.seed + k}`);
       }
       if (evalCond(scn.goal.win, planContext(scn, plan))) plan.warnings.unshift('warning: the goal is already met at the start for every layout tried');
     }
+    w.setPaint?.([...plan.paint, ...scn.paint.map(c => ({ x: +c.x, z: +c.z, mat: c.mat, tint: c.tint }))]);
     for (const o of scn.objects) w.makeObject(o.type, +o.x, +o.z, o);
     for (const o of plan.objects) w.makeObject(o.type, o.x, o.z, o);
     let first = null;
@@ -684,7 +734,11 @@
           ...(c.showThoughts === false ? { showThoughts: false } : {}), ...(c.ttsVoiceId ? { ttsVoiceId: c.ttsVoiceId } : {}),
           ...(c.inventory && (c.inventory.gold || c.inventory.items?.length) ? { inventory: c.inventory } : {}) };
       }),
-      objects: w.getObjects().map(o => ({ type: o.type, x: Math.round(o.x), z: Math.round(o.z), ...(o.type === 'note' && o.noteText ? { text: o.noteText } : {}) })),
+      base: st.baseMap || 'island', ...(st.wallStyle === 'block' ? { walls: 'block' } : {}),
+      // The dungeon's rim walls and stone floor come back from "base", so leave them out.
+      objects: w.getObjects().filter(o => !o.rim).map(o => ({ type: o.type, x: Math.round(o.x), z: Math.round(o.z), ...(o.type === 'note' && o.noteText ? { text: o.noteText } : {}) })),
+      paint: [...(st.paint || [])].map(([k, v]) => ({ x: +k.split(',')[0], z: +k.split(',')[1], mat: v.mat, ...(v.tint ? { tint: v.tint } : {}) }))
+        .filter(c => !(st.baseMap === 'dungeon' && c.mat === 'stone' && !c.tint)),
       map: [],
       goal: base.goal || { text: 'Describe the goal here.', win: { player_has: 'something' }, maxTurns: 12, score: 'turns_left' },
     };
@@ -699,6 +753,8 @@
       '  place <thing> [xN] <placement>',
       '  path from <thing|area> to <thing|area>',
       `Things: crate, barrel, mushroom, lamp, wall, counter, note "<short text>", ${ITEMS.join(', ')}${agentIds.length ? ', characters: ' + agentIds.join(', ') : ''}.`,
+      '  paint <stone|flagstone|dirt|wood|sand|grass|water|lava> [xN] <placement>   (floor tiles; water x6 cluster = a pond)',
+      '  floor <material>   (the whole floor)',
       'Placements: at center|north|south|east|west|northeast|northwest|southeast|southwest|random, against north_wall (or south_wall, east_wall, west_wall), beside X, near X, behind X, in_front_of X, around X. Optional: row, cluster, scattered.',
       'X can be any thing placed earlier, a character, house or campfire.',
       '',

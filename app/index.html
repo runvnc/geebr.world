@@ -97,6 +97,11 @@
       <div class="section-subtitle">Spawn</div>
       <div class="row setup-row"><button id="spawnCharacter" type="button">spawn geebr</button><button id="spawnCrate" type="button">crate</button><button id="spawnBarrel" type="button">barrel</button><button id="spawnWall" type="button">wall</button></div>
       <div class="row setup-row"><button id="spawnMushroom" type="button">mushroom</button><button id="spawnLamp" type="button">lamp</button></div>
+      <div class="section-subtitle">Map</div>
+      <div class="custom-grid">
+        <label>Base map <select id="baseMapSelect"><option value="island">island</option><option value="clearing">clearing (less stuff)</option><option value="dungeon">dungeon</option></select></label>
+        <label>Walls <select id="wallStyleSelect"><option value="tabletop">tabletop</option><option value="block">blocks</option></select></label>
+      </div>
       <div class="section-subtitle">Click-to-spawn mode</div>
       <div class="spawn-panel">
         <label class="spawn-mode-toggle"><input id="spawnModeEnabled" type="checkbox" /> enable click-to-spawn</label>
@@ -108,6 +113,17 @@
           <option value="mushroom">mushroom</option>
           <option value="lamp">lamp</option>
           <option value="note">note</option>
+          <optgroup label="paint floor (click again to erase)">
+            <option value="paint:stone">stone</option>
+            <option value="paint:flagstone">flagstone</option>
+            <option value="paint:dirt">dirt</option>
+            <option value="paint:wood">wood</option>
+            <option value="paint:sand">sand</option>
+            <option value="paint:grass">grass</option>
+            <option value="paint:water">water</option>
+            <option value="paint:lava">lava</option>
+            <option value="paint:none">erase paint</option>
+          </optgroup>
           <optgroup label="items">
             <option value="chest">chest</option>
             <option value="table">table</option>
@@ -303,6 +319,6 @@
     </div>
   </div>
   <div id="hint">Pick a character (🧝) to shape its mind, chat below, then start the local brain from the top bar.</div>
-  <script src="preflight.js?v=20261011i"></script>
+  <script src="preflight.js?v=20261011k"></script>
 </body>
 </html>

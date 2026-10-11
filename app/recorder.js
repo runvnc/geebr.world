@@ -40,6 +40,8 @@
       blocks:(state.blocks || []).filter(m => !m?.isDisposed?.()).map(meshRecord),
       globalHistory:[...(state.globalHistory || [])],
       player:state.player ? JSON.parse(JSON.stringify(state.player)) : undefined,
+      paint:state.paint ? [...state.paint].map(([k,v])=>[...k.split(',').map(Number),v.mat,v.tint||null]) : [],
+      baseMap:state.baseMap||'island', wallStyle:state.wallStyle||'tabletop',
       camera:state.camera ? {
         alpha:state.camera.alpha, beta:state.camera.beta, radius:state.camera.radius,
         target:{x:state.camera.target.x,y:state.camera.target.y,z:state.camera.target.z},

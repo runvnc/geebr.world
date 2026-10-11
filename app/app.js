@@ -916,7 +916,7 @@ function makeObject(type,x,z,opts={}){
 function getObjects(){
   return state.props.concat(state.blocks).filter(m=>m && !m.isDisposed?.()).map(m=>{
     const mm=meta(m)||{}, p=m.getAbsolutePosition?.()||m.position;
-    return {mesh:m,type:mm.type||m.name,x:p.x,z:p.z,state:mm.state||'intact',noteHtml:mm.noteHtml,noteText:mm.noteText};
+    return {mesh:m,type:mm.type||m.name,x:p.x,z:p.z,state:mm.state||'intact',noteHtml:mm.noteHtml,noteText:mm.noteText,rim:!!mm.rim};
   }).filter(o=>!['tile','hole'].includes(o.type));
 }
 function syncGeebr(g){
@@ -1219,6 +1219,122 @@ function buildWorld(scene){ const water=state.materials.water; for(let x=-WORLD.
   makeBakery(scene); makeFence(scene,-9.4,-2.2,9,'x'); makeFence(scene,-9.4,-2.2,6,'z'); makeShrine(scene); makeBridge(scene); makeLamp(scene,-1.5,1.8); makeLamp(scene,5.8,2.2); scatter(scene);
 }
 
+// ---- painted floor tiles ----
+// Per-cell floor tiles laid over the island (scenarios: "paint stone at
+// north", "floor stone", paths). Each painted cell is a slightly inset,
+// rounded tabletop floor tile, so it reads as a placed piece even though the
+// game grid is offset half a cell from the grass tiles. One mesh per
+// material+tint with thin instances. Water and lava block placement.
+const PAINT_MATERIALS={
+  stone:{file:'stone_blocks.png',color:[.78,.77,.74],glyph:'^',name:'stone floor'},
+  flagstone:{file:'stone_soft.png',color:[.70,.70,.68],glyph:'^',name:'stone floor'},
+  dirt:{file:'dirt_path.png',color:[1,1,1],glyph:':',name:'dirt/path'},
+  wood:{file:'wood_planks.png',color:[.95,.9,.85],glyph:'_',name:'wooden floor'},
+  sand:{file:'dirt_loam.png',color:[1.25,1.1,.8],glyph:'.',name:'sand'},
+  grass:{file:'grass_meadow.png',color:[1,1,1],glyph:',',name:'grass'},
+  water:{file:'water_soft.png',color:[.55,.8,1],glyph:'~',name:'water',emissive:[.02,.06,.09],blocks:true},
+  lava:{file:'dirt_loam.png',color:[1,.35,.1],glyph:'&',name:'lava',emissive:[.9,.25,.03],blocks:true},
+};
+function paintKey(x,z){ return Math.round(x)+','+Math.round(z); }
+let paintRebuildQueued=false;
+function schedulePaintRebuild(){ if(paintRebuildQueued) return; paintRebuildQueued=true; queueMicrotask(()=>{ paintRebuildQueued=false; try{ rebuildPaint(); }catch(e){ console.warn('paint rebuild failed',e); } }); }
+// cells: [{x,z,mat,tint?}] ; mat 'none' erases.
+function setPaint(cells,{replace=false}={}){
+  if(replace || !state.paint) state.paint=new Map();
+  for(const c of cells||[]){
+    const k=paintKey(c.x,c.z);
+    if(!c.mat || c.mat==='none') state.paint.delete(k);
+    else if(PAINT_MATERIALS[c.mat]) state.paint.set(k,{mat:c.mat,tint:c.tint||null});
+  }
+  schedulePaintRebuild();
+}
+function paintAt(x,z){ return state.paint?.get(paintKey(x,z))||null; }
+function paintMaterial(mat,tint){
+  state.paintMats ||= new Map();
+  const key=mat+'|'+(tint||'');
+  if(state.paintMats.has(key)) return state.paintMats.get(key);
+  const def=PAINT_MATERIALS[mat], sc=state.scene;
+  const m=new BABYLON.PBRMaterial('paint_'+key,sc);
+  const tx=new BABYLON.Texture(ASSET+def.file,sc,true,false,BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
+  tx.wrapU=tx.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; tx.anisotropicFilteringLevel=8;
+  m.albedoTexture=tx; m.metallic=0; m.roughness=mat==='water'?.25:.85; m.environmentIntensity=.6; m.specularIntensity=mat==='water'?1:.4; m.maxSimultaneousLights=4;
+  let col=new BABYLON.Color3(...def.color);
+  if(tint){ try{ col=BABYLON.Color3.FromHexString(tint); }catch{} }
+  m.albedoColor=col;
+  if(def.emissive) m.emissiveColor=new BABYLON.Color3(...def.emissive);
+  state.paintMats.set(key,m);
+  return m;
+}
+function rebuildPaint(){
+  const sc=state.scene; if(!sc) return;
+  for(const m of state.paintMeshes||[]) try{ m.dispose(); }catch{}
+  state.paintMeshes=[];
+  if(!state.paint?.size) return;
+  const top=state.terrainTopY??0, groups=new Map();
+  for(const [k,v] of state.paint){ const g=v.mat+'|'+(v.tint||''); if(!groups.has(g)) groups.set(g,{v,cells:[]}); groups.get(g).cells.push(k.split(',').map(Number)); }
+  for(const [g,{v,cells}] of groups){
+    const base=BABYLON.MeshBuilder.CreateBox('paint_'+g,{width:.97,height:.035,depth:.97},sc);
+    base.material=paintMaterial(v.mat,v.tint); base.isPickable=false; base.receiveShadows=true;
+    const buf=new Float32Array(cells.length*16), mat=new BABYLON.Matrix();
+    cells.forEach(([x,z],i)=>{
+      // tiny per-tile rotation of the texture quarter-turns breaks repetition
+      BABYLON.Matrix.ComposeToRef(BABYLON.Vector3.One(),BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y,(((x*7+z*13)%4+4)%4)*Math.PI/2),new BABYLON.Vector3(x,top+.018,z),mat);
+      mat.copyToArray(buf,i*16);
+    });
+    base.thinInstanceSetBuffer('matrix',buf,16,true);
+    state.paintMeshes.push(base);
+  }
+}
+// ---- base maps ----
+// 'island': the full diorama. 'clearing': the same island without the house,
+// trees, boulders, fence/signpost, lantern and decor crates. 'dungeon':
+// clearing minus the grass tufts, plus a stone floor and walls on the rim
+// (those are ordinary paint + wall objects, so they save and can be edited).
+const CLEARING_HIDE=/^(hd_(house|tree|leaves_a|leaves_b|boulders|decor_crate|posts|rails|planks)|lantern_(cage|bulb))/;
+const DUNGEON_HIDE=/^(hd_generated_(blade_cluster|daisy_clump))/;
+function setBaseMap(name='island',{build=true}={}){
+  const sc=state.scene; if(!sc) return;
+  const hideClearing=name==='clearing'||name==='dungeon', hideDungeon=name==='dungeon';
+  // Leaving the dungeon: take its floor and rim walls away again.
+  if(build && state.baseMap==='dungeon' && name!=='dungeon'){
+    for(const b of state.blocks.filter(b=>meta(b)?.rim)){ disposeWorldObject(b); }
+    state.blocks=state.blocks.filter(b=>!b.isDisposed?.());
+    setPaint([],{replace:true});
+  }
+  for(const m of sc.meshes){
+    if(CLEARING_HIDE.test(m.name)) m.setEnabled(!hideClearing);
+    else if(DUNGEON_HIDE.test(m.name)) m.setEnabled(!hideDungeon);
+  }
+  sc.getLightByName('hd_lantern_light')?.setEnabled(!hideClearing);
+  sceneryCells=null;   // obstacle cells changed
+  state.baseMap=name;
+  if(name==='dungeon' && build) buildDungeon();
+}
+// Stone floor over every solid cell and a wall on every rim cell.
+function buildDungeon(){
+  const W=WORLD, cells=[];
+  for(let z=-W.halfH-2;z<=W.halfH+2;z++) for(let x=-W.halfW-3;x<=W.halfW+3;x++){
+    if(hasGroundAt(x,z) && [[.35,0],[-.35,0],[0,.35],[0,-.35]].every(([ox,oz])=>hasGroundAt(x+ox,z+oz))) cells.push([x,z]);
+  }
+  const solid=new Set(cells.map(c=>c[0]+','+c[1]));
+  setPaint(cells.map(([x,z])=>({x,z,mat:'stone'})));
+  const have=new Set(state.blocks.filter(b=>!b.isDisposed?.()).map(b=>paintKey(b.position.x,b.position.z)));
+  const rim=new Set(cells.filter(([x,z])=>[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dz])=>!solid.has((x+dx)+','+(z+dz)))).map(c=>c[0]+','+c[1]));
+  // Walls only join along cell sides, so where the rim steps diagonally the
+  // wall would have a gap: fill one of the two corner cells (the solid one).
+  for(const k of [...rim]){
+    const [x,z]=k.split(',').map(Number);
+    for(const [dx,dz] of [[1,1],[1,-1],[-1,1],[-1,-1]]){
+      if(!rim.has((x+dx)+','+(z+dz)) || rim.has((x+dx)+','+z) || rim.has(x+','+(z+dz))) continue;
+      const fill=[[x+dx,z],[x,z+dz]].find(([a,b])=>solid.has(a+','+b));
+      if(fill) rim.add(fill[0]+','+fill[1]);
+    }
+  }
+  for(const k of rim){
+    const [x,z]=k.split(',').map(Number);
+    if(!have.has(k)){ const b=makeBlock(state.scene,x,z,false); meta(b).rim=true; }
+  }
+}
 // Item catalog: the Quaternius props in assets/models/props, sized and offset
 // as tuned in addRealPropPass(). makeCatalogItem() places one standing on the
 // terrain; used by scenarios, click-to-spawn, the map language and restore.
@@ -1834,6 +1950,7 @@ function proceduralTerrainAt(x,z){
   return 'grass';
 }
 function baseGlyphForTile(x,z){
+  const painted=paintAt(x,z); if(painted) return PAINT_MATERIALS[painted.mat]?.glyph || ',';
   const t=tileAtGrid(x,z); const m=meta(t);
   const mat=m?.tileMaterial || (t?.name||'').replace('tile_','') || proceduralTerrainAt(x,z);
   if(Math.abs(x)>WORLD.halfW || Math.abs(z)>WORLD.halfH) return '?';
@@ -2018,7 +2135,7 @@ function buildVisiblePerception(agentId=null,radius=7){
   for (const [key, c] of cells) { if (c.visible && c.base && c.base !== ' ') visibleGlyphs.add(c.base); }
   const glyphNames = {
     '@':'self', 'g':'other geebr', ',':'grass', ':':'dirt/path', '~':'water',
-    '^':'stone/quarry', '#':'wall', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
+    '^':'stone', '#':'wall', '_':'wooden floor', '.':'sand', '&':'lava', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
     'L':'lamp', '*':'crystal/magic', 'H':'house', 'r':'rock', 'x':'rubble',
     'f':'fence', 'h':'chest', 'w':'workbench', 't':'table', 'n':'bench',
     's':'stool', 'o':'cauldron', 'a':'anvil', 'W':'weapon stand',
@@ -2225,6 +2342,13 @@ function spawnProp(kind='crate'){
 async function spawnAt(type, x, z) {
   x = clamp(Math.round(x), -15, 15);
   z = clamp(Math.round(z), -15, 15);
+  if (String(type).startsWith('paint:')) {
+    // Paint brush: clicking a cell already painted with this material erases it.
+    const mat = type.slice(6), cur = paintAt(x, z);
+    setPaint([{ x, z, mat: cur?.mat === mat ? 'none' : mat }]);
+    updatePerceptionUI(); saveWorldState();
+    return null;
+  }
   let obj;
   if (type === 'geebr') {
     const pos = new BABYLON.Vector3(x, .06, z);
@@ -2287,7 +2411,7 @@ function clearWorld() {
     disposeWorldObject(m);
   }
   for(const item of state.bubbles.concat(state.badges)) item.div?.remove?.();
-  state.geebrs = []; state.props = []; state.blocks = []; scheduleWallRebuild(); state.bubbles=[]; state.badges=[]; state.held = new Map(); state.meta=new WeakMap();
+  state.geebrs = []; state.props = []; state.blocks = []; scheduleWallRebuild(); setPaint([],{replace:true}); state.bubbles=[]; state.badges=[]; state.held = new Map(); state.meta=new WeakMap();
   state.selected = null; state.target = null; /* brainConfigs intentionally preserved: agent customizations survive map clears and resets */
   state.globalHistory = [];
   state.turn = {index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true};
@@ -2337,10 +2461,13 @@ function saveWorldState() {
       }),
       blocks: state.blocks.filter(m => m && !m.isDisposed?.()).map(m => {
         const mm = meta(m);
-        return { type: mm?.type || 'wall', x: m.position.x, z: m.position.z, state: mm?.state || 'intact', health: mm?.health ?? 3 };
+        return { type: mm?.type || 'wall', x: m.position.x, z: m.position.z, state: mm?.state || 'intact', health: mm?.health ?? 3, ...(mm?.rim ? {rim:true} : {}) };
       }),
       brainConfigs: Array.from(state.brainConfigs.entries()),
       player: state.player,
+      paint: state.paint ? [...state.paint].map(([k,v])=>[...k.split(',').map(Number),v.mat,v.tint||null]) : [],
+      baseMap: state.baseMap||'island',
+      wallStyle: state.wallStyle||'tabletop',
       nextSpawnId: state.nextSpawnId,
       globalHistory: state.globalHistory.slice(-50),
       turnIndex: state.turn.index,
@@ -2363,7 +2490,8 @@ function normalizeWorldState(data){
       props:data.props||[], blocks:data.blocks||[],
       brainConfigs:(data.agents||[]).filter(g=>g.brainConfig).map(g=>[g.id,g.brainConfig]),
       nextSpawnId:(data.agents?.length||0)+1, globalHistory:data.globalHistory||[],
-      turnIndex:data.turn?.index||0, allowed:data.allowed||[], player:data.player
+      turnIndex:data.turn?.index||0, allowed:data.allowed||[], player:data.player,
+      paint:data.paint, baseMap:data.baseMap, wallStyle:data.wallStyle
     };
   }
   return data;
@@ -2373,6 +2501,11 @@ async function restoreWorldState(input) {
   if(!data || !Array.isArray(data.geebrs)) throw new Error('embedded state has no agents');
   clearWorld();
   if(data.allowed) state.allowed=new Set(data.allowed);
+  // Base map and wall style first (walls built below use the style); the
+  // dungeon's floor and rim walls come back as saved paint/walls, not rebuilt.
+  state.wallStyle=data.wallStyle||'tabletop';
+  setBaseMap(data.baseMap||'island',{build:false});
+  setPaint((data.paint||[]).map(([x,z,mat,tint])=>({x,z,mat,tint})),{replace:true});
   if(data.player) state.player={gold:Number(data.player.gold)||0,items:Array.isArray(data.player.items)?data.player.items:[]};
   for(const p of (data.props||[])){
       let obj;
@@ -2387,7 +2520,7 @@ async function restoreWorldState(input) {
   for(const b of (data.blocks||[])){
     const cracked=b.state==='cracked';
     const obj=makeBlock(state.scene,b.x,b.z,cracked);
-    if(obj){ const mm=meta(obj); if(mm){ mm.state=b.state||'intact'; mm.health=b.health??mm.health; } }
+    if(obj){ const mm=meta(obj); if(mm){ mm.state=b.state||'intact'; mm.health=b.health??mm.health; if(b.rim) mm.rim=true; } }
   }
   const palettes=[
     {hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},
@@ -2419,6 +2552,8 @@ async function restoreWorldState(input) {
   state.globalHistory=data.globalHistory||[];
   state.turn.index=data.turnIndex||0;
   renderPlayerInventory();
+  const bms=document.getElementById('baseMapSelect'); if(bms) bms.value=state.baseMap||'island';
+  const wss=document.getElementById('wallStyleSelect'); if(wss) wss.value=state.wallStyle||'tabletop';
   if(state.geebrs.length>0) selectGeebr(state.geebrs[0]);
   refreshAgentSelect(); updatePerceptionUI(); updateTurnUI(); saveWorldState();
   return true;
@@ -2449,6 +2584,7 @@ function installWorldAPI(){
     findItem:(items,name)=>findItem(items||[],name),
     setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
+    setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
     setLighting,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
@@ -2526,6 +2662,18 @@ function setupUI(){
   const playerGold=document.getElementById('playerGold');
   if(playerGold){ playerGold.oninput=()=>{ const n=parseInt(playerGold.value,10); if(Number.isFinite(n)&&n>=0){ state.player.gold=n; updatePerceptionUI(); saveWorldState(); } }; }
   renderPlayerInventory();
+  const baseMapSel=document.getElementById('baseMapSelect');
+  if(baseMapSel){ baseMapSel.value=state.baseMap||'island'; baseMapSel.onchange=()=>{ setBaseMap(baseMapSel.value); updatePerceptionUI(); saveWorldState(); log('base map: '+baseMapSel.value); }; }
+  const wallSel=document.getElementById('wallStyleSelect');
+  if(wallSel){ wallSel.value=state.wallStyle||'tabletop'; wallSel.onchange=()=>{
+    state.wallStyle=wallSel.value;
+    // Rebuild every wall in the new style, keeping its state.
+    const old=state.blocks.filter(b=>!b.isDisposed?.() && meta(b)?.type==='wall').map(b=>({x:b.position.x,z:b.position.z,mm:{...meta(b)}}));
+    for(const b of state.blocks.filter(b=>meta(b)?.type==='wall')) disposeWorldObject(b);
+    state.blocks=state.blocks.filter(b=>!b.isDisposed?.());
+    for(const o of old){ const b=makeBlock(state.scene,o.x,o.z,o.mm.state==='cracked'); const mm=meta(b); mm.state=o.mm.state; mm.health=o.mm.health; if(o.mm.rim) mm.rim=true; }
+    scheduleWallRebuild(); saveWorldState();
+  }; }
   const spawnModeEnabled=document.getElementById('spawnModeEnabled'); if(spawnModeEnabled) spawnModeEnabled.onchange=()=>{
     state.spawnMode.enabled = spawnModeEnabled.checked;
     canvas.style.cursor = state.spawnMode.enabled ? 'crosshair' : '';
