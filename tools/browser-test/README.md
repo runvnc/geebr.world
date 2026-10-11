@@ -22,8 +22,9 @@ cd tools/browser-test && npm install        # playwright-core only, no browser d
      runs reuse it. A fresh profile defaults to whatever the app's default model
      is; set it with `node eval.mjs "localStorage.setItem('geebr_model','gemma4-e2b-litert')"`
      and reload if needed.
-3. `./wait-ready.sh` waits for "Gemma 4 E2B (LiteRT-LM) ready" (clicking
-   "Download & run" if the consent prompt shows).
+3. `./wait-ready.sh` waits for the model to be ready. It does **not** approve a
+   download: if the "Download & run" prompt shows, it stops. Run
+   `APPROVE_DOWNLOAD=1 ./wait-ready.sh` to allow it (multi-GB, possibly metered).
 4. `node runtests.mjs 3 shop` runs the Scenario pane's **Test tactics** box 3
    times per tactic against the built-in `shop` example (`guard`, `lure` also
    exist), printing progress and saving `results/results-<timestamp>.json`

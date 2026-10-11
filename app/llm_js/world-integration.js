@@ -397,7 +397,12 @@ async function main() {
       el('stepBrains').disabled = true;
       el('stopBrains').disabled = true;
       el('loadBrains').disabled = false;
-      setStatus('model switched to ' + newKey + ' - click load');
+      // Go straight into the load flow (download prompt if needed, then real
+      // progress). This used to set "model switched ... - click load", which
+      // the notice read as "loading" and showed as an endless busy bar while
+      // nothing was happening.
+      el('brainStatus') && (el('brainStatus').textContent = 'switching to ' + (manager.getSupportedModels().find(m => m.key === newKey)?.label || newKey) + '…');
+      el('loadBrains').click();
     });
   }
   // Initialize cache backend selector
