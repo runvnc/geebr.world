@@ -99,8 +99,8 @@
       <div class="row setup-row"><button id="spawnMushroom" type="button">mushroom</button><button id="spawnLamp" type="button">lamp</button></div>
       <div class="section-subtitle">Map</div>
       <div class="custom-grid">
-        <label>Base map <select id="baseMapSelect"><option value="island">island</option><option value="clearing">clearing (less stuff)</option><option value="dungeon">dungeon</option></select></label>
-        <label>Walls <select id="wallStyleSelect"><option value="tabletop">tabletop</option><option value="block">blocks</option></select></label>
+        <label>Base map <select id="baseMapSelect"><option value="island">island</option><option value="clearing">clearing (less stuff)</option><option value="dungeon">dungeon</option><option value="plain">plain (flat floor, no rocks)</option></select></label>
+        <label>Walls <select id="wallStyleSelect"><option value="tabletop">tabletop</option><option value="block">blocks</option><option value="modern">modern</option></select></label>
         <label class="spawn-mode-toggle"><input id="campfireToggle" type="checkbox" checked /> campfire</label>
         <label class="spawn-mode-toggle"><input id="avatarToggle" type="checkbox" /> my avatar</label>
       </div>
@@ -124,6 +124,10 @@
             <option value="paint:grass">grass</option>
             <option value="paint:water">water</option>
             <option value="paint:lava">lava</option>
+            <option value="paint:oak">oak (modern)</option>
+            <option value="paint:tile">tile (modern)</option>
+            <option value="paint:concrete">concrete (modern)</option>
+            <option value="paint:carpet">carpet</option>
             <option value="paint:none">erase paint</option>
           </optgroup>
           <optgroup label="items">
@@ -144,6 +148,16 @@
             <option value="coin_pile">coin pile</option>
             <option value="apple_crate">apple crate</option>
             <option value="carrot_crate">carrot crate</option>
+          </optgroup>
+          <optgroup label="modern">
+            <option value="desk">desk</option>
+            <option value="office_chair">office chair</option>
+            <option value="armchair">armchair</option>
+            <option value="sofa">sofa</option>
+            <option value="coffee_table">coffee table</option>
+            <option value="floor_lamp">floor lamp</option>
+            <option value="plant">plant</option>
+            <option value="bookshelf">bookshelf</option>
           </optgroup>
         </select>
       </div>
@@ -333,6 +347,6 @@
     </div>
   </div>
   <div id="hint">Pick a character (Character panel) to shape its mind, chat below, then start the local brain from the top bar.</div>
-  <script src="preflight.js?v=20261012x"></script>
+  <script src="preflight.js?v=20261012y"></script>
 </body>
 </html>

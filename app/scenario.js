@@ -37,14 +37,16 @@
   function linkFor(code) { const u = new URL(location.href); u.hash = 's=' + code; return u.toString(); }
 
   // ---------- map description language ----------
-  const ITEMS = ['chest', 'table', 'bench', 'stool', 'workbench', 'cauldron', 'anvil', 'weapon_stand', 'axe', 'pickaxe', 'bucket', 'bag', 'potion', 'scroll', 'coin_pile', 'apple_crate', 'carrot_crate'];
+  const ITEMS = ['chest', 'table', 'bench', 'stool', 'workbench', 'cauldron', 'anvil', 'weapon_stand', 'axe', 'pickaxe', 'bucket', 'bag', 'potion', 'scroll', 'coin_pile', 'apple_crate', 'carrot_crate',
+    'desk', 'office_chair', 'armchair', 'sofa', 'coffee_table', 'floor_lamp', 'plant', 'bookshelf'];
   const THINGS = ['crate', 'barrel', 'mushroom', 'lamp', 'wall', 'note', 'counter', ...ITEMS];
-  const WIDE_ITEMS = new Set(['table', 'bench', 'workbench']);
+  const WIDE_ITEMS = new Set(['table', 'bench', 'workbench', 'desk', 'sofa']);
   const ALIASES = { box: 'crate', boxes: 'crate', trunk: 'chest', treasure: 'chest', keg: 'barrel', lantern: 'lamp', light: 'lamp', torch: 'lamp',
     sign: 'note', letter: 'note', paper: 'note', block: 'wall', stone: 'wall', rock: 'wall',
-    shroom: 'mushroom', toadstool: 'mushroom', desk: 'counter', stall: 'counter', bar: 'counter',
+    shroom: 'mushroom', toadstool: 'mushroom', stall: 'counter', bar: 'counter',
+    chair: 'office_chair', couch: 'sofa', settee: 'sofa', floorlamp: 'floor_lamp', houseplant: 'plant', fern: 'plant', shelf: 'bookshelf', bookcase: 'bookshelf', books: 'bookshelf',
     coins: 'coin_pile', coin: 'coin_pile', gold: 'coin_pile', rack: 'weapon_stand', weapons: 'weapon_stand', sack: 'bag', pot: 'cauldron',
-    bottle: 'potion', seat: 'stool', chair: 'stool', apples: 'apple_crate', carrots: 'carrot_crate',
+    bottle: 'potion', seat: 'stool', apples: 'apple_crate', carrots: 'carrot_crate',
     fire: 'campfire', fireplace: 'campfire', home: 'house', cottage: 'house', hut: 'house', building: 'house' };
   const AREA_DIRS = { north: [0, -1], south: [0, 1], east: [-1, 0], west: [1, 0],
     northeast: [-1, -1], northwest: [1, -1], southeast: [-1, 1], southwest: [1, 1] };
@@ -53,8 +55,8 @@
   const ARRANGE = { row: 'row', line: 'row', rows: 'row', cluster: 'cluster', group: 'cluster', pile: 'cluster', stack: 'cluster', heap: 'cluster', scattered: 'scattered', scatter: 'scattered', around: 'around', ring: 'around', circle: 'around' };
   const RELWORDS = { beside: 'beside', by: 'beside', next: 'beside', alongside: 'beside', near: 'near', close: 'near', behind: 'behind', front: 'in_front_of', in_front_of: 'in_front_of', around: 'around', surrounding: 'around' };
 
-  const PAINT_MATS = ['stone', 'flagstone', 'dirt', 'wood', 'sand', 'grass', 'water', 'lava'];
-  const MAT_ALIASES = { cobble: 'stone', cobblestone: 'stone', cobbles: 'stone', tiles: 'stone', tile: 'stone', stones: 'stone', paving: 'flagstone', slabs: 'flagstone',
+  const PAINT_MATS = ['stone', 'flagstone', 'dirt', 'wood', 'sand', 'grass', 'water', 'lava', 'oak', 'tile', 'concrete', 'carpet'];
+  const MAT_ALIASES = { cobble: 'stone', cobblestone: 'stone', cobbles: 'stone', tiles: 'tile', porcelain: 'tile', stones: 'stone', parquet: 'oak', hardwood: 'oak', rug: 'carpet', carpeted: 'carpet', cement: 'concrete', paving: 'flagstone', slabs: 'flagstone',
     planks: 'wood', wooden: 'wood', boards: 'wood', pond: 'water', river: 'water', pool: 'water', mud: 'dirt', gravel: 'dirt', earth: 'dirt', path: 'dirt',
     beach: 'sand', magma: 'lava', erase: 'none', none: 'none', clear: 'none' };
   const matOf = w => PAINT_MATS.includes(w) ? w : (MAT_ALIASES[w] || null);
@@ -593,7 +595,7 @@
       objects: Array.isArray(s.objects) ? s.objects.filter(o => o && Number.isFinite(+o.x) && Number.isFinite(+o.z)) : [],
       map: Array.isArray(s.map) ? s.map.map(String) : (typeof s.map === 'string' ? s.map.split('\n') : []),
       goal: s.goal && typeof s.goal === 'object' ? s.goal : null,
-      base: ['island', 'clearing', 'dungeon'].includes(s.base) ? s.base : 'island', walls: s.walls === 'block' ? 'block' : 'tabletop',
+      base: ['island', 'clearing', 'dungeon', 'plain'].includes(s.base) ? s.base : 'island', walls: ['block', 'modern'].includes(s.walls) ? s.walls : 'tabletop',
       pathfinding: s.pathfinding !== false, campfire: s.campfire !== false,
       floor: PAINT_MATS.includes(s.floor) ? s.floor : null,
       paint: Array.isArray(s.paint) ? s.paint.filter(c => c && Number.isFinite(+c.x) && Number.isFinite(+c.z) && (PAINT_MATS.includes(c.mat) || c.mat === 'none')) : [] };
@@ -667,7 +669,7 @@
     let first = null;
     for (const a of scn.agents) {
       const pos = Array.isArray(a.at) ? { x: +a.at[0], z: +a.at[1], facing: a.facing || 's' } : (plan.agents[a.id] || { x: 0, z: 0, facing: 's' });
-      const g = await w.spawnAgent(a.id, pos.x, pos.z, a.facing || pos.facing);
+      const g = await w.spawnAgent(a.id, pos.x, pos.z, a.facing || pos.facing, a.model);
       first = first || g;
       w.setBrainConfig(a.id, {
         enabled: true, style: a.style || 'helpful geebr', personality: [a.personality, a.prompt].filter(Boolean).join(' ') || 'helpful and friendly',
@@ -796,14 +798,14 @@
       allowed: [...st.allowed],
       agents: w.getAgents().map(g => {
         const c = w.getBrainConfig(g.id);
-        return { id: g.id, at: [Math.round(g.root.position.x), Math.round(g.root.position.z)], facing: dirName(g.dir),
+        return { id: g.id, ...(g.charModel ? { model: g.charModel } : {}), at: [Math.round(g.root.position.x), Math.round(g.root.position.z)], facing: dirName(g.dir),
           personality: c.personality || '', ...(c.quest ? { quest: c.quest } : {}), ...(c.thinking ? { thinking: true } : {}),
           ...(c.showThoughts === false ? { showThoughts: false } : {}), ...(c.ttsVoiceId ? { ttsVoiceId: c.ttsVoiceId } : {}),
           ...(c.inventory && (c.inventory.gold || c.inventory.items?.length) ? { inventory: c.inventory } : {}) };
       }),
-      base: st.baseMap || 'island', ...(st.wallStyle === 'block' ? { walls: 'block' } : {}), ...(st.campfire === false ? { campfire: false } : {}),
+      base: st.baseMap || 'island', ...(st.wallStyle && st.wallStyle !== 'tabletop' ? { walls: st.wallStyle } : {}), ...(st.campfire === false ? { campfire: false } : {}),
       // The dungeon's rim walls and stone floor come back from "base", so leave them out.
-      objects: w.getObjects().filter(o => !o.rim).map(o => ({ type: o.type, x: Math.round(o.x), z: Math.round(o.z), ...(o.type === 'note' && o.noteText ? { text: o.noteText } : {}) })),
+      objects: w.getObjects().filter(o => !o.rim).map(o => ({ type: o.type, x: +o.x.toFixed(2), z: +o.z.toFixed(2), ...(o.ry ? { ry: o.ry } : {}), ...(o.type === 'note' && o.noteText ? { text: o.noteText } : {}) })),
       paint: [...(st.paint || [])].map(([k, v]) => ({ x: +k.split(',')[0], z: +k.split(',')[1], mat: v.mat, ...(v.tint ? { tint: v.tint } : {}) }))
         .filter(c => !(st.baseMap === 'dungeon' && c.mat === 'stone' && !c.tint)),
       map: [],
@@ -921,19 +923,30 @@
     // An open scenario: no goal, it never ends. Not therapy: a supportive
     // "personal advice guide", with a safety line for crisis situations.
     advisor: {
-      v: 1, title: 'The Sounding Board', safety: true, campfire: false, subtitle: 'A quiet place to talk something through. Take your time.', seed: 3, base: 'dungeon', floor: 'wood',
+      v: 1, title: 'The Sounding Board', safety: true, campfire: false, subtitle: 'A quiet place to talk something through. Take your time.', seed: 3, base: 'plain', walls: 'modern', floor: 'oak',
       intro: 'Wren is a personal advice guide. Bring whatever is on your mind, big or small; Wren will listen and help you think it through. (Wren is a small AI running in your browser, not a doctor or therapist.)',
-      player: { name: 'You', gold: 0, items: [] },
+      player: { name: 'You', gold: 0, items: [], at: [1, 1] },
       allowed: ['say', 'emote', 'note'],
       // Thinking on: Wren reasons about what you said before replying (slower,
       // understands better). Thought text stays hidden; the bubble just says "thinking…".
-      agents: [{ id: 'wren', ttsVoiceId: 'builtin:fantine', chaos: 1, fireballTemptation: 0, thinking: true, showThoughts: false,
-        personality: 'Wren, a warm, calm personal advice guide in a quiet study. You are not a therapist, counselor or doctor; if asked, say you are a supportive guide, not a professional, and never diagnose. '
+      agents: [{ id: 'wren', model: 'woman', style: 'calm, kind woman', at: [-1, 1], facing: 'w', ttsVoiceId: 'builtin:fantine', chaos: 1, fireballTemptation: 0, thinking: true, showThoughts: false,
+        personality: 'Wren, a warm, calm personal advice guide in a quiet, modern office. You are not a therapist, counselor or doctor; if asked, say you are a supportive guide, not a professional, and never diagnose. '
           + 'Keep replies short (one to three sentences) and ask at most one question. '
           + 'Never restate or summarize what they just said, and never start with "It sounds like": they know what they said. Every reply must move things forward: ask about a specific detail, offer a different way to see it, share a useful idea, or suggest a small step. A few words of acknowledgement are fine only when they share something painful. '
           + 'Over the conversation, work through: what is going on and what they want to be different; the thought behind the feeling (what are they telling themselves?); other angles (what supports that thought, what does not, what would they tell a friend?); what matters most to them; one small, doable next step; then a short, kind summary, which you may write with note(). Do not stay on the same step for more than two turns. '
           + 'Safety comes first: if they mention wanting to hurt themselves or someone else, or being in danger, kindly and clearly urge them to contact local emergency services or a crisis line right now (in the US, call or text 988) and to reach out to someone they trust.' }],
-      map: ['place table at center', 'place wren beside table', 'place bench in_front_of table', 'place lamp x2 near table', 'place potion beside table', 'place scroll beside table', 'place mushroom x3 scattered'],
+      // A modern office corner: two walls, desk and bookshelves at the back,
+      // a rug with a sofa, armchair and coffee table in the middle.
+      objects: [
+        ...[-4, -3, -2, -1, 0, 1, 2, 3, 4].map(x => ({ type: 'wall', x, z: -4 })),
+        ...[-3, -2, -1, 0, 1].map(z => ({ type: 'wall', x: -4, z })),
+        { type: 'bookshelf', x: 1, z: -3 }, { type: 'bookshelf', x: 2, z: -3 }, { type: 'plant', x: 3, z: -3 },
+        { type: 'desk', x: -2, z: -3 }, { type: 'office_chair', x: -2, z: -2.2, ry: 3.1416 },
+        { type: 'sofa', x: 0, z: -1.6 }, { type: 'coffee_table', x: 0, z: 0 }, { type: 'armchair', x: 1.9, z: -.2, ry: -1.5708 },
+        { type: 'floor_lamp', x: -3, z: -1.4 }, { type: 'floor_lamp', x: 3, z: -1.6 }, { type: 'plant', x: -3, z: 1 },
+      ],
+      paint: [-1, 0, 1].flatMap(x => [-1, 0, 1].map(z => ({ x, z, mat: 'carpet' }))),
+      map: [],
       goal: null,
     },
     maze: {

@@ -678,7 +678,7 @@ function disposeWorldObject(mesh){
   // Dispose the object's own materials (e.g. per-import GLB ones) but never a
   // shared world material: disposing state.materials.stone with one broken
   // wall used to break every other wall's material.
-  const shared=new Set([...Object.values(state.materials||{}),state.lampPoolMat,...Object.values(state.wallMats||{})].filter(Boolean));
+  const shared=new Set([...Object.values(state.materials||{}),state.lampPoolMat,state.lampPoolWarmMat,...Object.values(state.wallMats||{}),...Object.values(state.modernMats||{})].filter(Boolean));
   const own=new Set();
   for(const m of [mesh,...(mesh.getChildMeshes?.(false)||[])]) if(m.material && !shared.has(m.material)) own.add(m.material);
   try{ mesh.dispose?.(false,false); }catch{}
@@ -905,10 +905,15 @@ function sceneryAnchors(){
   return out;
 }
 const FACING_DIRS={n:[0,0,-1],s:[0,0,1],e:[-1,0,0],w:[1,0,0]};
-async function spawnAgent(id,x,z,facing='s'){
+// model: a person from AVATAR_MODELS (e.g. 'woman'); default the geebr.
+async function spawnAgent(id,x,z,facing='s',model){
   const pos=new BABYLON.Vector3(x,.06,z);
   let g;
-  try{ g=await createGeneratedGeebr(state.scene,id,pos); }
+  if(model && AVATAR_MODELS[model]){
+    try{ g=await createPerson(id,new BABYLON.Vector3(x,state.terrainTopY??0,z),model,model); }
+    catch(e){ console.warn('person model failed; using a geebr',e); }
+  }
+  if(!g) try{ g=await createGeneratedGeebr(state.scene,id,pos); }
   catch(e){ console.warn('generated Geebr failed; using procedural fallback',e); g=createGeebr(state.scene,id,pos,{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); }
   setGeebrLogicalPosition(g,pos);
   const d=FACING_DIRS[String(facing||'s')[0].toLowerCase()]||FACING_DIRS.s;
@@ -929,7 +934,8 @@ function makeObject(type,x,z,opts={}){
 function getObjects(){
   return state.props.concat(state.blocks).filter(m=>m && !m.isDisposed?.()).map(m=>{
     const mm=meta(m)||{}, p=m.getAbsolutePosition?.()||m.position;
-    return {mesh:m,type:mm.type||m.name,x:p.x,z:p.z,state:mm.state||'intact',noteHtml:mm.noteHtml,noteText:mm.noteText,rim:!!mm.rim};
+    const ry=m.rotationQuaternion ? m.rotationQuaternion.toEulerAngles().y : (m.rotation?.y||0);
+    return {mesh:m,type:mm.type||m.name,x:p.x,z:p.z,ry:Math.abs(ry)>.01?+ry.toFixed(3):0,state:mm.state||'intact',noteHtml:mm.noteHtml,noteText:mm.noteText,rim:!!mm.rim};
   }).filter(o=>!['tile','hole'].includes(o.type));
 }
 function syncGeebr(g){
@@ -948,7 +954,7 @@ function makeTile(scene,x,z,material='grass'){ const t=BABYLON.MeshBuilder.Creat
 // both: one static wall object per grid cell.
 const WALL_H=1.1;
 function makeBlock(scene,x,z,cracked=false){
-  const top=state.terrainTopY??0, tabletop=(state.wallStyle||'tabletop')==='tabletop';
+  const top=state.terrainTopY??0, tabletop=(state.wallStyle||'tabletop')!=='block';   // tabletop or modern
   const b=tabletop ? BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:WALL_H,depth:.96},scene)
                    : BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:.62,depth:.96},scene);
   b.position.set(x,top+(tabletop?WALL_H/2:.31),z);
@@ -1038,6 +1044,7 @@ function rebuildWallVisuals(){
   if(!walls.length) return;
   const mats=wallMaterials(), top=state.terrainTopY??0;
   const cell=new Map(walls.map(w=>[Math.round(w.position.x)+','+Math.round(w.position.z),w]));
+  if(state.wallStyle==='modern') return buildModernWalls(cell,top);
   const stones=boxBatch(), core=boxBatch(), trim=boxBatch(), cap=boxBatch();
   const hash=(a,b,c)=>{ let h=Math.imul(a*73856093^b*19349663^c*83492791,2654435761); h^=h>>>15; return ((h>>>0)%10000)/10000; };
   const T=.18, H=WALL_H-.08, Y0=top+.07, ROWS=5, RH=H/ROWS, BL=.3, GAP=.022;
@@ -1095,6 +1102,48 @@ function rebuildWallVisuals(){
     m.material=mat; m.isPickable=false; m.receiveShadows=true; addShadow(m); state.wallVisuals.push(m);
   }
 }
+// Modern walls: smooth painted panels (warm white, satin) with a dark
+// baseboard and a slim top trim, joined like the stone walls.
+function modernWallMaterials(){
+  if(state.wallMats?.modernPanel) return state.wallMats;
+  const sc=state.scene, mats=wallMaterials();
+  const mk=(name,rough,coat)=>{ const m=new BABYLON.PBRMaterial(name,sc); m.albedoColor=new BABYLON.Color3(1,1,1); m.metallic=0; m.roughness=rough; m.maxSimultaneousLights=4; return plasticFinish(m,{coat,coatRough:.18}); };
+  mats.modernPanel=mk('mw_panel',.55,.25); mats.modernBase=mk('mw_base',.3,.6); mats.modernCap=mk('mw_cap',.3,.5);
+  return mats;
+}
+function buildModernWalls(cell,top){
+  const sc=state.scene, mats=modernWallMaterials();
+  const panel=boxBatch(), base=boxBatch(), capB=boxBatch();
+  const T=.16, H=WALL_H-.02;
+  const tone=st=>st==='burned'?[.2,.19,.18]:st==='cracked'?[.70,.67,.62]:[.86,.84,.80];
+  for(const [k,w] of cell){
+    const [x,z]=k.split(',').map(Number), col=tone(meta(w).state);
+    let arms=[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>cell.has((x+dx)+','+(z+dz)));
+    if(!arms.length) arms=[[1,0],[-1,0]];
+    else if(arms.length===1) arms.push([-arms[0][0],-arms[0][1]]);
+    const straight=arms.length===2 && arms[0][0]===-arms[1][0] && arms[0][1]===-arms[1][1];
+    for(const [dx,dz] of arms){
+      // each arm runs from the cell centre to the cell edge
+      const alongX=dx!==0, sign=dx||dz, c0=alongX?x:z, perp=alongX?z:x;
+      const a0=Math.min(c0,c0+sign*.5), a1=Math.max(c0,c0+sign*.5);
+      const put=(b,y,hgt,thick,c)=>{ const ac=(a0+a1)/2, len=a1-a0; alongX ? b.add(ac,y,perp,len,hgt,thick,c) : b.add(perp,y,ac,thick,hgt,len,c); };
+      put(panel,top+H/2,H,T,col);
+      put(base,top+.06,.12,T+.04,[.20,.20,.21]);
+      put(capB,top+H+.015,.03,T+.03,[.93,.92,.90]);
+    }
+    // corners and junctions: a post fills the square where arms meet (a hair
+    // thinner than the panels, so no coplanar faces flicker)
+    if(!straight){
+      panel.add(x,top+H/2,z,T-.004,H,T-.004,col);
+      base.add(x,top+.06,z,T+.036,.12,T+.036,[.20,.20,.21]);
+      capB.add(x,top+H+.015,z,T+.026,.03,T+.026,[.93,.92,.90]);
+    }
+  }
+  for(const [name,batch,mat] of [['panel',panel,mats.modernPanel],['base',base,mats.modernBase],['cap',capB,mats.modernCap]]){
+    const m=batch.mesh('mw_walls_'+name,sc); if(!m) continue;
+    m.material=mat; m.isPickable=false; m.receiveShadows=true; addShadow(m); state.wallVisuals.push(m);
+  }
+}
 function makeCrate(scene,x,z){
   // Keep the simple box as the physics/picking proxy, but make it invisible and
   // attach the same authored GLB used by decorative scenery. This preserves the
@@ -1144,7 +1193,23 @@ function makeMushroom(scene,x,z,s=.7){ const root=new BABYLON.TransformNode('mus
 // Lamps can't take a real light slot (materials are capped at four lights:
 // campfire, lantern, key, rim), so fake their glow with an additive pool of
 // light on the ground around them.
-function addLampPool(scene,root){
+function addLampPool(scene,root,{warm=false,y=.025}={}){
+  if(warm){
+    if(!state.lampPoolWarmMat){
+      const size=128, tex=new BABYLON.DynamicTexture('lamp_pool_warm_tex',{width:size,height:size},scene,false);
+      const ctx=tex.getContext(), g=ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+      g.addColorStop(0,'rgba(255,214,150,0.5)'); g.addColorStop(.45,'rgba(240,180,110,0.2)'); g.addColorStop(1,'rgba(220,150,90,0)');
+      ctx.fillStyle=g; ctx.fillRect(0,0,size,size); tex.update(); tex.hasAlpha=true;
+      const m=new BABYLON.StandardMaterial('lamp_pool_warm_mat',scene);
+      m.diffuseTexture=tex; m.emissiveTexture=tex; m.opacityTexture=tex; m.disableLighting=true; m.useAlphaFromDiffuseTexture=true;
+      m.alphaMode=BABYLON.Engine.ALPHA_ADD; m.backFaceCulling=false; m.disableDepthWrite=true;
+      state.lampPoolWarmMat=m;
+    }
+    const disc=BABYLON.MeshBuilder.CreateDisc('lamp_pool',{radius:1.6,tessellation:24},scene);
+    disc.rotation.x=Math.PI/2; disc.parent=root; disc.position.y=y; disc.material=state.lampPoolWarmMat; disc.isPickable=false; disc.alphaIndex=5;
+    disc.metadata={proxy:root};
+    return disc;
+  }
   if(!state.lampPoolMat){
     const size=128, tex=new BABYLON.DynamicTexture('lamp_pool_tex',{width:size,height:size},scene,false);
     const ctx=tex.getContext(), g=ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
@@ -1292,7 +1357,47 @@ const PAINT_MATERIALS={
   grass:{file:'grass_meadow.png',color:[1,1,1],glyph:',',name:'grass'},
   water:{file:'water_soft.png',color:[.55,.8,1],glyph:'~',name:'water',emissive:[.02,.06,.09],blocks:true},
   lava:{file:'dirt_loam.png',color:[1,.35,.1],glyph:'&',name:'lava',emissive:[.9,.25,.03],blocks:true},
+  // modern floors: glossy (rough + clear coat); 'tile' is drawn, not a file
+  oak:{proc:'oak',color:[1,1,1],glyph:'_',name:'wooden floor',rough:.32,coat:.5,aligned:true},
+  tile:{proc:'tile',color:[.93,.92,.9],glyph:'_',name:'tiled floor',rough:.22,coat:.6,aligned:true},
+  concrete:{file:'stone_soft.png',color:[.78,.78,.77],glyph:'_',name:'concrete floor',rough:.4,coat:.35},
+  carpet:{color:[.40,.45,.50],glyph:'_',name:'carpet',rough:.95},
 };
+// Large porcelain tiles: 2x2 per cell, thin grout.
+function tileFloorTexture(sc){
+  const N=256, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const g=cv.getContext('2d');
+  g.fillStyle='#b9b6b0'; g.fillRect(0,0,N,N);
+  for(let i=0;i<2;i++) for(let j=0;j<2;j++){
+    const v=236+((i*3+j*5)%3)*4;
+    g.fillStyle=`rgb(${v},${v-1},${v-3})`; g.fillRect(i*N/2+3,j*N/2+3,N/2-6,N/2-6);
+  }
+  const t=new BABYLON.DynamicTexture('paint_tile_tex',cv,sc,true); t.update();
+  return t;
+}
+// Light oak boards: four per cell, running continuously across cells (tiles
+// with "aligned" skip the random quarter turns), staggered butt joints.
+function oakFloorTexture(sc){
+  const N=256, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const g=cv.getContext('2d'); let seed=7;
+  const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
+  for(let b=0;b<4;b++){
+    const y0=b*N/4, joint=Math.floor(rnd()*N);
+    for(const [x0,x1] of [[0,joint],[joint,N]]){
+      const t=.92+rnd()*.14;
+      g.fillStyle=`rgb(${Math.round(214*t)},${Math.round(178*t)},${Math.round(132*t)})`; g.fillRect(x0,y0,x1-x0,N/4);
+      for(let k=0;k<7;k++){ // grain
+        g.strokeStyle=`rgba(120,80,40,${.05+rnd()*.07})`; g.lineWidth=1+rnd()*1.5;
+        const yy=y0+4+rnd()*(N/4-8); g.beginPath(); g.moveTo(x0,yy);
+        for(let x=x0;x<=x1;x+=16) g.lineTo(x,yy+Math.sin(x*.05+k)*1.5); g.stroke();
+      }
+      g.fillStyle='rgba(70,45,25,.55)'; g.fillRect(x0,y0,1.5,N/4);
+    }
+    g.fillStyle='rgba(70,45,25,.6)'; g.fillRect(0,y0,N,1.5);
+  }
+  const t=new BABYLON.DynamicTexture('paint_oak_tex',cv,sc,true); t.update();
+  return t;
+}
 function paintKey(x,z){ return Math.round(x)+','+Math.round(z); }
 let paintRebuildQueued=false;
 function schedulePaintRebuild(){ if(paintRebuildQueued) return; paintRebuildQueued=true; queueMicrotask(()=>{ paintRebuildQueued=false; try{ rebuildPaint(); }catch(e){ console.warn('paint rebuild failed',e); } }); }
@@ -1313,9 +1418,10 @@ function paintMaterial(mat,tint){
   if(state.paintMats.has(key)) return state.paintMats.get(key);
   const def=PAINT_MATERIALS[mat], sc=state.scene;
   const m=new BABYLON.PBRMaterial('paint_'+key,sc);
-  const tx=new BABYLON.Texture(ASSET+def.file,sc,true,false,BABYLON.Texture.TRILINEAR_SAMPLINGMODE);
-  tx.wrapU=tx.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; tx.anisotropicFilteringLevel=8;
-  m.albedoTexture=tx; m.metallic=0; m.roughness=mat==='water'?.25:.85; m.environmentIntensity=.6; m.specularIntensity=mat==='water'?1:.4; m.maxSimultaneousLights=4;
+  const tx=def.file ? new BABYLON.Texture(ASSET+def.file,sc,true,false,BABYLON.Texture.TRILINEAR_SAMPLINGMODE) : def.proc==='tile' ? tileFloorTexture(sc) : def.proc==='oak' ? oakFloorTexture(sc) : null;
+  if(tx){ tx.wrapU=tx.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; tx.anisotropicFilteringLevel=8; }
+  m.albedoTexture=tx; m.metallic=0; m.roughness=def.rough??(mat==='water'?.25:.85); m.environmentIntensity=.6; m.specularIntensity=mat==='water'||def.coat?1:.4; m.maxSimultaneousLights=4;
+  if(def.coat) plasticFinish(m,{coat:def.coat,coatRough:.1});
   let col=new BABYLON.Color3(...def.color);
   if(tint){ try{ col=BABYLON.Color3.FromHexString(tint); }catch{} }
   m.albedoColor=col;
@@ -1331,12 +1437,13 @@ function rebuildPaint(){
   const top=state.terrainTopY??0, groups=new Map();
   for(const [k,v] of state.paint){ const g=v.mat+'|'+(v.tint||''); if(!groups.has(g)) groups.set(g,{v,cells:[]}); groups.get(g).cells.push(k.split(',').map(Number)); }
   for(const [g,{v,cells}] of groups){
-    const base=BABYLON.MeshBuilder.CreateBox('paint_'+g,{width:.97,height:.035,depth:.97},sc);
+    const aligned=!!PAINT_MATERIALS[v.mat]?.aligned;   // continuous floors: full-size tiles, no turns
+    const base=BABYLON.MeshBuilder.CreateBox('paint_'+g,{width:aligned?1:.97,height:.035,depth:aligned?1:.97},sc);
     base.material=paintMaterial(v.mat,v.tint); base.isPickable=false; base.receiveShadows=true;
     const buf=new Float32Array(cells.length*16), mat=new BABYLON.Matrix();
     cells.forEach(([x,z],i)=>{
       // tiny per-tile rotation of the texture quarter-turns breaks repetition
-      BABYLON.Matrix.ComposeToRef(BABYLON.Vector3.One(),BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y,(((x*7+z*13)%4+4)%4)*Math.PI/2),new BABYLON.Vector3(x,top+.018,z),mat);
+      BABYLON.Matrix.ComposeToRef(BABYLON.Vector3.One(),BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y,aligned?0:(((x*7+z*13)%4+4)%4)*Math.PI/2),new BABYLON.Vector3(x,top+.018,z),mat);
       mat.copyToArray(buf,i*16);
     });
     base.thinInstanceSetBuffer('matrix',buf,16,true);
@@ -1345,14 +1452,19 @@ function rebuildPaint(){
 }
 // ---- base maps ----
 // 'island': the full diorama. 'clearing': the same island without the house,
-// trees, boulders, fence/signpost, lantern and decor crates. 'dungeon':
+// trees, boulders, rocks, fence/signpost, lantern and decor crates. 'dungeon':
 // clearing minus the grass tufts, plus a stone floor and walls on the rim
 // (those are ordinary paint + wall objects, so they save and can be edited).
-const CLEARING_HIDE=/^(hd_(house|tree|leaves_a|leaves_b|boulders|decor_crate|posts|rails|planks)|lantern_(cage|bulb))/;
+// 'plain': clearing with the grass and tufts gone too, the top a flat smooth
+// floor (for indoor/modern scenes; paint a floor on it as usual).
+const CLEARING_HIDE=/^(hd_(house|tree|leaves_a|leaves_b|boulders|decor_crate|posts|rails|planks|edge_stones)|lantern_(cage|bulb))/;
 const DUNGEON_HIDE=/^(hd_generated_(blade_cluster|daisy_clump))/;
+const PLAIN_HIDE=/^hd_island_/;
+const BASE_MAPS=['island','clearing','dungeon','plain'];
 function setBaseMap(name='island',{build=true}={}){
   const sc=state.scene; if(!sc) return;
-  const hideClearing=name==='clearing'||name==='dungeon', hideDungeon=name==='dungeon';
+  if(!BASE_MAPS.includes(name)) name='island';
+  const hideClearing=name!=='island', hideDungeon=name==='dungeon'||name==='plain', hidePlain=name==='plain' && !state.lite;
   // Leaving the dungeon: take its floor and rim walls away again.
   if(build && state.baseMap==='dungeon' && name!=='dungeon'){
     for(const b of state.blocks.filter(b=>meta(b)?.rim)){ disposeWorldObject(b); }
@@ -1362,11 +1474,30 @@ function setBaseMap(name='island',{build=true}={}){
   for(const m of sc.meshes){
     if(CLEARING_HIDE.test(m.name)) m.setEnabled(!hideClearing);
     else if(DUNGEON_HIDE.test(m.name)) m.setEnabled(!hideDungeon);
+    else if(PLAIN_HIDE.test(m.name)) m.setEnabled(!hidePlain);
   }
   sc.getLightByName('hd_lantern_light')?.setEnabled(!hideClearing);
-  sceneryCells=null;   // obstacle cells changed
+  if(hidePlain) buildPlainFloor(); else { state.plainFloor?.dispose(); state.plainFloor=null; }
+  sceneryCells=null; groundCache.clear();   // obstacle cells changed
   state.baseMap=name;
   if(name==='dungeon' && build) buildDungeon();
+}
+// One smooth slab per plateau tile (the island's grass top is hidden).
+function buildPlainFloor(){
+  if(state.plainFloor && !state.plainFloor.isDisposed()) return;
+  const sc=state.scene, tiles=state.plateauTiles||[]; if(!tiles.length) return;
+  const top=state.terrainTopY??0, H=.45;
+  const slab=BABYLON.MeshBuilder.CreateBox('plain_floor',{width:1.002,height:H,depth:1.002},sc);
+  if(!state.plainFloorMat){
+    const m=new BABYLON.PBRMaterial('plain_floor_mat',sc);
+    m.albedoColor=new BABYLON.Color3(.58,.57,.55); m.metallic=0; m.roughness=.4; m.maxSimultaneousLights=4;
+    state.plainFloorMat=plasticFinish(m,{coat:.4,coatRough:.15});
+  }
+  slab.material=state.plainFloorMat; slab.receiveShadows=true; slab.isPickable=true;
+  const buf=new Float32Array(tiles.length*16), mat=new BABYLON.Matrix();
+  tiles.forEach(([x,z],i)=>{ BABYLON.Matrix.TranslationToRef(x,top-H/2,z,mat); mat.copyToArray(buf,i*16); });
+  slab.thinInstanceSetBuffer('matrix',buf,16,true);
+  state.plainFloor=slab;
 }
 // The campfire (logs, ring stones, flame, its light) can be switched off,
 // e.g. for an indoor scene. Its cells stop blocking placement too.
@@ -1424,9 +1555,133 @@ const ITEM_CATALOG={
   apple_crate:['FarmCrate_Apple.gltf',{w:1.0,h:.75,d:.9,mass:1.25,scale:.82,visualYOffset:.37,flammable:true}],
   carrot_crate:['FarmCrate_Carrot.gltf',{w:1.0,h:.75,d:.9,mass:1.25,scale:.82,visualYOffset:.37,flammable:true}],
 };
+// Modern furniture, built from primitives (no files): front faces +z.
+const MODERN_ITEMS={
+  desk:{w:1.4,h:.76,d:.7,material:'wood'},
+  office_chair:{w:.62,h:.95,d:.62,material:'soft'},
+  armchair:{w:.85,h:.8,d:.8,material:'soft'},
+  sofa:{w:1.8,h:.8,d:.85,material:'soft'},
+  coffee_table:{w:.9,h:.4,d:.9,material:'wood'},
+  floor_lamp:{w:.42,h:1.6,d:.42,material:'metal',flammable:false},
+  plant:{w:.5,h:1.0,d:.5,material:'soft'},
+  bookshelf:{w:1.0,h:1.6,d:.36,material:'wood'},
+};
+for(const [k,v] of Object.entries(MODERN_ITEMS)) ITEM_CATALOG[k]=[null,{static:true,flammable:true,...v,modern:true}];
+function modernMats(){
+  if(state.modernMats) return state.modernMats;
+  const sc=state.scene;
+  // rounded edges for box upholstery and panels (box faces have 0..1 UVs)
+  const bevel=bevelNormalTexture(sc); bevel.coordinatesIndex=0;
+  const mk=(name,c,rough,coat,opt={})=>{
+    const m=new BABYLON.PBRMaterial('mod_'+name,sc); m.albedoColor=new BABYLON.Color3(...c); m.metallic=0; m.roughness=rough; m.maxSimultaneousLights=4;
+    if(opt.emissive) m.emissiveColor=new BABYLON.Color3(...opt.emissive);
+    if(opt.bevel){ m.bumpTexture=bevel; m.bumpTexture.level=1; }
+    return coat ? plasticFinish(m,{coat,coatRough:.12}) : m;
+  };
+  state.modernMats={
+    white:mk('white',[.9,.89,.86],.3,.55,{bevel:true}), whiteRound:mk('white_round',[.9,.89,.86],.3,.55),
+    oak:mk('oak',[.74,.55,.35],.35,.55), black:mk('black',[.06,.06,.07],.3,.5),
+    fabric:mk('fabric_sage',[.45,.55,.48],.85,0,{bevel:true}), fabric2:mk('fabric_navy',[.27,.32,.40],.85,0,{bevel:true}),
+    fabric3:mk('fabric_charcoal',[.2,.21,.23],.8,0,{bevel:true}), accent:mk('fabric_mustard',[.84,.62,.24],.8,0,{bevel:true}),
+    shade:mk('shade',[.98,.93,.82],.6,0,{emissive:[.55,.42,.24]}), leaf:mk('leaf',[.17,.40,.19],.35,.4),
+    pot:mk('pot',[.72,.40,.28],.45,.35), soil:mk('soil',[.16,.12,.09],.9,0),
+    screen:mk('screen',[.03,.04,.06],.15,.8,{emissive:[.06,.1,.16]}), metal:mk('metal',[.72,.72,.74],.3,.5),
+    books:mk('books',[1,1,1],.55,.2),
+  };
+  return state.modernMats;
+}
+function buildModernItem(scene,type,proxy,h){
+  const M=modernMats(), MB=BABYLON.MeshBuilder;
+  const P=(mesh,x,y,z,mat)=>{ mesh.parent=proxy; mesh.position.set(x,y-h/2,z); mesh.material=mat; mesh.metadata={proxy}; mesh.receiveShadows=true; addShadow(mesh); return mesh; };
+  const box=(w,hh,d,x,y,z,mat)=>P(MB.CreateBox(type+'_part',{width:w,height:hh,depth:d},scene),x,y,z,mat);
+  const cyl=(dt,db,hh,x,y,z,mat,tess=24)=>P(MB.CreateCylinder(type+'_part',{diameterTop:dt,diameterBottom:db,height:hh,tessellation:tess},scene),x,y,z,mat);
+  const ball=(dm,x,y,z,mat)=>P(MB.CreateSphere(type+'_part',{diameter:dm,segments:12},scene),x,y,z,mat);
+  const seat=(w,fab)=>{ // armchair / sofa
+    box(w,.25,.8,0,.2,0,fab);
+    box(.14,.3,.8,-(w/2-.07),.475,0,fab); box(.14,.3,.8,w/2-.07,.475,0,fab);
+    const back=box(w-.02,.46,.17,0,.55,-.31,fab); back.rotation.x=-.08;
+    const n=w>1.2?2:1, cw=(w-.3)/n;
+    for(let i=0;i<n;i++) box(cw-.02,.12,.6,-(w-.3)/2+cw*(i+.5),.385,.07,fab);
+    for(const [lx,lz] of [[-1,-1],[-1,1],[1,-1],[1,1]]) cyl(.045,.035,.075,lx*(w/2-.07),.037,lz*.33,M.oak,10);
+    for(let i=0;i<n;i++){ const c=box(.3,.26,.08,(n===1?0:(i?1:-1)*(w/2-.42)),.6,-.18,M.accent); c.rotation.x=-.25; c.rotation.z=(i?-1:1)*.08; }
+  };
+  if(type==='desk'){
+    box(1.4,.04,.7,0,.74,0,M.oak);
+    box(.42,.7,.64,.46,.35,0,M.white);
+    for(const y of [.58,.36,.14]) box(.16,.015,.02,.46,y,.325,M.black);
+    for(const lz of [-.3,.3]) box(.04,.72,.04,-.65,.36,lz,M.black);
+    box(.04,.04,.6,-.65,.05,0,M.black);
+    box(.34,.015,.24,-.15,.768,.06,M.metal);
+    const scr=box(.34,.22,.012,-.15,.875,-.07,M.metal); scr.rotation.x=-.18;
+    const face=box(.31,.19,.004,-.15,.875,-.062,M.screen); face.rotation.x=-.18;
+    cyl(.075,.07,.09,.42,.805,.12,M.whiteRound,16);
+  } else if(type==='office_chair'){
+    for(let i=0;i<5;i++){ const a=i*Math.PI*2/5, leg=box(.3,.03,.05,Math.cos(a)*.14,.05,Math.sin(a)*.14,M.black); leg.rotation.y=-a; ball(.05,Math.cos(a)*.28,.025,Math.sin(a)*.28,M.black); }
+    cyl(.05,.05,.38,0,.25,0,M.black,12);
+    box(.5,.08,.48,0,.47,0,M.fabric3);
+    box(.05,.3,.03,0,.6,-.24,M.black);
+    const back=box(.48,.48,.06,0,.78,-.24,M.fabric3); back.rotation.x=-.1;
+    for(const sx of [-1,1]){ box(.035,.18,.035,sx*.27,.58,0,M.black); box(.06,.03,.3,sx*.27,.68,.02,M.black); }
+  } else if(type==='armchair') seat(.85,M.fabric);
+  else if(type==='sofa') seat(1.8,M.fabric2);
+  else if(type==='coffee_table'){
+    cyl(.85,.85,.04,0,.38,0,M.oak,40);
+    for(let i=0;i<3;i++){ const a=i*Math.PI*2/3+.5; cyl(.035,.03,.36,Math.cos(a)*.27,.18,Math.sin(a)*.27,M.black,10); }
+    box(.22,.03,.16,-.12,.415,.05,M.accent); box(.2,.025,.15,-.12,.442,.05,M.whiteRound);
+    cyl(.07,.09,.14,.18,.47,-.08,M.whiteRound,16);
+  } else if(type==='floor_lamp'){
+    cyl(.3,.3,.03,0,.015,0,M.black,24);
+    cyl(.025,.025,1.3,0,.67,0,M.black,10);
+    cyl(.3,.4,.32,0,1.42,0,M.shade,32);
+    addLampPool(scene,proxy,{warm:true,y:-h/2+.025});
+  } else if(type==='plant'){
+    cyl(.36,.28,.34,0,.17,0,M.whiteRound,24);
+    cyl(.33,.33,.01,0,.33,0,M.soil,24);
+    const seed=Math.abs(Math.round(proxy.position.x*7+proxy.position.z*13));
+    for(let i=0;i<7;i++){
+      const a=i*2.4+seed, r=i?.1+(i%3)*.04:0, y=.5+(i%4)*.12+(i?0:.25);
+      const l=ball(.24+(i%3)*.05,Math.cos(a)*r,y,Math.sin(a)*r,M.leaf); l.scaling.set(1,.75,1);
+    }
+  } else if(type==='bookshelf'){
+    for(const sx of [-1,1]) box(.03,1.6,.36,sx*.485,.8,0,M.white);
+    for(const y of [.015,.4,.79,1.18,1.585]) box(.97,.03,.36,0,y,0,M.white);
+    box(.97,1.6,.01,0,.8,-.175,M.oak);
+    const books=boxBatch(), cols=[[.62,.22,.18],[.18,.32,.5],[.86,.78,.6],[.25,.42,.3],[.8,.55,.2],[.3,.3,.32],[.7,.68,.64]];
+    let seed=Math.abs(Math.round(proxy.position.x*31+proxy.position.z*17))+1;
+    const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
+    for(const y of [.03,.415,.805,1.195]){
+      let x=-.46;
+      while(x<.44){
+        if(rnd()<.12){ x+=.08+rnd()*.12; continue; }
+        const bw=.03+rnd()*.035, bh=.2+rnd()*.12;
+        if(x+bw>.46) break;
+        books.add(x+bw/2,y+bh/2-h/2,.01,bw,bh,.24+rnd()*.06,cols[Math.floor(rnd()*cols.length)]);
+        x+=bw+.004;
+      }
+    }
+    const bm=books.mesh(type+'_books',scene);
+    if(bm){ bm.parent=proxy; bm.material=M.books; bm.metadata={proxy}; bm.receiveShadows=true; addShadow(bm); }
+  }
+  proxy.metadata.asset='modern:'+type;
+}
+function makePropProxy(scene,type,opts){
+  const proxy=BABYLON.MeshBuilder.CreateBox('real_'+type+'_proxy',{width:opts.w||.8,height:opts.h||.8,depth:opts.d||.8},scene);
+  proxy.position.set(opts.x||0,(opts.y??((opts.h||.8)/2)),opts.z||0);
+  proxy.rotation.y=opts.ry||0;
+  proxy.isVisible=false;
+  addBody(proxy,opts.static?'static':'dynamic',opts.shape||'BOX',opts.mass??1.1,{friction:opts.friction??.72,restitution:opts.restitution??.12});
+  tag(proxy,type,{health:opts.health??2,material:opts.material||'wood',flammable:opts.flammable??true,soft:!!opts.soft,zone:'real-props'});
+  state.props.push(proxy);
+  return proxy;
+}
 function makeCatalogItem(scene,type,x,z,opts={}){
   const entry=ITEM_CATALOG[type]; if(!entry) return null;
   const [file,base]=entry;
+  if(base.modern){
+    const proxy=makePropProxy(scene,type,{...base,type,x,z,ry:opts.ry||0,y:(state.terrainTopY??0)+base.h/2});
+    try{ buildModernItem(scene,type,proxy,base.h); }catch(e){ console.warn('modern item failed',type,e); proxy.isVisible=true; }
+    return proxy;
+  }
   // importPropAsset() is async (GLB load) but registers its physics proxy
   // synchronously, so callers get a usable object right away.
   let proxy=null;
@@ -1436,13 +1691,7 @@ function makeCatalogItem(scene,type,x,z,opts={}){
 }
 async function importPropAsset(scene,file,opts={}){
   const type=opts.type||file.replace(/\.gltf$/,'').toLowerCase();
-  const proxy=BABYLON.MeshBuilder.CreateBox('real_'+type+'_proxy',{width:opts.w||.8,height:opts.h||.8,depth:opts.d||.8},scene);
-  proxy.position.set(opts.x||0,(opts.y??((opts.h||.8)/2)),opts.z||0);
-  proxy.rotation.y=opts.ry||0;
-  proxy.isVisible=false;
-  addBody(proxy,opts.static?'static':'dynamic',opts.shape||'BOX',opts.mass??1.1,{friction:opts.friction??.72,restitution:opts.restitution??.12});
-  tag(proxy,type,{health:opts.health??2,material:opts.material||'wood',flammable:opts.flammable??true,soft:!!opts.soft,zone:'real-props'});
-  state.props.push(proxy);
+  const proxy=makePropProxy(scene,type,opts);
   opts.onProxy?.(proxy);
   try{
     const result=await BABYLON.SceneLoader.ImportMeshAsync('',PROP_ASSET,file,scene);
@@ -1742,7 +1991,7 @@ function installDirectControlHandlers(){
 // Solid things nobody walks through (characters and the player alike).
 // Small loose items (tools, potions, scrolls, coins, notes, bags, buckets,
 // mushrooms) can be stepped over; a carried item never blocks its carrier.
-const BLOCKING_TYPES=new Set(['wall','rock','bakery','fence','bridge','crate','barrel','chest','table','bench','stool','workbench','cauldron','anvil','weapon_stand','apple_crate','carrot_crate','lamp']);
+const BLOCKING_TYPES=new Set(['wall','rock','bakery','fence','bridge','crate','barrel','chest','table','bench','stool','workbench','cauldron','anvil','weapon_stand','apple_crate','carrot_crate','lamp','desk','office_chair','armchair','sofa','coffee_table','floor_lamp','plant','bookshelf']);
 function isBlocked(x, z) {
   // painted water/lava can't be walked through
   const pt = paintAt(x, z); if (pt && PAINT_MATERIALS[pt.mat]?.blocks) return true;
@@ -2207,7 +2456,7 @@ function isWithinFacingVision(g,cx,cz,x,z,radius){
 }
 function typeGlyph(type){
   const map={
-    wall:'#', bridge:'=', rock:'r', rubble:'x', crate:'C', apple_crate:'C', carrot_crate:'C', barrel:'B', mushroom:'M', lamp:'L', lantern:'L', crystal:'*', bakery:'H', fence:'f', chest:'h', workbench:'w', table:'t', bench:'n', stool:'s', cauldron:'o', anvil:'a', weapon_stand:'W', axe:'/', pickaxe:'p', bucket:'u', bag:'b', potion:'P', scroll:'S', coin_pile:'$'
+    wall:'#', bridge:'=', rock:'r', rubble:'x', crate:'C', apple_crate:'C', carrot_crate:'C', barrel:'B', mushroom:'M', lamp:'L', lantern:'L', crystal:'*', bakery:'H', fence:'f', chest:'h', workbench:'w', table:'t', bench:'n', stool:'s', cauldron:'o', anvil:'a', weapon_stand:'W', axe:'/', pickaxe:'p', bucket:'u', bag:'b', potion:'P', scroll:'S', coin_pile:'$', desk:'D', office_chair:'c', armchair:'A', sofa:'F', coffee_table:'T', floor_lamp:'l', plant:'v', bookshelf:'K'
   };
   return map[type] || (type ? type[0].toUpperCase() : '?');
 }
@@ -2322,12 +2571,13 @@ function buildVisiblePerception(agentId=null,radius=7){
   for (const [key, c] of cells) { if (c.visible && c.base && c.base !== ' ') visibleGlyphs.add(c.base); }
   const glyphNames = {
     '@':'self', 'g':'other geebr', 'Y':'the player', ',':'grass', ':':'dirt/path', '~':'water',
-    '^':'stone', '#':'wall', '_':'wooden floor', '.':'sand', '&':'lava', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
+    '^':'stone', '#':'wall', '_':'floor', '.':'sand', '&':'lava', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
     'L':'lamp', '*':'crystal/magic', 'H':'house', 'r':'rock', 'x':'rubble',
     'f':'fence', 'h':'chest', 'w':'workbench', 't':'table', 'n':'bench',
     's':'stool', 'o':'cauldron', 'a':'anvil', 'W':'weapon stand',
     '/':'axe', 'p':'pickaxe', 'u':'bucket', 'b':'bag', 'P':'potion',
-    'S':'scroll', '$':'coins', '?':'unknown'
+    'S':'scroll', '$':'coins', 'D':'desk', 'c':'chair', 'A':'armchair', 'F':'sofa', 'T':'coffee table', 'l':'floor lamp',
+    'v':'plant', 'K':'bookshelf', '?':'unknown'
   };
   const legendParts = [];
   for (const glyph of visibleGlyphs) {
@@ -2609,20 +2859,44 @@ function disposeOwnMaterial(m){
 // Moves with WASD/arrows (screen-relative; in first person W/S walk, A/D
 // turn) or by clicking the ground (pathfinding). V toggles first person.
 // Player body: a KayKit adventurer by default, so it's clearly not a geebr.
-const AVATAR_MODELS={rogue:'Rogue_Hooded.glb',knight:'Knight.glb',mage:'Mage.glb',ranger:'Ranger.glb',barbarian:'Barbarian.glb'};
+// People: KayKit adventurers, for the player and for characters ("model" in
+// a scenario agent). 'woman' is the rogue in everyday clothes: the same
+// palette texture recoloured (cream top, denim, dark shoes) and no cape.
+const AVATAR_MODELS={rogue:'Rogue_Hooded.glb',knight:'Knight.glb',mage:'Mage.glb',ranger:'Ranger.glb',barbarian:'Barbarian.glb',woman:'Rogue.glb'};
+const MODEL_LOOKS={woman:{texture:'rogue_modern.png?v=20261012a',hide:/Cape/}};
+const PERSON_H=1.3;
+async function createPerson(id,pos,model,label){
+  await initKayKitAnimationSources(state.scene);
+  const g=await createKayKitGeebr(state.scene,id,pos,AVATAR_MODELS[model],label||model);
+  // createKayKitGeebr turns the model half a turn (for an older convention),
+  // which made people walk backwards: face it the way it moves.
+  if(g.rigRoot) g.rigRoot.rotation.y=0;
+  const look=MODEL_LOOKS[model], meshes=g.rigRoot?.getChildMeshes?.(false)||[];
+  if(look?.hide) for(const m of meshes) if(look.hide.test(m.name)) m.setEnabled(false);
+  if(look?.texture){
+    const tex=new BABYLON.Texture(CHAR_ASSET+look.texture,state.scene,false,false);
+    for(const mat of new Set(meshes.map(m=>m.material).filter(Boolean))){
+      const old=mat.albedoTexture; mat.albedoTexture=tex; if(old && old!==tex) old.dispose();
+    }
+  }
+  // Normalise height: KayKit's scale suits an older, bigger world (the rogue
+  // came out ~2.8 tall next to ~1.0 geebrs). People: 1.3, a head taller.
+  g.root.computeWorldMatrix(true);
+  const bb=g.root.getHierarchyBoundingVectors(true,m=>m.isEnabled() && (m.getTotalVertices?.()||0)>0 && !/collider/.test(m.name));
+  g.root.scaling.scaleInPlace(PERSON_H/Math.max(.2,bb.max.y-g.root.position.y));
+  g.charModel=model;
+  return g;
+}
 async function spawnPlayerAvatar(x=0,z=3,facing='n',model){
   removePlayerAvatar();
   model=model||state.avatarModel||'rogue';
   const pos=new BABYLON.Vector3(x,(state.terrainTopY??0),z);
   let g=null;
   if(AVATAR_MODELS[model]){
-    try{ await initKayKitAnimationSources(state.scene); g=await createKayKitGeebr(state.scene,'player',pos,AVATAR_MODELS[model],'player'); }
+    try{ g=await createPerson('player',pos,model,'player'); }
     catch(e){ console.warn('KayKit avatar failed, using a geebr body',e); }
   }
   if(!g){ g=await createGeneratedGeebr(state.scene,'player',pos); model='geebr'; }
-  // createKayKitGeebr turns the model half a turn (for an older convention),
-  // which made the avatar walk backwards: face it the way it moves.
-  else if(g.rigRoot) g.rigRoot.rotation.y=0;
   state.geebrs=state.geebrs.filter(o=>o!==g);
   g.isPlayer=true; g.avatarModel=model; state.playerAvatar=g; state.avatarModel=model;
   setGeebrLogicalPosition(g,new BABYLON.Vector3(x,0,z));
@@ -2634,11 +2908,7 @@ async function spawnPlayerAvatar(x=0,z=3,facing='n',model){
   // eye height for first person, from the model's real size
   g.root.computeWorldMatrix(true);
   const bb=g.root.getHierarchyBoundingVectors(true,m=>m.isEnabled() && (m.getTotalVertices?.()||0)>0 && !/collider/.test(m.name));
-  // Normalise height: KayKit's scale suits an older, bigger world (the rogue
-  // came out ~2.8 tall next to ~1.0 geebrs). Player: 1.3, a head taller.
-  const PLAYER_H=1.3, h0=Math.max(.2,bb.max.y-g.root.position.y);
-  if(model!=='geebr') g.root.scaling.scaleInPlace(PLAYER_H/h0);
-  g.eyeHeight=(model!=='geebr'?PLAYER_H:h0)*.88;
+  g.eyeHeight=(model!=='geebr'?PERSON_H:Math.max(.2,bb.max.y-g.root.position.y))*.88;
   const ring=BABYLON.MeshBuilder.CreateTorus('player_ring',{diameter:.95,thickness:.045,tessellation:40},state.scene);
   const rm=new BABYLON.StandardMaterial('player_ring_mat',state.scene); rm.emissiveColor=new BABYLON.Color3(1,.75,.25); rm.disableLighting=true; rm.alpha=.85;
   ring.material=rm; ring.isPickable=false; ring.parent=g.root; ring.position.y=.04/(g.root.scaling.y||1);
@@ -2831,7 +3101,7 @@ function saveWorldState() {
         id: g.id,
         x: g.root.position.x, y: g.root.position.y, z: g.root.position.z,
         dx: g.dir.x, dy: g.dir.y, dz: g.dir.z,
-        style: g.style, anim: g.anim, traits: g.traits,
+        style: g.style, anim: g.anim, traits: g.traits, ...(g.charModel ? { model: g.charModel } : {}),
       })),
       props: state.props.filter(m => m && !m.isDisposed?.()).map(m => {
         const mm = meta(m);
@@ -2867,7 +3137,7 @@ function normalizeWorldState(data){
       geebrs:(data.agents||[]).map(g=>({
         id:g.id, x:g.position?.x||0, y:g.position?.y||0, z:g.position?.z||0,
         dx:g.facing?.x||0, dy:g.facing?.y||0, dz:g.facing?.z??-1,
-        style:g.style, anim:g.anim, traits:g.traits
+        style:g.style, anim:g.anim, traits:g.traits, model:g.model
       })),
       props:data.props||[], blocks:data.blocks||[],
       brainConfigs:(data.agents||[]).filter(g=>g.brainConfig).map(g=>[g.id,g.brainConfig]),
@@ -2914,7 +3184,8 @@ async function restoreWorldState(input) {
   for(const g of data.geebrs){
     const palIdx=styles.indexOf(g.style), palette=palIdx>=0?palettes[palIdx]:palettes[0];
     let geebr;
-    try{ geebr=await createGeneratedGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z)); }
+    if(g.model && AVATAR_MODELS[g.model]) try{ geebr=await createPerson(g.id,new BABYLON.Vector3(g.x,g.y,g.z),g.model,g.model); }catch(e){ console.warn('person restore failed',e); }
+    if(!geebr) try{ geebr=await createGeneratedGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z)); }
     catch(e){
       console.warn('generated rigged Geebr restore failed; using procedural fallback',e);
       geebr=createGeebr(state.scene,g.id,new BABYLON.Vector3(g.x,g.y,g.z),palette,g.style||'goblin');
@@ -2971,7 +3242,7 @@ function installWorldAPI(){
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
     setPathfinding:on=>{ state.pathfinding=on!==false; }, findRoute,
     setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setCampfire,
-    spawnPlayerAvatar, removePlayerAvatar, getPlayerAvatar:()=>state.playerAvatar, setFirstPerson, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
+    spawnPlayerAvatar, removePlayerAvatar, getPlayerAvatar:()=>state.playerAvatar, setFirstPerson, setWallStyle:st=>{ state.wallStyle=['block','modern'].includes(st)?st:'tabletop'; },
     setLighting,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),

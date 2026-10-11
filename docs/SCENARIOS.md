@@ -20,8 +20,8 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "intro": "Mog runs the only shop on the island.",      // shown on load
   "seed": 7,                                             // layout randomness
   "lighting": "bright",                                  // or "night" (sandbox look)
-  "base": "island",                                      // island | clearing | dungeon
-  "walls": "tabletop",                                   // or "block" (old short cubes)
+  "base": "island",                                      // island | clearing | dungeon | plain
+  "walls": "tabletop",                                   // or "modern" (smooth painted panels) or "block" (old short cubes)
   "campfire": true,                                      // false hides the campfire (indoor scenes)
   "pathfinding": true,                                   // false: walks go in straight lines and stop at walls
   "floor": "stone",                                      // optional: paint the whole floor
@@ -33,6 +33,8 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
     "personality": "grumpy shopkeeper. The magic sword costs 50 gold, never below 40.",
     "quest": "",                      // optional, same as Character setup
     "thinking": false, "showThoughts": true, "ttsVoiceId": "builtin:jean",
+    "model": "woman",                 // optional body: woman | rogue | knight | mage | ranger | barbarian (default: geebr)
+    "style": "calm, kind woman",      // optional: what the character is, for its prompt
     "inventory": { "gold": 0, "items": [{ "name": "magic sword", "qty": 1 }] },
     "at": [0, -3], "facing": "s"       // optional; or place it in "map"
   }],
@@ -74,9 +76,12 @@ floor <material>
 - **things**: `crate barrel mushroom lamp wall note "<text>"`, the composite
   `counter` (a row of three wall sections), the items `chest table bench stool
   workbench cauldron anvil weapon_stand axe pickaxe bucket bag potion scroll
-  coin_pile apple_crate carrot_crate`, or an agent id (places that character).
+  coin_pile apple_crate carrot_crate`, the modern set `desk office_chair
+  armchair sofa coffee_table floor_lamp plant bookshelf` (front faces south;
+  give `ry` in `objects` to turn them), or an agent id (places that character).
 - **floor tiles**: `paint <material> [xN] <placement>` lays painted tiles
-  (`stone flagstone dirt wood sand grass water lava`; water and lava block
+  (`stone flagstone dirt wood sand grass water lava`, modern `oak tile concrete
+  carpet`; water and lava block
   walking and placement), e.g. `paint water x6 cluster at east` for a pond.
   `floor <material>` paints the whole island. Painted patches can be refs
   (`place lamp beside water`).
@@ -166,10 +171,14 @@ in the share text.
   without the house, trees, boulders, fence/signpost, lantern and decor crates.
   `dungeon` is a clearing without grass tufts, plus a stone floor and a closed
   ring of walls on the rim. The rim walls and floor are ordinary walls and
-  paint, so they can be edited and are saved. The World pane has the same
-  picker for the sandbox.
+  paint, so they can be edited and are saved. `plain` is a clearing with the
+  grass and tufts gone and a flat smooth floor on top (indoor and modern
+  scenes, e.g. *The Sounding Board*). Clearing, dungeon and plain also hide
+  the rocks on the plateau. The World pane has the same picker for the
+  sandbox.
 - **Walls** default to tabletop sections: stone-block walls about 1.1 tall that
-  join to neighbouring wall cells. `"walls": "block"` keeps the old cubes.
+  join to neighbouring wall cells. `"walls": "modern"` makes them smooth
+  painted panels with a baseboard; `"walls": "block"` keeps the old cubes.
 - **Painted floors**: also a click-to-spawn brush in the World pane.
 - `give(item)` hands an item to the player when the character actually has it
   in its inventory (otherwise it's just said).
