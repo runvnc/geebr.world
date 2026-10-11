@@ -1,0 +1,177 @@
+# Scenarios
+
+A **scenario** is a small, shareable game built on the sandbox: a world
+(characters, objects, the player's purse), a set of allowed commands, and a
+**goal** the player tries to reach, checked by the game state rather than by the
+model. The scenario *is* a link: its JSON is compressed into the URL hash, so
+sharing needs no server.
+
+The sandbox is unchanged. Scenario mode is entered only by opening a scenario
+link or pressing **Play** in the 🎯 Scenario pane, and saves to its own
+localStorage key, so playing a scenario never overwrites your sandbox world.
+**Exit scenario** restores the sandbox.
+
+## 1. Format (v1)
+
+```jsonc
+{
+  "v": 1,
+  "title": "The Stubborn Shopkeeper",
+  "intro": "Mog runs the only shop on the island.",      // shown on load
+  "seed": 7,                                             // layout randomness
+  "player": { "name": "Traveller", "gold": 20, "items": [] },
+  "allowed": ["say", "sell", "inventory", "emote"],      // command checkboxes
+  "agents": [{
+    "id": "mog",
+    "personality": "grumpy shopkeeper. The magic sword costs 50 gold, never below 40.",
+    "quest": "",                      // optional, same as Character setup
+    "thinking": false, "showThoughts": true, "ttsVoiceId": "builtin:jean",
+    "inventory": { "gold": 0, "items": [{ "name": "magic sword", "qty": 1 }] },
+    "at": [0, -3], "facing": "s"       // optional; or place it in "map"
+  }],
+  "objects": [{ "type": "barrel", "x": 2, "z": 1 }],    // explicit positions
+  "map": [                                               // laid out by code
+    "place counter against north_wall",
+    "place mog behind counter",
+    "place barrel x3 beside counter",
+    "place note \"No refunds\" in_front_of counter"
+  ],
+  "goal": {
+    "text": "Get the magic sword. You only have 20 gold.",
+    "win":  { "player_has": "magic sword" },
+    "lose": { "turns_over": 12 },
+    "winText": "Mog grumbles and hands it over.",
+    "loseText": "Mog closes the shop for the day.",
+    "score": "player_gold"
+  }
+}
+```
+
+`objects` and `map` can be combined: explicit objects are placed first and the
+layout engine works around them. **From current world** in the Scenario pane
+exports the live world into this format with explicit positions.
+
+## 2. Map description language
+
+One line per instruction. The tiny model can write these, a person can type
+them, and a bigger model can produce them. The game turns them into positions,
+so the result is always a valid map.
+
+```
+place <thing> [xN] [<placement>]
+path from <ref|area> to <ref|area>
+```
+
+- **things**: `crate barrel mushroom lamp wall note "<text>"`, the composite
+  `counter` (a row of three wall blocks), or an agent id (places that character).
+- **placements**:
+  - `at <area>`, where area is `center`, `north`, `south`, `east`, `west`,
+    `northeast`, `northwest`, `southeast`, `southwest` or `random`
+  - `against <edge>_wall`: along that edge of the island
+  - `beside X`, `near X`, `behind X`, `in_front_of X`, `around X`
+  - arrangements, which can be combined with the above: `row`, `cluster`,
+    `scattered`, e.g. `place barrel x4 row against west_wall`
+- **refs** (X): any thing placed earlier, an agent id, or fixed scenery:
+  `house`, `campfire`.
+- Directions follow the game's convention: north = −Z, south = +Z,
+  east = −X, west = +X. "Front" of a thing is the side facing the middle of the
+  island; "behind" is the side away from it.
+
+Unknown words are ignored and reported, not fatal, because small models
+improvise.
+
+## 3. Layout engine (deterministic)
+
+1. **Grid.** Integer cells on the island. A cell is *solid* when the island top
+   is under its centre and four probes 0.35 out (no overhanging the cliff). It
+   is *blocked* when fixed scenery (house, trees, boulders, fence, signpost,
+   campfire, decor crates) is above it, found with a downward ray per cell.
+2. **Parse** lines into entities `{thing, count, relation, ref, arrangement}`.
+3. **Order.** Explicit objects first, then lines whose refs are resolved, in
+   written order. Lines waiting on a ref are deferred and retried, and `path`
+   lines run as soon as both ends exist. `scattered` and `random` lines go last.
+   Anything still unresolved is placed with its ref ignored, and a warning is
+   recorded.
+4. **Candidates → score → pick.** For each entity, take the free solid cells
+   that satisfy the relation's hard filter (e.g. `beside` means touching the
+   ref's cells, `against north_wall` means the northern band), score them by the
+   soft preference (closeness, front/behind side, spread from others), add a
+   small seeded jitter, and take the best. The same text and seed always
+   produce the same map.
+5. **Arrangements.** `row` searches for N free cells in a straight line
+   parallel to the edge or ref. `cluster` grows outward from the first cell.
+   `scattered` uses farthest-point sampling over the area, keeping a minimum
+   gap.
+6. **Paths** run A* pathfinding over solid, unblocked cells and reserve the
+   result, so later objects never block it (there is no visual path yet).
+7. **Reachability.** Every interactive object must keep at least one free
+   neighbouring cell; otherwise it is moved to the nearest cell that has one.
+8. **Relaxation.** If a hard filter leaves no candidates, the constraint is
+   loosened step by step (`beside` → within 2 → within 4 → anywhere in the area
+   → anywhere), and the placement is recorded as a warning rather than a
+   failure.
+9. **Output** is ordinary world objects and agent positions, built through the
+   same spawn functions as the sandbox.
+
+## 4. Goals
+
+`win`, `lose` and the conditions inside them are plain JSON predicates (never
+code, so a link can't run script):
+
+| predicate | example |
+|---|---|
+| `player_has` | `"magic sword"` or `["magic sword", 2]` |
+| `player_gold` | `[">=", 10]` |
+| `agent_has` | `["mog", "magic sword"]` |
+| `agent_gold` | `["mog", ">=", 30]` |
+| `agent_near` | `["mog", "campfire", 1.5]` (target: agent, object type, scenery, or `[x, z]`) |
+| `object_near` | `["barrel", "house", 2]` |
+| `object_count` | `["barrel", "<", 3]` |
+| `prop_state` | `["crate", "burned"]` (any crate) |
+| `said` | `["mog", "deal"]` (case-insensitive substring; `"any"` for anyone) |
+| `turns_over` | `12` |
+| combinators | `{"all": [...]}`, `{"any": [...]}`, `{"not": {...}}` |
+
+Item names match the same way as `sell()` (case-insensitive; "potion" matches
+"healing potion"). Goals are checked continuously while a scenario runs; the
+first of win or lose to become true ends it. `score` is `player_gold`,
+`turns`, `turns_left` or `agent_gold:<id>`, and is shown on the end screen and
+in the share text.
+
+## 5. Links
+
+- `#s=<data>`: the JSON, compressed with the browser's `deflate-raw`
+  `CompressionStream` and base64url-encoded. The hash is never sent to a
+  server. A typical scenario is a few hundred characters.
+- `?scenario=<url>`: fetch the JSON from a URL (it must allow CORS), for large
+  or hosted scenarios.
+- Players can decode and edit a link to "win". That's fine for sharing;
+  leaderboards would have to replay recorded turns on a server instead.
+
+## 6. Generating a map with the model
+
+The Scenario pane's **Generate** button sends a one-line description to the
+loaded model with the vocabulary and two examples, and asks for map lines only.
+The reply is parsed leniently (bullets, numbering and stray prose are dropped)
+into the map box, where it can be edited and laid out again, or re-rolled with
+a new seed.
+
+## 7. Changes to the existing system
+
+- `say()` emits a `geebr-say` event, used for `said` goals.
+- `saveWorldState` and `loadWorldState` take their key from `state.saveKey`.
+  The sandbox keeps `geebrWorldState`; scenarios use `geebrScenarioState`.
+- The world API gains `spawnAgent`, `makeObject`, `hasGroundAt`, `sceneryAt`,
+  `sceneryAnchors`, `setPlayer`, `setAllowed`, `getObjects` and
+  `inventoryChanged`.
+- A new `scenario.js` holds the format, layout engine, goal checker, link
+  encoding, banner and end screen, and the 🎯 Scenario pane.
+
+## Later
+
+- Terrain zones (paint a pond or a stone floor). The HD island has no
+  per-cell terrain painting yet.
+- Visual paths.
+- More object types and scenery anchors as assets are added.
+- A scenario gallery and short links (`?s=abc123`), server-side generation with
+  a bigger model, and replayed-turn verification for leaderboards.
