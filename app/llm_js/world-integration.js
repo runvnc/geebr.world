@@ -181,6 +181,22 @@ function appendLog(text) {
 
 // Transform a globalHistory entry like 'T3 geebr1: geebr1 walk n' into 'geebr1 walks n'
 // Also handles say entries like 'T3 geebr1: geebr1 say "hello" -> hello' into 'geebr1 says hello'
+// "RESULT OF YOUR LAST ACTION: sell("magic sword", 35) FAILED: ..." from the
+// global history entries this turn added ('T5 mog: mog sell ... -> result').
+const FAILURE = /\b(fail(ed|s)?|can'?t|cannot|unable|nothing|not enough|has only|no \w+ to|found no|no (object|target)|is disabled|unknown command|blocked|in the way|too (spiritually )?heavy)\b/i;
+function ownActionResults(world, agentId, n) {
+  const entries = (world.state?.globalHistory || []).slice(-Math.max(1, n)).filter(e => new RegExp('^T\\d+\\s+' + agentId + ':').test(e));
+  const lines = [];
+  for (const e of entries) {
+    let body = e.replace(/^T\d+\s+[^:]+:\s*/, '');
+    if (body.startsWith(agentId + ' ')) body = body.slice(agentId.length + 1);
+    const arrow = body.indexOf(' -> ');
+    const action = arrow >= 0 ? body.slice(0, arrow) : body, result = arrow >= 0 ? body.slice(arrow + 4) : '';
+    if (/^say\b/.test(action)) continue;          // speech: nothing to report
+    lines.push(result ? `${action} ${FAILURE.test(result) ? 'FAILED' : 'worked'}: ${result}` : `${action} done`);
+  }
+  return lines.length ? 'RESULT OF YOUR LAST ACTION: ' + lines.join('; ') : '';
+}
 function formatActionSummary(historyEntry) {
   if (!historyEntry) return 'turn resolved';
   // Strip the T# prefix: 'T3 geebr1: geebr1 walk n' -> 'geebr1: geebr1 walk n'
@@ -316,12 +332,12 @@ function buildAgentMessages(world, g, cfg) {
     cfg.pendingChat = [];
     world.setBrainConfig(g.id, cfg);
   }
+  // Whatever happened since this character's last reply (its action results,
+  // other characters' actions, notes) goes after the map and right before the
+  // new speech, where it's read in context, instead of ahead of the map.
   const lastMsg = messages[messages.length - 1];
-  if (lastMsg && lastMsg.role === 'user') {
-    lastMsg.content += '\n\n' + commandReminder + chatSuffix;
-  } else {
-    messages.push({ role: 'user', content: commandReminder + chatSuffix });
-  }
+  const since = (lastMsg && lastMsg.role === 'user' && hist.length && hist[hist.length - 1].role === 'user') ? messages.pop().content : '';
+  messages.push({ role: 'user', content: commandReminder + (since ? '\n\nSINCE YOUR LAST TURN:\n' + since : '') + chatSuffix });
   return { messages, chatSuffix };
 }
 
@@ -600,7 +616,12 @@ async function main() {
       // After turn resolves, add system result as user message
       const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';
       const summary = formatActionSummary(resultDesc);
-      cfg.messages = cfg.messages.concat([{ role: 'user', content: summary }]);
+      // For the acting character: what its own actions did, worded so it can't
+      // be mistaken for someone else's, with failures flagged. ("mog sells ->
+      // sale failed: ..." was in the prompt but the model still claimed the
+      // sale worked.) Speech-only turns keep the plain summary.
+      const ownResults = ownActionResults(world, g.id, planCmds.length);
+      cfg.messages = cfg.messages.concat([{ role: 'user', content: ownResults || summary }]);
       // Said it handed something over but issued no give()/sell(): tell it,
       // so the next turn can actually do it (small models often narrate the
       // hand-over instead of using the command).
