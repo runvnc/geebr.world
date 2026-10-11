@@ -40,8 +40,8 @@
     ['graphics-settings.js?v=20260823u'],
     ['terrain-hd.js?v=20261011a'],
     ['app.js?v=20261011n'],
-    ['scenario.js?v=20261011n'],
-    ['llm_js/world-integration.js?v=20261011f', 'module'],
+    ['scenario.js?v=20261011o'],
+    ['llm_js/world-integration.js?v=20261011g', 'module'],
   ];
 
   function browserSummary() {

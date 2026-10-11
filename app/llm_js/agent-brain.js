@@ -2,8 +2,8 @@ import { loadModel as loadModelWebLLM, getCapabilityInfo as getCapWebLLM } from 
 import { generate as generateWebLLM } from './gpt-runner.js?v=20260823q';
 import { loadModel as loadModelTJS, getCapabilityInfo as getCapTJS } from './model-loader-tjs-v2.js?v=20261010a';
 import { generate as generateTJS, createTJSEngine } from './gpt-runner-tjs.js?v=20260823q';
-import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20261011a';
-import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20261011a';
+import { loadModel as loadModelLiteRT, getCapabilityInfo as getCapLiteRT } from './model-loader-litert.js?v=20261011b';
+import { generate as generateLiteRT, createLiteRTEngine, clearLiteRTConversations } from './gpt-runner-litert.js?v=20261011b';
 import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from './model-loader-wllama.js?v=20260823q';
 import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260823q';
 import { loadModel as loadModelWllama3, getCapabilityInfo as getCapWllama3 } from './model-loader-wllama3.js?v=20260823q';
@@ -19,6 +19,7 @@ const SUPPORTED_MODELS = {
   'minicpm5-1b-wgpu-q8': { label: 'MiniCPM5-1B (WebGPU GGUF Q8_0)', engine: 'wllama3', size: '~1.15 GB', hidden: true },
   'minicpm5-1b-gpu': { label: 'MiniCPM5-1B (GPU/WebGPU)', engine: 'transformers.js', size: '~1.4 GB', hidden: true },
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm', size: '~2 GB' },
+  'gemma4-e4b-litert': { label: 'Gemma 4 E4B (LiteRT-LM, larger)', engine: 'litert-lm', size: '~3 GB' },
 };
 const DEFAULT_MODEL = 'gemma4-e2b-litert';
 

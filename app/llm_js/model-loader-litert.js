@@ -13,6 +13,7 @@
 
 const MODEL_CONFIG = {
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)' },
+  'gemma4-e4b-litert': { label: 'Gemma 4 E4B (LiteRT-LM)' },
 };
 
 let worker = null;
@@ -29,7 +30,7 @@ function getWorker() {
     // Classic (not module) worker on purpose - see the comment at the top of
     // litert-worker.js for why a module worker breaks the library's own
     // importScripts()-based WASM glue loader.
-    worker = new Worker('./llm_js/litert-worker.js?v=20261011a');
+    worker = new Worker('./llm_js/litert-worker.js?v=20261011b');
     worker.onmessage = (e) => {
       const { id, type } = e.data;
       const p = pending.get(id);

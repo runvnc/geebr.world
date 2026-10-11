@@ -4,7 +4,7 @@
 cd "$(dirname "$0")"
 for i in $(seq 1 80); do
   out=$(node eval.mjs 2>/dev/null)
-  echo "$out" | grep -q '"brain": "Gemma 4 E2B (LiteRT-LM) ready' && { echo READY; exit 0; }
+  echo "$out" | grep -q '"brain": "Gemma 4 E[24]B (LiteRT-LM[^"]*) ready' && { echo READY; exit 0; }
   echo "$out" | grep -q '"consent": true' && node eval.mjs "(document.getElementById('approveModelDownload')?.click(),1)" >/dev/null
   sleep 3
 done

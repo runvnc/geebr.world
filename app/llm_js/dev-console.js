@@ -3,7 +3,7 @@
 // world-integration.js (that one tracks whatever model the UI has loaded for
 // the geebrs) - these console helpers always default to Gemma 4 E2B so
 // switching a geebr's brain model never changes what a console call does.
-import { createAgentBrainManager } from './agent-brain.js?v=20261011c';
+import { createAgentBrainManager } from './agent-brain.js?v=20261011d';
 
 const DEFAULT_MODEL = 'gemma4-e2b-litert';
 
@@ -29,8 +29,10 @@ export function installDevConsole(getMainManager) {
   function getManager(modelKey) {
     const key = modelKey || DEFAULT_MODEL;
     if (!modelKey) {
+      // Reuse whatever the game has loaded (E2B or E4B): the LiteRT worker holds
+      // one engine, so loading a different default here would swap it out.
       const main = getMainManager?.();
-      if (main && main.getModelKey() === key && main.isLoaded()) return main;
+      if (main && main.isLoaded()) return main;
     }
     if (!manager || manager.getModelKey() !== key) {
       manager = createAgentBrainManager({
