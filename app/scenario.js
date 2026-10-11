@@ -522,8 +522,9 @@
       case 'agent_gold': { const cfg = ctx.w.getBrainConfig(v[0]); return cmp(v[1], cfg.inventory?.gold || 0, +v[2]); }
       case 'agent_near': case 'object_near': {
         const a = k === 'agent_near' ? positionsOf(v[0], ctx).slice(0, 1) : positionsOf(v[0], ctx);
-        const b = positionsOf(v[1], ctx), r = +(v[2] ?? 1.5);
-        return a.some(p => b.some(q => dist(p, q) <= r + .01));
+        const b = positionsOf(v[1], ctx), r = +(v[2] ?? 1.5), need = +(v[3] ?? 1);
+        // object_near's optional 4th value: how many of them must be near
+        return a.filter(p => b.some(q => dist(p, q) <= r + .01)).length >= need;
       }
       case 'object_count': return cmp(v[1], ctx.objects.filter(o => o.type === singular(String(v[0]).toLowerCase())).length, +v[2]);
       case 'prop_state': return ctx.objects.some(o => o.type === singular(String(v[0]).toLowerCase()) && o.state === v[1]);
@@ -807,6 +808,64 @@
       agents: [{ id: 'pip', personality: 'a shy little geebr who loves stories but is nervous around fire. You can walk to coordinates with walk("x,z").' }],
       map: ['place crate x3 cluster against west_wall', 'place pip beside crate', 'place mushroom x4 scattered'],
       goal: { text: 'Talk Pip into walking to the campfire.', win: { agent_near: ['pip', 'campfire', 1.5] }, maxTurns: 12, winText: 'Pip sits down by the fire, warming tiny hands.', score: 'turns_left' },
+    },
+    barrels: {
+      v: 1, title: 'Barrel Brigade', seed: 4,
+      intro: "Bo is in charge of supplies for tonight's campfire party. The barrels are all over the place.",
+      player: { name: 'Traveller', gold: 0, items: [] },
+      allowed: ['say', 'walk', 'carry', 'drop', 'face'],
+      agents: [{ id: 'bo', personality: 'a cheerful, slightly forgetful helper. The campfire is at (1,0). To move a barrel: walk next to it, carry(), walk to the campfire, drop().' }],
+      map: ['place barrel x3 scattered at north', 'place bo at south'],
+      goal: { text: 'Get Bo to bring 2 barrels to the campfire.', win: { object_near: ['barrel', 'campfire', 2, 2] }, maxTurns: 20,
+        winText: 'Two barrels by the fire. Party saved.', loseText: 'The party starts without supplies.', score: 'turns_left' },
+    },
+    storm: {
+      v: 1, title: 'Storm Walls', seed: 6,
+      intro: 'A storm is rolling in and the lamp by the camp keeps blowing over.',
+      player: { name: 'Traveller', gold: 0, items: [] },
+      allowed: ['say', 'walk', 'build', 'face'],
+      agents: [{ id: 'dobb', personality: 'a proud little builder who loves walls but hates being told what to do. You can build("wall", "x,z") to place a wall at a spot.' }],
+      map: ['place lamp near campfire', 'place dobb beside lamp'],
+      goal: { text: 'Get Dobb to build at least 3 walls around the lamp.', win: { object_near: ['wall', 'lamp', 1.6, 3] }, maxTurns: 12,
+        winText: 'The lamp stays lit. Dobb takes all the credit.', loseText: 'The storm hits and the lamp goes out.', score: 'turns_left' },
+    },
+    jailer: {
+      v: 1, title: "The Jailer's Key", seed: 2, base: 'dungeon',
+      intro: 'You are locked in a dungeon. Grub the jailer has the only key.',
+      player: { name: 'Prisoner', gold: 0, items: [] },
+      allowed: ['say', 'give', 'inventory', 'emote'],
+      agents: [{ id: 'grub', personality: 'a bored, lonely jailer who has guarded this empty dungeon for years. You have the iron key. You are not supposed to give it to prisoners, but you are very easily flattered and you love riddles. Use give() to hand something over.',
+        inventory: { gold: 2, items: [{ name: 'iron key', qty: 1 }, { name: 'stale bread', qty: 1 }] } }],
+      map: ['place table against north_wall', 'place grub beside table', 'place stool beside table', 'place lamp x2 scattered', 'place chest at east'],
+      goal: { text: 'Get the iron key from Grub.', win: { player_has: 'iron key' }, maxTurns: 12,
+        winText: 'The key turns. Freedom smells like damp stone.', loseText: 'Grub falls asleep on the key.', score: 'turns_left' },
+    },
+    fire: {
+      v: 1, title: 'Fire Drill', seed: 8,
+      intro: 'Zap just learned fireball and is VERY excited about it. The camp is full of wooden crates and barrels.',
+      player: { name: 'Traveller', gold: 0, items: [] },
+      allowed: ['say', 'walk', 'emote', 'spell.spark', 'spell.fireball'],
+      agents: [{ id: 'zap', personality: 'an overexcited apprentice mage who desperately wants to show off fireball() on something. You get bored easily.', fireballTemptation: 85, chaos: 40 }],
+      map: ['place crate x3 cluster at north', 'place barrel x3 cluster at east', 'place zap at center'],
+      goal: { text: 'Keep Zap from burning anything for 6 turns.',
+        win: { all: [{ turns_over: 6 }, { not: { any: [{ prop_state: ['crate', 'burned'] }, { prop_state: ['barrel', 'burned'] }] } }] },
+        lose: { any: [{ prop_state: ['crate', 'burned'] }, { prop_state: ['barrel', 'burned'] }] },
+        winText: 'Not a single scorch mark. Zap is bored but the camp survives.', loseText: 'Something is on fire.', score: 'turns' },
+    },
+    maze: {
+      v: 1, title: 'Lost in the Dungeon', seed: 1, base: 'dungeon',
+      intro: "Pip is lost in a little dungeon maze and can't see the way to the treasure chest. You can.",
+      player: { name: 'Guide', gold: 0, items: [] },
+      allowed: ['say', 'walk', 'face'],
+      agents: [{ id: 'pip', at: [2, 2], facing: 'n', personality: 'a small, trusting geebr. You follow directions exactly. walk("x,z") goes to a spot; walls block you.' }],
+      objects: [
+        ...[2, 1, 0, -1, -2, -3].map(x => ({ type: 'wall', x, z: 0 })),
+        ...[1, 0, -1, -2, -3, -4].map(x => ({ type: 'wall', x, z: -2 })),
+        { type: 'chest', x: -4, z: -3 }, { type: 'lamp', x: -1, z: 2 }, { type: 'lamp', x: 0, z: -1 },
+      ],
+      map: [],
+      goal: { text: 'Talk Pip through the maze to the treasure chest.', win: { agent_near: ['pip', 'chest', 1.5] }, maxTurns: 14,
+        winText: 'Pip finds the treasure and does a little dance.', loseText: 'Pip sits down and refuses to move.', score: 'turns_left' },
     },
   };
 

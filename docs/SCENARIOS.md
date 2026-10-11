@@ -20,6 +20,10 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "intro": "Mog runs the only shop on the island.",      // shown on load
   "seed": 7,                                             // layout randomness
   "lighting": "bright",                                  // or "night" (sandbox look)
+  "base": "island",                                      // island | clearing | dungeon
+  "walls": "tabletop",                                   // or "block" (old short cubes)
+  "floor": "stone",                                      // optional: paint the whole floor
+  "paint": [{ "x": 0, "z": 0, "mat": "water" }],          // optional explicit floor tiles
   "player": { "name": "Traveller", "gold": 20, "items": [] },
   "allowed": ["say", "sell", "inventory", "emote"],      // command checkboxes
   "agents": [{
@@ -60,11 +64,20 @@ so the result is always a valid map.
 
 ```
 place <thing> [xN] [<placement>]
-path from <ref|area> to <ref|area>
+path from <ref|area> to <ref|area>        (drawn as dirt; "stone path from ...")
+paint <material> [xN] [<placement>]
+floor <material>
 ```
 
 - **things**: `crate barrel mushroom lamp wall note "<text>"`, the composite
-  `counter` (a row of three wall blocks), or an agent id (places that character).
+  `counter` (a row of three wall sections), the items `chest table bench stool
+  workbench cauldron anvil weapon_stand axe pickaxe bucket bag potion scroll
+  coin_pile apple_crate carrot_crate`, or an agent id (places that character).
+- **floor tiles**: `paint <material> [xN] <placement>` lays painted tiles
+  (`stone flagstone dirt wood sand grass water lava`; water and lava block
+  walking and placement), e.g. `paint water x6 cluster at east` for a pond.
+  `floor <material>` paints the whole island. Painted patches can be refs
+  (`place lamp beside water`).
 - **placements**:
   - `at <area>`, where area is `center`, `north`, `south`, `east`, `west`,
     `northeast`, `northwest`, `southeast`, `southwest` or `random`
@@ -105,8 +118,8 @@ improvise.
    parallel to the edge or ref. `cluster` grows outward from the first cell.
    `scattered` uses farthest-point sampling over the area, keeping a minimum
    gap.
-6. **Paths** run A* pathfinding over solid, unblocked cells and reserve the
-   result, so later objects never block it (there is no visual path yet).
+6. **Paths** run A* pathfinding over solid, unblocked cells, reserve the
+   result so later objects never block it, and paint it (dirt by default).
 7. **Reachability.** Every interactive object must keep at least one free
    neighbouring cell; otherwise it is moved to the nearest cell that has one.
 8. **Relaxation.** If a hard filter leaves no candidates, the constraint is
@@ -128,7 +141,7 @@ code, so a link can't run script):
 | `agent_has` | `["mog", "magic sword"]` |
 | `agent_gold` | `["mog", ">=", 30]` |
 | `agent_near` | `["mog", "campfire", 1.5]` (target: agent, object type, scenery, or `[x, z]`) |
-| `object_near` | `["barrel", "house", 2]` |
+| `object_near` | `["barrel", "house", 2]`, or `["barrel", "campfire", 2, 2]` for "at least 2 barrels" |
 | `object_count` | `["barrel", "<", 3]` |
 | `prop_state` | `["crate", "burned"]` (any crate) |
 | `said` | `["mog", "deal"]` (case-insensitive substring; `"any"` for anyone) |
@@ -140,6 +153,21 @@ Item names match the same way as `sell()` (case-insensitive; "potion" matches
 first of win or lose to become true ends it. `score` is `player_gold`,
 `turns`, `turns_left` or `agent_gold:<id>`, and is shown on the end screen and
 in the share text.
+
+## 4b. Base maps, walls and items
+
+- **Base maps**: `island` is the full diorama. `clearing` is the same island
+  without the house, trees, boulders, fence/signpost, lantern and decor crates.
+  `dungeon` is a clearing without grass tufts, plus a stone floor and a closed
+  ring of walls on the rim. The rim walls and floor are ordinary walls and
+  paint, so they can be edited and are saved. The World pane has the same
+  picker for the sandbox.
+- **Walls** default to tabletop sections: stone-block walls about 1.1 tall that
+  join to neighbouring wall cells. `"walls": "block"` keeps the old cubes.
+- **Painted floors**: also a click-to-spawn brush in the World pane.
+- `give(item)` hands an item to the player when the character actually has it
+  in its inventory (otherwise it's just said). Walking stops at walls, painted
+  water and lava.
 
 ## 5. Links
 

@@ -39,8 +39,8 @@
     ['perf-monitor.js?v=20260823x'],
     ['graphics-settings.js?v=20260823u'],
     ['terrain-hd.js?v=20261011a'],
-    ['app.js?v=20261011i'],
-    ['scenario.js?v=20261011h'],
+    ['app.js?v=20261011j'],
+    ['scenario.js?v=20261011i'],
     ['llm_js/world-integration.js?v=20261011e', 'module'],
   ];
 

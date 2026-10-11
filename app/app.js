@@ -1666,6 +1666,8 @@ function installDirectControlHandlers(){
 }
 
 function isBlocked(x, z) {
+  // painted water/lava can't be walked through
+  const pt = paintAt(x, z); if (pt && PAINT_MATERIALS[pt.mat]?.blocks) return true;
   for (const m of state.blocks.concat(state.props)) {
     if (!m || m.isDisposed?.()) continue;
     const mm = meta(m);
@@ -1924,6 +1926,15 @@ function give(g,item){
   item=String(item||'').trim();
   if(!item) return say(g,'give what, exactly?');
   const recipient=document.getElementById('chatName')?.value.trim() || 'God';
+  // If the character actually has it, the item changes hands (scenarios like
+  // "get the jailer's key" rely on this); otherwise it's just said.
+  const inv=charInventory(g), stock=findItem(inv.items.filter(i=>(i.qty??1)>0),item);
+  if(stock){
+    stock.qty=(stock.qty??1)-1; if(stock.qty<=0) inv.items=inv.items.filter(i=>i!==stock);
+    addItem(state.player.items,stock.name); setBrainConfig(g.id,{inventory:inv});
+    emitBadge(g,'gave '+stock.name); inventoryChanged();
+    return say(g,`${g.id} gives ${recipient} ${stock.name}`);
+  }
   return say(g,`${g.id} gives ${recipient} ${item}`);
 }
 function giveQuest(g,text){ if(!state.allowed.has('give_quest')){ return say(g,'I cannot bestow quests'); } const targets=state.geebrs.filter(x=>x!==g && BABYLON.Vector3.Distance(g.root.position,x.root.position)<=2.0); if(!targets.length){ return say(g,'no one nearby to quest upon'); } const target=pickRandom(targets); const tcfg=getBrainConfig(target.id); tcfg.quest=text||''; setBrainConfig(target.id,tcfg); say(g,`bestowed quest upon ${target.id}: ${text}`); say(target,`received quest: ${text}`); updatePerceptionUI(); }
