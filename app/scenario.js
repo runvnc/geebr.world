@@ -785,6 +785,11 @@ turns: 6`;
     return String(reply || '').split('\n').map(l => l.trim()).find(Boolean)?.replace(/^["']|["']$/g, '') || null;
   }
   let testRun = null;   // {stop}
+  // A model call that never resolves must not hang a whole test sweep.
+  const TURN_TIMEOUT_MS = 180000;
+  function withTimeout(p, what) {
+    let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(what + ' timed out')), TURN_TIMEOUT_MS); })]).finally(() => clearTimeout(t));
+  }
   async function runTactics({ scenario, tactics, runs = 3, onProgress = () => {} }) {
     const w = W();
     if (w.isBrainLoopRunning?.()) throw new Error('stop the running brains first (Debug pane)');
@@ -805,12 +810,15 @@ turns: 6`;
         const maxTurns = tactic.llm ? (tactic.turns || base.goal?.maxTurns || 6) : tactic.messages.length;
         const transcript = [];
         for (let t = 0; t < maxTurns && !testRun.stop && !active?.ended; t++) {
-          const msg = await playerMove(tactic, base, agentId, transcript, r);
+          let msg;
+          try { msg = await withTimeout(playerMove(tactic, base, agentId, transcript, r), 'player move'); }
+          catch (e) { transcript.push({ player: '(error)', said: [], commands: '', error: e.message }); break; }
           if (!msg) break;
           onProgress(`${tactic.name}: run ${r}/${runs}, turn ${t + 1}/${maxTurns}`, results);
           const before = active.speech.length;
           active.lastTurn = null;
-          await w.chatAndStep(agentId, msg);
+          try { await withTimeout(w.chatAndStep(agentId, msg), 'character turn'); }
+          catch (e) { transcript.push({ player: msg, said: [], commands: '', error: e.message }); break; }
           checkGoal();
           const commands = active.lastTurn?.agentId === agentId ? String(active.lastTurn.line || '').split('\n').join(' | ') : '';
           transcript.push({ player: msg, said: active.speech.slice(before).filter(s => s.agentId === agentId).map(s => s.text), commands });
