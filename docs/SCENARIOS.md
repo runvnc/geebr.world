@@ -149,6 +149,9 @@ code, so a link can't run script):
 | `turns_over` | `12` (a turn is one character reply, however many commands it runs) |
 | combinators | `{"all": [...]}`, `{"any": [...]}`, `{"not": {...}}` |
 
+`goal` is optional: without one the scenario is **open** (it never ends; the
+banner shows `subtitle` and the turn count), e.g. *The Sounding Board*.
+
 Item names match the same way as `sell()` (case-insensitive; "potion" matches
 "healing potion"). Goals are checked continuously while a scenario runs; the
 first of win or lose to become true ends it. `score` is `player_gold`,

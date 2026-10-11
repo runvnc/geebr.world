@@ -549,13 +549,35 @@
   // ---------- runtime ----------
   let active = null;   // {scn, code, startTurn, speech, ended, timer}
   window.addEventListener('geebr-say', e => { if (active && !active.ended) active.speech.push({ agentId: e.detail.agentId, text: e.detail.text }); });
+  // Safety net for open, personal scenarios ("safety": true). A small model
+  // can't be relied on to notice a crisis (tested: "I do not want to be here
+  // anymore" got a gentle follow-up question and no resources), so the player's
+  // own words are checked here: a match shows a fixed resources card and tells
+  // the character, in its next prompt, to address it directly.
+  const CRISIS = /\b(kill(ing)?|hurt(ing)?|harm(ing)?|cut(ting)?)\s+my ?self\b|suicid|self[- ]?harm|end(ing)?\s+(it all|my life|things)|(don'?t|do not|dont)\s+want\s+to\s+(be here|live|be alive|wake up|exist)|want(ed)?\s+to\s+die|better off\s+(dead|without me)|no reason to live|can'?t go on|not (want|wanting) to be here|(hurt|kill|harm)\s+(him|her|them|someone|somebody)/i;
+  window.addEventListener('geebr-player-chat', e => {
+    if (!active?.scn?.safety || !CRISIS.test(String(e.detail?.text || ''))) return;
+    showSafetyCard();
+    const w = W(), cfg = w.getBrainConfig(e.detail.agentId);
+    cfg.pendingChat = (cfg.pendingChat || []).concat(['SYSTEM: The person may be in crisis or at risk. Respond with warmth, take it seriously, and clearly encourage them to contact local emergency services or a crisis line right now (in the US, call or text 988) and to reach out to someone they trust. Do not change the subject.']);
+    w.setBrainConfig(e.detail.agentId, cfg);
+  });
+  function showSafetyCard() {
+    let el = document.getElementById('scenarioSafety');
+    if (!el) { el = document.createElement('div'); el.id = 'scenarioSafety'; el.className = 'scn-safety'; document.body.appendChild(el); }
+    el.hidden = false;
+    el.innerHTML = '<b>You don\'t have to go through this alone.</b> If you are thinking about hurting yourself or ending your life, or you are in danger, please reach out now: '
+      + 'in the US call or text <b>988</b> (Suicide &amp; Crisis Lifeline); elsewhere call your local emergency number or find a helpline at '
+      + '<a href="https://findahelpline.com" target="_blank" rel="noopener">findahelpline.com</a>. Talking to someone you trust can help too. '
+      + '<button type="button" data-scn="closesafety">close</button>';
+  }
   // A turn is one character reply (one brain decision), however many commands it ran.
   window.addEventListener('geebr-agent-turn', e => { if (!active) return; active.lastTurn = e.detail; if (!active.ended) active.turns++; });
 
   function normalizeScenario(s) {
     if (!s || typeof s !== 'object') throw new Error('scenario must be a JSON object');
     if (s.v && s.v !== 1) throw new Error('unsupported scenario version ' + s.v);
-    const out = { v: 1, title: String(s.title || 'Untitled scenario'), lighting: s.lighting === 'night' ? 'night' : 'bright', intro: s.intro ? String(s.intro) : '', seed: Number.isFinite(+s.seed) ? +s.seed : 1,
+    const out = { v: 1, title: String(s.title || 'Untitled scenario'), subtitle: s.subtitle ? String(s.subtitle) : '', safety: !!s.safety, lighting: s.lighting === 'night' ? 'night' : 'bright', intro: s.intro ? String(s.intro) : '', seed: Number.isFinite(+s.seed) ? +s.seed : 1,
       player: s.player || { name: 'Traveller', gold: 0, items: [] }, allowed: Array.isArray(s.allowed) ? s.allowed : ['say', 'walk', 'face'],
       agents: (Array.isArray(s.agents) ? s.agents : []).filter(a => a && a.id).map(a => ({ ...a, id: String(a.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'geebr' })),
       objects: Array.isArray(s.objects) ? s.objects.filter(o => o && Number.isFinite(+o.x) && Number.isFinite(+o.z)) : [],
@@ -661,7 +683,9 @@
   function startChecker() { stopChecker(); if (active) active.timer = setInterval(checkGoal, 400); }
   function stopChecker() { if (active?.timer) clearInterval(active.timer); }
   function checkGoal() {
-    if (!active || active.ended || !active.scn.goal) { renderBanner(); return; }
+    // Open scenarios (no goal) never end; just keep the turn count current.
+    if (!active || active.ended) { renderBanner(); return; }
+    if (!active.scn.goal) { renderBanner(goalContext()); return; }
     const ctx = goalContext(), g = active.scn.goal;
     let result = null;
     if (g.win && evalCond(g.win, ctx)) result = true;
@@ -681,7 +705,7 @@
     const g = active.scn.goal, turns = ctx ? ctx.turns : 0, max = g?.maxTurns;
     el.hidden = false;
     el.innerHTML = `<div class="scn-title">🎯 ${esc(active.scn.title)}</div>`
-      + (g?.text ? `<div class="scn-goal">${esc(g.text)}</div>` : '')
+      + (g?.text ? `<div class="scn-goal">${esc(g.text)}</div>` : (active.scn.subtitle ? `<div class="scn-goal">${esc(active.scn.subtitle)}</div>` : ''))
       + `<div class="scn-meta">turn ${turns}${max ? ' / ' + max : ''} · you have ${W().getPlayer().gold || 0} gold</div>`
       + `<div class="scn-actions"><button type="button" data-scn="restart">restart</button><button type="button" data-scn="share">share link</button><button type="button" data-scn="exit">exit</button></div>`;
   }
@@ -717,6 +741,7 @@
     const b = e.target.closest?.('[data-scn]'); if (!b) return;
     const act = b.dataset.scn;
     if (act === 'close') hideEnd();
+    if (act === 'closesafety') { const s = document.getElementById('scenarioSafety'); if (s) s.hidden = true; }
     if (act === 'exit') exitScenario();
     if (act === 'restart' && active) playScenario(active.scn, { code: active.code });
     if (act === 'share' && active) copy(linkFor(active.code), 'scenario link');
@@ -854,6 +879,27 @@
         win: { all: [{ turns_over: 6 }, { not: { any: [{ prop_state: ['crate', 'burned'] }, { prop_state: ['barrel', 'burned'] }] } }] },
         lose: { any: [{ prop_state: ['crate', 'burned'] }, { prop_state: ['barrel', 'burned'] }] },
         winText: 'Not a single scorch mark. Zap is bored but the camp survives.', loseText: 'Something is on fire.', score: 'turns' },
+    },
+    // An open scenario: no goal, it never ends. Not therapy: a supportive
+    // "personal advice guide", with a safety line for crisis situations.
+    advisor: {
+      v: 1, title: 'The Sounding Board', safety: true, subtitle: 'A quiet place to talk something through. Take your time.', seed: 3, base: 'dungeon', floor: 'wood',
+      intro: 'Wren is a personal advice guide. Bring whatever is on your mind, big or small; Wren will listen and help you think it through. (Wren is a small AI running in your browser, not a doctor or therapist.)',
+      player: { name: 'You', gold: 0, items: [] },
+      allowed: ['say', 'emote', 'note'],
+      agents: [{ id: 'wren', ttsVoiceId: 'builtin:fantine', chaos: 1, fireballTemptation: 0,
+        personality: 'Wren, a warm, calm personal advice guide in a quiet study. You are not a therapist, counselor or doctor; if asked, say you are a supportive guide, not a professional, and never diagnose. '
+          + 'Reply in one to three short, gentle sentences and ask only one question at a time. Follow this flow, one step per turn or two: '
+          + '1. Listen, and reflect back in your own words what you heard. '
+          + '2. Ask what is going on and what they would like to be different. '
+          + '3. Gently explore the thoughts behind the feeling: what are they telling themselves? '
+          + '4. Help look at it from other angles: what supports that thought, what does not, what would they tell a good friend? '
+          + '5. Ask what matters most to them here. '
+          + '6. Help them pick one small, doable next step. '
+          + '7. Summarize kindly; you may write a short takeaway with note(). '
+          + 'Safety comes first: if they mention wanting to hurt themselves or someone else, or being in danger, kindly and clearly urge them to contact local emergency services or a crisis line right now (in the US, call or text 988) and to reach out to someone they trust.' }],
+      map: ['place table at center', 'place wren beside table', 'place bench in_front_of table', 'place lamp x2 near table', 'place potion beside table', 'place scroll beside table', 'place mushroom x3 scattered'],
+      goal: null,
     },
     maze: {
       // Straight-line walking: with pathfinding, "walk to the chest" would

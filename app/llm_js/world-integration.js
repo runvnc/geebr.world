@@ -684,6 +684,8 @@ async function main() {
     if (!text) return;
     const g = world.getSelectedAgent?.();
     if (!g) { appendLog('no agent selected'); return; }
+    // Listeners (scenario safety check) may add a note to this agent's prompt first.
+    try { window.dispatchEvent(new CustomEvent('geebr-player-chat', { detail: { agentId: g.id, text } })); } catch {}
     const cfg = world.getBrainConfig(g.id);
     // Store chat separately so it can be appended at the end of the next prompt (after perception)
     cfg.pendingChat = (cfg.pendingChat || []).concat([`${name} says: ${text}`]);
@@ -704,6 +706,7 @@ async function main() {
     const g = world.getAgents().find(a => a.id === agentId) || world.getSelectedAgent?.();
     if (!g) throw new Error('no character to talk to');
     if (text) {
+      try { window.dispatchEvent(new CustomEvent('geebr-player-chat', { detail: { agentId: g.id, text } })); } catch {}
       const who = name || el('chatName')?.value || 'God';
       const cfg = world.getBrainConfig(g.id);
       cfg.pendingChat = (cfg.pendingChat || []).concat([`${who} says: ${text}`]).slice(-5);
