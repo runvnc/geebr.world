@@ -7,3 +7,7 @@
 
 # local Cloudflare R2 credentials
 r2.txt
+
+# browser test tooling
+tools/browser-test/node_modules/
+tools/browser-test/results/

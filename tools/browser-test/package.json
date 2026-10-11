@@ -1,0 +1,7 @@
+{
+  "name": "geebr-browser-test",
+  "private": true,
+  "type": "module",
+  "description": "Drive a real Chrome (WebGPU) over the DevTools protocol to test geebr.world. See README.md.",
+  "dependencies": { "playwright-core": "1.49.1" }
+}
