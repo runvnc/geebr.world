@@ -900,6 +900,7 @@ function makeObject(type,x,z,opts={}){
   if(type==='lamp') return makeLamp(sc,x,z);
   if(type==='note') return makeNote(sc,x,z,opts.html || (opts.text ? '<p>'+String(opts.text).replace(/[<&>]/g,c=>({'<':'&lt;','&':'&amp;','>':'&gt;'}[c]))+'</p>' : '<p>...</p>'));
   if(type==='wall') return makeBlock(sc,x,z,!!opts.cracked);
+  if(ITEM_CATALOG[type]) return makeCatalogItem(sc,type,x,z,opts);
   return makeCrate(sc,x,z);
 }
 function getObjects(){
@@ -1095,6 +1096,38 @@ function buildWorld(scene){ const water=state.materials.water; for(let x=-WORLD.
   makeBakery(scene); makeFence(scene,-9.4,-2.2,9,'x'); makeFence(scene,-9.4,-2.2,6,'z'); makeShrine(scene); makeBridge(scene); makeLamp(scene,-1.5,1.8); makeLamp(scene,5.8,2.2); scatter(scene);
 }
 
+// Item catalog: the Quaternius props in assets/models/props, sized and offset
+// as tuned in addRealPropPass(). makeCatalogItem() places one standing on the
+// terrain; used by scenarios, click-to-spawn, the map language and restore.
+const ITEM_CATALOG={
+  chest:['Chest_Wood.gltf',{w:1.05,h:.75,d:.75,mass:1.2,scale:.55,visualYOffset:.38,flammable:true}],
+  table:['Table_Large.gltf',{w:1.35,h:.85,d:.95,static:true,scale:.72,visualYOffset:.43,flammable:true}],
+  bench:['Bench.gltf',{w:1.35,h:.55,d:.55,static:true,scale:.88,visualYOffset:.28,flammable:true}],
+  stool:['Stool.gltf',{w:.55,h:.55,d:.55,mass:.7,scale:.78,visualYOffset:.28,flammable:true}],
+  workbench:['Workbench.gltf',{w:1.35,h:.85,d:.75,static:true,scale:.82,visualYOffset:.43,flammable:true}],
+  cauldron:['Cauldron.gltf',{w:.8,h:.7,d:.8,mass:1.4,scale:.68,visualYOffset:.34,flammable:false,material:'metal'}],
+  anvil:['Anvil.gltf',{w:.9,h:.55,d:.48,mass:2.4,scale:.75,visualYOffset:.28,flammable:false,material:'metal'}],
+  weapon_stand:['WeaponStand.gltf',{w:1.0,h:1.25,d:.55,static:true,scale:.72,visualYOffset:.62,flammable:true}],
+  axe:['Axe_Bronze.gltf',{w:.25,h:.75,d:.25,mass:.4,scale:.75,visualYOffset:.38,flammable:false,material:'metal'}],
+  pickaxe:['Pickaxe_Bronze.gltf',{w:.25,h:.75,d:.25,mass:.4,scale:.75,visualYOffset:.38,flammable:false,material:'metal'}],
+  bucket:['Bucket_Wooden_1.gltf',{w:.55,h:.62,d:.55,mass:.6,scale:.72,visualYOffset:.31,flammable:true}],
+  bag:['Bag.gltf',{w:.55,h:.62,d:.55,mass:.45,scale:.85,visualYOffset:.31,flammable:true}],
+  potion:['Potion_1.gltf',{w:.32,h:.48,d:.32,mass:.28,scale:.72,visualYOffset:.24,flammable:false,material:'glass'}],
+  scroll:['Scroll_1.gltf',{w:.45,h:.25,d:.45,mass:.22,scale:.75,visualYOffset:.13,flammable:true}],
+  coin_pile:['Coin_Pile.gltf',{w:.55,h:.28,d:.55,mass:.35,scale:.75,visualYOffset:.14,flammable:false,material:'metal'}],
+  apple_crate:['FarmCrate_Apple.gltf',{w:1.0,h:.75,d:.9,mass:1.25,scale:.82,visualYOffset:.37,flammable:true}],
+  carrot_crate:['FarmCrate_Carrot.gltf',{w:1.0,h:.75,d:.9,mass:1.25,scale:.82,visualYOffset:.37,flammable:true}],
+};
+function makeCatalogItem(scene,type,x,z,opts={}){
+  const entry=ITEM_CATALOG[type]; if(!entry) return null;
+  const [file,base]=entry;
+  // importPropAsset() is async (GLB load) but registers its physics proxy
+  // synchronously, so callers get a usable object right away.
+  let proxy=null;
+  const p=importPropAsset(scene,file,{...base,type,x,z,ry:opts.ry||0,y:(state.terrainTopY??0)+base.h/2,onProxy:m=>{ proxy=m; }});
+  p.catch(e=>console.warn('catalog item failed',type,e));
+  return proxy;
+}
 async function importPropAsset(scene,file,opts={}){
   const type=opts.type||file.replace(/\.gltf$/,'').toLowerCase();
   const proxy=BABYLON.MeshBuilder.CreateBox('real_'+type+'_proxy',{width:opts.w||.8,height:opts.h||.8,depth:opts.d||.8},scene);
@@ -1104,6 +1137,7 @@ async function importPropAsset(scene,file,opts={}){
   addBody(proxy,opts.static?'static':'dynamic',opts.shape||'BOX',opts.mass??1.1,{friction:opts.friction??.72,restitution:opts.restitution??.12});
   tag(proxy,type,{health:opts.health??2,material:opts.material||'wood',flammable:opts.flammable??true,soft:!!opts.soft,zone:'real-props'});
   state.props.push(proxy);
+  opts.onProxy?.(proxy);
   try{
     const result=await BABYLON.SceneLoader.ImportMeshAsync('',PROP_ASSET,file,scene);
     const root=new BABYLON.TransformNode('real_'+type+'_root',scene);
@@ -2100,6 +2134,12 @@ async function spawnAt(type, x, z) {
   } else if (type === 'lamp') {
     obj = makeLamp(state.scene, x, z);
     log('spawned lamp at ' + x + ',' + z);
+  } else if (type === 'note') {
+    obj = makeNote(state.scene, x, z, '<h2>Note</h2><p>...</p>');
+    log('spawned note at ' + x + ',' + z);
+  } else if (ITEM_CATALOG[type]) {
+    obj = makeCatalogItem(state.scene, type, x, z);
+    log('spawned ' + type + ' at ' + x + ',' + z);
   } else {
     obj = makeCrate(state.scene, x, z);
     log('spawned crate at ' + x + ',' + z);
@@ -2217,6 +2257,7 @@ async function restoreWorldState(input) {
       else if (p.type === 'mushroom') obj = makeMushroom(state.scene, p.x, p.z);
       else if (p.type === 'lamp') obj = makeLamp(state.scene, p.x, p.z);
       else if (p.type === 'note') obj = makeNote(state.scene, p.x, p.z, p.noteHtml||p.noteText||'<p>note</p>');
+      else if (ITEM_CATALOG[p.type]) obj = makeCatalogItem(state.scene, p.type, p.x, p.z);
       else obj = makeCrate(state.scene, p.x, p.z);
     if(obj){ const mm=meta(obj); if(mm){ mm.state=p.state||'intact'; mm.health=p.health??mm.health; } }
   }
@@ -2281,7 +2322,7 @@ function installWorldAPI(){
     getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius), buildVisiblePerception,
     parseInventoryItems, formatInventoryItems, getPlayer:()=>state.player,
     // scenario support (scenario.js)
-    WORLD, hasGroundAt, sceneryAt, sceneryAnchors, spawnAgent, makeObject, getObjects, selectGeebr, inventoryChanged,
+    WORLD, ITEM_CATALOG, hasGroundAt, sceneryAt, sceneryAnchors, spawnAgent, makeObject, getObjects, selectGeebr, inventoryChanged,
     findItem:(items,name)=>findItem(items||[],name),
     setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },

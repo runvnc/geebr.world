@@ -37,10 +37,13 @@
   function linkFor(code) { const u = new URL(location.href); u.hash = 's=' + code; return u.toString(); }
 
   // ---------- map description language ----------
-  const THINGS = ['crate', 'barrel', 'mushroom', 'lamp', 'wall', 'note', 'counter'];
-  const ALIASES = { box: 'crate', boxes: 'crate', chest: 'crate', keg: 'barrel', lantern: 'lamp', light: 'lamp', torch: 'lamp',
-    sign: 'note', letter: 'note', paper: 'note', scroll: 'note', block: 'wall', stone: 'wall', rock: 'wall',
-    shroom: 'mushroom', toadstool: 'mushroom', table: 'counter', desk: 'counter', stall: 'counter', bar: 'counter',
+  const ITEMS = ['chest', 'table', 'bench', 'stool', 'workbench', 'cauldron', 'anvil', 'weapon_stand', 'axe', 'pickaxe', 'bucket', 'bag', 'potion', 'scroll', 'coin_pile', 'apple_crate', 'carrot_crate'];
+  const THINGS = ['crate', 'barrel', 'mushroom', 'lamp', 'wall', 'note', 'counter', ...ITEMS];
+  const ALIASES = { box: 'crate', boxes: 'crate', trunk: 'chest', treasure: 'chest', keg: 'barrel', lantern: 'lamp', light: 'lamp', torch: 'lamp',
+    sign: 'note', letter: 'note', paper: 'note', block: 'wall', stone: 'wall', rock: 'wall',
+    shroom: 'mushroom', toadstool: 'mushroom', desk: 'counter', stall: 'counter', bar: 'counter',
+    coins: 'coin_pile', coin: 'coin_pile', gold: 'coin_pile', rack: 'weapon_stand', weapons: 'weapon_stand', sack: 'bag', pot: 'cauldron',
+    bottle: 'potion', seat: 'stool', chair: 'stool', apples: 'apple_crate', carrots: 'carrot_crate',
     fire: 'campfire', fireplace: 'campfire', home: 'house', cottage: 'house', hut: 'house', building: 'house' };
   const AREA_DIRS = { north: [0, -1], south: [0, 1], east: [-1, 0], west: [1, 0],
     northeast: [-1, -1], northwest: [1, -1], southeast: [-1, 1], southwest: [1, 1] };
@@ -73,7 +76,8 @@
     let s = line.toLowerCase().replace(/^\s*(\d+[.)]|[-*•])\s*/, '')
       .replace(/in front of/g, 'in_front_of').replace(/next to/g, 'beside').replace(/close to/g, 'near')
       .replace(/north[ -]east/g, 'northeast').replace(/north[ -]west/g, 'northwest').replace(/south[ -]east/g, 'southeast').replace(/south[ -]west/g, 'southwest')
-      .replace(/(north|south|east|west)_(wall|edge)/g, '$1 wall');
+      .replace(/(north|south|east|west)_(wall|edge)/g, '$1 wall')
+      .replace(/weapon[ -]stand/g, 'weapon_stand').replace(/coin[ -]pile/g, 'coin_pile').replace(/(apple|carrot)[ -]crate/g, '$1_crate');
     const ids = agentIds.map(a => a.toLowerCase());
     const words = s.replace(/[^a-z0-9_ ]/g, ' ').split(/\s+/).filter(w => w && !['the', 'of', 'and', 'with', 'to_the'].includes(w));
     const known = w => ids.includes(w) || THINGS.includes(singular(w)) || ['house', 'campfire'].includes(singular(w));
@@ -694,7 +698,7 @@
       'Line forms:',
       '  place <thing> [xN] <placement>',
       '  path from <thing|area> to <thing|area>',
-      `Things: crate, barrel, mushroom, lamp, wall, counter, note "<short text>"${agentIds.length ? ', characters: ' + agentIds.join(', ') : ''}.`,
+      `Things: crate, barrel, mushroom, lamp, wall, counter, note "<short text>", ${ITEMS.join(', ')}${agentIds.length ? ', characters: ' + agentIds.join(', ') : ''}.`,
       'Placements: at center|north|south|east|west|northeast|northwest|southeast|southwest|random, against north_wall (or south_wall, east_wall, west_wall), beside X, near X, behind X, in_front_of X, around X. Optional: row, cluster, scattered.',
       'X can be any thing placed earlier, a character, house or campfire.',
       '',
