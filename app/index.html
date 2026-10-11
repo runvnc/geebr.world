@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20261010b" />
+  <link rel="stylesheet" href="style.css?v=20261011a" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -83,6 +83,7 @@
   <nav id="rail" aria-label="panels">
     <button class="rail-btn" data-tab="world" type="button" title="World">🌍</button>
     <button class="rail-btn" data-tab="character" type="button" title="Character">🧝</button>
+    <button class="rail-btn" data-tab="scenario" type="button" title="Scenario">🎯</button>
     <button class="rail-btn" data-tab="library" type="button" title="Library">📖</button>
     <button class="rail-btn" data-tab="voice" type="button" title="Voice">🔊</button>
     <button class="rail-btn" data-tab="graphics" type="button" title="Graphics">🎛️</button>
@@ -150,6 +151,28 @@
       <div id="allowedCommands"></div>
     </section>
 
+    <section class="pane" id="pane-scenario">
+      <h2 class="pane-title">Scenario</h2>
+      <small class="pane-note">A scenario is a little game with a goal, shareable as a link. Playing one never touches your sandbox world; "exit" brings it back.</small>
+      <div class="row"><select id="scnExamples"></select><button id="scnLoadExample" type="button">load example</button></div>
+      <label class="personality-label">Scenario (JSON)<textarea id="scnJson" rows="12" spellcheck="false"></textarea></label>
+      <div class="row">
+        <button id="scnPlay" type="button">▶ play</button>
+        <button id="scnFromWorld" type="button">from current world</button>
+        <button id="scnCopyLink" type="button">copy link</button>
+      </div>
+      <div id="scnStatus" class="pane-note"></div>
+      <div class="section-subtitle">Map</div>
+      <label class="personality-label">Describe the place<input id="scnDescribe" type="text" placeholder="a tiny shop with a counter, barrels and a lamp" /></label>
+      <div class="row"><button id="scnGenerate" type="button">generate map lines with the model</button></div>
+      <label class="personality-label">Map lines (e.g. <code>place barrel x3 beside counter</code>)<textarea id="scnMap" rows="6" spellcheck="false"></textarea></label>
+      <div class="row">
+        <label>seed <input id="scnSeed" type="number" value="1" step="1" style="width:5em" /></label>
+        <button id="scnReroll" type="button">re-roll layout</button>
+      </div>
+      <pre id="scnWarnings" class="scn-warnings"></pre>
+      <small class="pane-note">Things: crate, barrel, mushroom, lamp, wall, counter, note "text", or a character id. Placements: at center/north/…/random, against north_wall, beside / near / behind / in_front_of / around X (X: anything placed earlier, a character, house, campfire), plus row / cluster / scattered. Also: path from X to Y. Goals and the full format: docs/SCENARIOS.md.</small>
+    </section>
     <section class="pane" id="pane-library">
       <h2 class="pane-title">Library</h2>
       <div class="section-subtitle">Scenes (world setups)</div>
@@ -239,6 +262,8 @@
     </section>
   </aside>
 
+  <div id="scenarioBanner" hidden></div>
+  <div id="scenarioEnd" class="scn-overlay" hidden></div>
   <div id="chatDock">
     <div class="chat-target" id="chatTarget">to: click a geebr</div>
     <label class="chat-name-label">Chat name <input id="chatName" type="text" value="God" placeholder="Your name" /></label>

@@ -14,7 +14,7 @@ const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
   blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new WeakMap(), held:new Map(), allowed:new Set(['walk','face']), zoomFocus:null, animSources:null,
   turn:{index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true}, globalHistory:[], nextAgentId:null,
-  brainConfigs:new Map(), player:{gold:100,items:[]}, nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
+  brainConfigs:new Map(), player:{gold:100,items:[]}, saveKey:'geebrWorldState', nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
 };
 function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); try{ const muted=(window._geebrLogToastMuteUntil&&performance.now()<window._geebrLogToastMuteUntil)||s.startsWith('selected '); if(!muted) window.geebrToast?.(s,{type:'info'}); }catch{} }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
@@ -822,6 +822,57 @@ function endFall(g){
   say(g,'blub. I have returned from the sea');
   saveWorldState();
 }
+// Fixed HD scenery that objects must not be placed into (scenario layout).
+const SCENERY_MESH=/^(hd_(house|tree|boulders|posts|rails|planks|decor_crate|edge_stones|leaves)|fire_|campfire)/;
+const sceneryCache=new Map();
+function sceneryAt(x,z){
+  const key=Math.round(x*4)+','+Math.round(z*4);
+  if(sceneryCache.has(key)) return sceneryCache.get(key);
+  const top=state.terrainTopY??0, down=new BABYLON.Vector3(0,-1,0);
+  const isScenery=m=>SCENERY_MESH.test(m.name) && m.isEnabled() && m.isVisible!==false;
+  // Anything above the plateau within ~0.3 of the cell centre blocks it.
+  const hit=[[0,0],[.3,0],[-.3,0],[0,.3],[0,-.3]].some(([ox,oz])=>{
+    const p=state.scene.pickWithRay(new BABYLON.Ray(new BABYLON.Vector3(x+ox,top+4,z+oz),down,4-.06),isScenery);
+    return !!p?.hit;
+  });
+  if(state.scene?.meshes.some(isScenery)) sceneryCache.set(key,hit);
+  return hit;
+}
+// Named scenery a scenario map can refer to ("near house").
+function sceneryAnchors(){
+  const out={};
+  const centre=re=>{ const ms=state.scene.meshes.filter(m=>re.test(m.name)&&m.isEnabled()); if(!ms.length) return null; let x=0,z=0; for(const m of ms){ const c=m.getBoundingInfo().boundingBox.centerWorld; x+=c.x; z+=c.z; } return {x:x/ms.length,z:z/ms.length}; };
+  const house=centre(/^hd_house$/); if(house) out.house=house;
+  const fire=centre(/^fire_(log|stone)/); if(fire) out.campfire=fire;
+  return out;
+}
+const FACING_DIRS={n:[0,0,-1],s:[0,0,1],e:[-1,0,0],w:[1,0,0]};
+async function spawnAgent(id,x,z,facing='s'){
+  const pos=new BABYLON.Vector3(x,.06,z);
+  let g;
+  try{ g=await createGeneratedGeebr(state.scene,id,pos); }
+  catch(e){ console.warn('generated Geebr failed; using procedural fallback',e); g=createGeebr(state.scene,id,pos,{hat:state.materials.hat1,belly:state.materials.belly1,dark:state.materials.foot},'goblin'); }
+  setGeebrLogicalPosition(g,pos);
+  const d=FACING_DIRS[String(facing||'s')[0].toLowerCase()]||FACING_DIRS.s;
+  setGeebrFacing(g,new BABYLON.Vector3(...d));
+  refreshAgentSelect();
+  return g;
+}
+function makeObject(type,x,z,opts={}){
+  const sc=state.scene;
+  if(type==='barrel') return makeBarrel(sc,x,z);
+  if(type==='mushroom') return makeMushroom(sc,x,z);
+  if(type==='lamp') return makeLamp(sc,x,z);
+  if(type==='note') return makeNote(sc,x,z,opts.html || (opts.text ? '<p>'+String(opts.text).replace(/[<&>]/g,c=>({'<':'&lt;','&':'&amp;','>':'&gt;'}[c]))+'</p>' : '<p>...</p>'));
+  if(type==='wall') return makeBlock(sc,x,z,!!opts.cracked);
+  return makeCrate(sc,x,z);
+}
+function getObjects(){
+  return state.props.concat(state.blocks).filter(m=>m && !m.isDisposed?.()).map(m=>{
+    const mm=meta(m)||{}, p=m.getAbsolutePosition?.()||m.position;
+    return {mesh:m,type:mm.type||m.name,x:p.x,z:p.z,state:mm.state||'intact',noteHtml:mm.noteHtml,noteText:mm.noteText};
+  }).filter(o=>!['tile','hole'].includes(o.type));
+}
 function syncGeebr(g){
   // v14.1: authoritative character position is logical/grid position, not Havok momentum.
   // Otherwise the invisible physics body can snap the visual rig back to its old position after a turn.
@@ -1181,6 +1232,7 @@ function say(g,text,voiced=false){
   // Dispatch speech before logging, DOM bubbles, animation, or history work. Only explicit say commands are voiced; action confirmations stay text-only.
   if(voiced){ try{ window.geebrTTS?.speak(g,text,getBrainConfig(g.id).ttsVoiceId); }catch(e){ console.warn('Pocket-TTS say failed',e); } }
   log(g.id+': '+text);
+  try{ window.dispatchEvent(new CustomEvent('geebr-say',{detail:{agentId:g.id,text:String(text||''),voiced}})); }catch{}
   const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86);
   document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8});
   const speechRequested=localStorage.getItem('geebrTtsEnabled')==='1' && getBrainConfig(g.id).ttsEnabled!==false;
@@ -2060,7 +2112,8 @@ function saveWorldState() {
       allowed: Array.from(state.allowed),
       ts: Date.now(),
     };
-    localStorage.setItem('geebrWorldState', JSON.stringify(data));
+    // Scenarios save under their own key so they never overwrite the sandbox.
+    localStorage.setItem(state.saveKey||'geebrWorldState', JSON.stringify(data));
   } catch (e) { console.warn('saveWorldState failed:', e); }
 }
 
@@ -2136,7 +2189,7 @@ async function restoreWorldState(input) {
 }
 async function loadWorldState() {
   try {
-    const raw=localStorage.getItem('geebrWorldState');
+    const raw=localStorage.getItem(state.saveKey||'geebrWorldState');
     if(!raw) return false;
     await restoreWorldState(JSON.parse(raw));
     log('world state restored from save');
@@ -2155,6 +2208,11 @@ function installWorldAPI(){
     getAllowedCommands:()=>Array.from(state.allowed), canRun,
     getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius), buildVisiblePerception,
     parseInventoryItems, formatInventoryItems, getPlayer:()=>state.player,
+    // scenario support (scenario.js)
+    WORLD, hasGroundAt, sceneryAt, sceneryAnchors, spawnAgent, makeObject, getObjects, selectGeebr, inventoryChanged,
+    findItem:(items,name)=>findItem(items||[],name),
+    setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
+    setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
     executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
@@ -2197,7 +2255,7 @@ function setupUI(){
   const showMap=document.getElementById('showAsciiMap'); if(showMap) showMap.onchange=updatePerceptionUI;
   const clearMapBtn=document.getElementById('clearMap'); if(clearMapBtn) clearMapBtn.onclick=async()=>{
     if(await window.confirmDialog('Clear all geebrs and objects from the map?',{title:'Clear map?',confirmText:'clear map',danger:true})) {
-      const snap=localStorage.getItem('geebrWorldState');
+      const snap=localStorage.getItem(state.saveKey||'geebrWorldState');
       window._geebrLogToastMuteUntil=performance.now()+1500;
       clearWorld(); saveWorldState();
       window.geebrToast?.('map cleared: all geebrs and objects removed',{type:'warn',duration:9000,action:snap?{label:'undo',onClick:async()=>{ try{ await restoreWorldState(JSON.parse(snap)); window.geebrToast?.('map restored',{type:'success'}); }catch(e){ window.geebrToast?.('undo failed: '+(e?.message||e),{type:'error'}); } }}:null});
@@ -2205,7 +2263,7 @@ function setupUI(){
   };
   const resetStateBtn=document.getElementById('resetState'); if(resetStateBtn) resetStateBtn.onclick=async()=>{
     if(await window.confirmDialog('Reset to a blank demo world with one Geebr? Geebr customizations (personality, voice, chaos etc.) are kept.',{title:'Reset state?',confirmText:'reset world',danger:true})) {
-      const snap=localStorage.getItem('geebrWorldState');
+      const snap=localStorage.getItem(state.saveKey||'geebrWorldState');
       window._geebrLogToastMuteUntil=performance.now()+2500;
       localStorage.removeItem('geebrWorldState'); clearWorld();
       createGeneratedGeebr(state.scene,'geebr1',new BABYLON.Vector3(0,.06,0)).then(g=>{
