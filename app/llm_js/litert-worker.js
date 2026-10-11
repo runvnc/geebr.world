@@ -290,7 +290,10 @@ async function runTurn(systemContent, chatMessages, promptText, opts, onToken, t
   }
 }
 
+// Debug/test hook: exactly what the last turn sent (window.__geebrLiteRT.lastPrompt()).
+let lastSent = null;
 async function sendTurn(conversation, promptText, opts, onToken) {
+  lastSent = { agentId: opts.agentId || 'default', thinking: !!opts.extra_body?.enable_thinking, promptText, at: Date.now() };
   let fullText = '', channelText = '';
   console.log('[litert-worker] SENDING PROMPT TO LiteRT conversation', {
     agentId: opts.agentId || 'default', streaming: !!onToken, thinking: !!opts.extra_body?.enable_thinking, promptText,
@@ -419,6 +422,8 @@ self.onmessage = async (e) => {
       const onToken = streaming ? (fullText) => reply({ type: 'token', text: fullText }) : null;
       const { text, thinking } = await serialize(() => generateText(messages, opts || {}, onToken));
       reply({ type: 'result', data: { text, thinking } });
+    } else if (type === 'debugLastPrompt') {
+      reply({ type: 'result', data: lastSent });
     } else if (type === 'clearConversations') {
       clearConversations(e.data.agentId ?? null);
       reply({ type: 'result', data: {} });
