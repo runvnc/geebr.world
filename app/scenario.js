@@ -508,7 +508,7 @@
   function normalizeScenario(s) {
     if (!s || typeof s !== 'object') throw new Error('scenario must be a JSON object');
     if (s.v && s.v !== 1) throw new Error('unsupported scenario version ' + s.v);
-    const out = { v: 1, title: String(s.title || 'Untitled scenario'), intro: s.intro ? String(s.intro) : '', seed: Number.isFinite(+s.seed) ? +s.seed : 1,
+    const out = { v: 1, title: String(s.title || 'Untitled scenario'), lighting: s.lighting === 'night' ? 'night' : 'bright', intro: s.intro ? String(s.intro) : '', seed: Number.isFinite(+s.seed) ? +s.seed : 1,
       player: s.player || { name: 'Traveller', gold: 0, items: [] }, allowed: Array.isArray(s.allowed) ? s.allowed : ['say', 'walk', 'face'],
       agents: (Array.isArray(s.agents) ? s.agents : []).filter(a => a && a.id).map(a => ({ ...a, id: String(a.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24) || 'geebr' })),
       objects: Array.isArray(s.objects) ? s.objects.filter(o => o && Number.isFinite(+o.x) && Number.isFinite(+o.z)) : [],
@@ -531,6 +531,7 @@
     w.clearWorld();
     w.state.globalHistory = [];
     w.setAllowed(scn.allowed);
+    w.setLighting?.(scn.lighting === 'night' ? 'night' : 'bright');
     w.setPlayer(scn.player);
     const plan = layout(scn);
     for (const o of scn.objects) w.makeObject(o.type, +o.x, +o.z, o);
@@ -566,6 +567,7 @@
     const w = W();
     stopChecker(); active = null; renderBanner(); hideEnd();
     w.state.saveKey = SANDBOX_KEY;
+    w.setLighting?.('night');
     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
     const raw = localStorage.getItem(SANDBOX_KEY);
     if (raw) { try { await w.restoreWorldState(JSON.parse(raw)); return; } catch (e) { console.warn('sandbox restore failed', e); } }

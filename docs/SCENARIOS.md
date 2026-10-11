@@ -19,6 +19,7 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "title": "The Stubborn Shopkeeper",
   "intro": "Mog runs the only shop on the island.",      // shown on load
   "seed": 7,                                             // layout randomness
+  "lighting": "bright",                                  // or "night" (sandbox look)
   "player": { "name": "Traveller", "gold": 20, "items": [] },
   "allowed": ["say", "sell", "inventory", "emote"],      // command checkboxes
   "agents": [{
@@ -83,9 +84,11 @@ improvise.
 ## 3. Layout engine (deterministic)
 
 1. **Grid.** Integer cells on the island. A cell is *solid* when the island top
-   is under its centre and four probes 0.35 out (no overhanging the cliff). It
-   is *blocked* when fixed scenery (house, trees, boulders, fence, signpost,
-   campfire, decor crates) is above it, found with a downward ray per cell.
+   is under its centre and four probes 0.35 out (no overhanging the cliff);
+   that's a lookup in the plateau tiles the island builder recorded. It is
+   *blocked* when fixed scenery (house, trees, boulders, fence, signpost,
+   campfire, decor crates) covers it between ankle and head height, from one
+   pass over those meshes' triangles. (Per-cell raycasts froze the tab.)
 2. **Parse** lines into entities `{thing, count, relation, ref, arrangement}`.
 3. **Order.** Explicit objects first, then lines whose refs are resolved, in
    written order. Lines waiting on a ref are deferred and retried, and `path`

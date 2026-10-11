@@ -514,6 +514,10 @@
     }
 
     const groups = { grass:[], dirt:[], stone:[] };
+    // Centres of every plateau-height tile. app.js's hasGroundAt() looks these
+    // up instead of raycasting the merged grass mesh (thousands of picks froze
+    // the tab when a scenario laid out a map).
+    const plateau=[];
     let yawSeed=0x5eed1234;
     const yawRnd=()=>{ yawSeed=(yawSeed*1664525+1013904223)>>>0; return yawSeed/4294967296; };
     for(let tx=-WORLD.halfW; tx<WORLD.halfW; tx++){
@@ -529,6 +533,7 @@
         const north=[1.55,1.05,.35,-.35,-.95,-1.25,-.70,.05,.75,1.35,.85,.15][Math.max(0,Math.min(11,Math.floor(tx+WORLD.halfW)))];
         const south=[-.65,-.95,-.45,.20,.75,1.15,1.45,1.05,.25,-.55,-1.00,-.55][Math.max(0,Math.min(11,Math.floor(tx+WORLD.halfW)))];
         if(cx>WORLD.halfW+east || cx<-WORLD.halfW-west || cz>WORLD.halfH+north || cz<-WORLD.halfH-south) continue;
+        plateau.push([cx,cz]);
         const n=noise(tx*3.1+5,tz*2.7-3);
         const h=.42+n*.025;
         const lift=(noise(tx*7.7,tz*5.3)-.5)*.018;
@@ -568,6 +573,7 @@
         box.setEnabled(true); box.isVisible=true; box.isPickable=false;
         box.rotation.y=0; box.scaling.set(1.006,1.006,1.006);
         box.position.set(x,.010,z); groups.grass.push(box);
+        plateau.push([x,z]);
       }
     }
 
@@ -613,6 +619,7 @@
     if(out.grass?.material) API.state.hdMaterials.grassGLB=out.grass.material;
     API.state.terrainTopY=TOP_Y;
     API.state.seaLevel=SEA_LEVEL;
+    API.state.plateauTiles=plateau;
     return out;
   }
 

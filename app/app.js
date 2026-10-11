@@ -270,9 +270,11 @@ function debugRigAnims(g){ try{ console.log('[geebr rig]', g.id, 'clips:', Objec
 // positions rather than per-rig axis conventions, so the same code works on the
 // Meshy and KayKit skeletons, layered on top of whatever clip is playing.
 const CARRY_LIFT_TIME=.35, CARRY_BLEND_IN=.3, CARRY_BLEND_OUT=.25, CARRY_OVERHEAD_HALF_WIDTH=.2, CARRY_OVERHEAD_HALF_HEIGHT=.24;
+// Bounds of an object's physical parts (a lamp's ground glow is not part of it).
+const solidPart=m=>m.name!=='lamp_pool';
 function beginCarry(g,h){
   h.computeWorldMatrix(true);
-  const {min,max}=h.getHierarchyBoundingVectors(true);
+  const {min,max}=h.getHierarchyBoundingVectors(true,solidPart);
   const pos=h.getAbsolutePosition();
   const r=Math.max(max.x-min.x,max.z-min.z)/2, halfH=(max.y-min.y)/2;
   const itemYaw=h.rotationQuaternion ? h.rotationQuaternion.toEulerAngles().y : (h.rotation?.y||0);
@@ -732,7 +734,26 @@ function setGeebrLogicalPosition(g,pos){
 // results are cached per 1/4 tile.
 const GROUND_MESH=/^(hd_island_|voxel_island)/;
 const groundCache=new Map();
+// Fast path: the HD island records its plateau tile centres (1x1 tiles), so
+// "is there ground" is a lookup. Tiles centred on half-integers go in a grid
+// map; the few off-grid terrace tiles are checked directly.
+let plateauIndex=null;
+function plateauGround(x,z){
+  const tiles=state.plateauTiles; if(!tiles?.length) return null;
+  if(!plateauIndex || plateauIndex.src!==tiles){
+    const grid=new Set(), extra=[];
+    for(const [cx,cz] of tiles){
+      const fx=cx-.5, fz=cz-.5;
+      if(Math.abs(fx-Math.round(fx))<1e-6 && Math.abs(fz-Math.round(fz))<1e-6) grid.add(Math.round(fx)+','+Math.round(fz)); else extra.push([cx,cz]);
+    }
+    plateauIndex={src:tiles,grid,extra};
+  }
+  // .51: the tiles overlap a hair (scaled 1.006), so seams count as ground.
+  const at=(px,pz)=>plateauIndex.grid.has(Math.floor(px)+','+Math.floor(pz)) || plateauIndex.extra.some(([cx,cz])=>Math.abs(px-cx)<=.51 && Math.abs(pz-cz)<=.51);
+  return [[0,0],[.15,0],[-.15,0],[0,.15],[0,-.15]].some(([ox,oz])=>at(x+ox,z+oz));
+}
 function hasGroundAt(x,z){
+  const fast=plateauGround(x,z); if(fast!==null) return fast;
   const key=Math.round(x*4)+','+Math.round(z*4);
   if(groundCache.has(key)) return groundCache.get(key);
   const top=state.terrainTopY??0, down=new BABYLON.Vector3(0,-1,0);
@@ -824,19 +845,33 @@ function endFall(g){
 }
 // Fixed HD scenery that objects must not be placed into (scenario layout).
 const SCENERY_MESH=/^(hd_(house|tree|boulders|posts|rails|planks|decor_crate|edge_stones)|fire_|campfire)/;
-const sceneryCache=new Map();
+// Blocked integer cells, built once by marking every cell that a scenery
+// triangle covers between ankle and head height (canopies and the ground
+// itself don't block). Raycasting per cell froze the tab.
+let sceneryCells=null;
+function buildSceneryCells(){
+  const cells=new Set(), top=state.terrainTopY??0, lo=top+.06, hi=top+1.2, v=new BABYLON.Vector3();
+  for(const m of state.scene.meshes){
+    if(!SCENERY_MESH.test(m.name) || !m.isEnabled() || m.isVisible===false || !m.getVerticesData) continue;
+    const pos=m.getVerticesData(BABYLON.VertexBuffer.PositionKind); if(!pos) continue;
+    const idx=m.getIndices(); const wm=m.computeWorldMatrix(true);
+    const n=pos.length/3, wx=new Float32Array(n), wy=new Float32Array(n), wz=new Float32Array(n);
+    for(let i=0;i<n;i++){ BABYLON.Vector3.TransformCoordinatesFromFloatsToRef(pos[i*3],pos[i*3+1],pos[i*3+2],wm,v); wx[i]=v.x; wy[i]=v.y; wz[i]=v.z; }
+    const tri=(a,b,c)=>{
+      const y0=Math.min(wy[a],wy[b],wy[c]), y1=Math.max(wy[a],wy[b],wy[c]);
+      if(y1<lo || y0>hi) return;
+      const x0=Math.round(Math.min(wx[a],wx[b],wx[c])), x1=Math.round(Math.max(wx[a],wx[b],wx[c]));
+      const z0=Math.round(Math.min(wz[a],wz[b],wz[c])), z1=Math.round(Math.max(wz[a],wz[b],wz[c]));
+      if(x1-x0>6 || z1-z0>6) return;   // a stray huge triangle is not an obstacle footprint
+      for(let x=x0;x<=x1;x++) for(let z=z0;z<=z1;z++) cells.add(x+','+z);
+    };
+    if(idx) for(let i=0;i<idx.length;i+=3) tri(idx[i],idx[i+1],idx[i+2]); else for(let i=0;i+2<n;i+=3) tri(i,i+1,i+2);
+  }
+  return cells;
+}
 function sceneryAt(x,z){
-  const key=Math.round(x*4)+','+Math.round(z*4);
-  if(sceneryCache.has(key)) return sceneryCache.get(key);
-  const top=state.terrainTopY??0, down=new BABYLON.Vector3(0,-1,0);
-  const isScenery=m=>SCENERY_MESH.test(m.name) && m.isEnabled() && m.isVisible!==false;
-  // Anything above the plateau within ~0.3 of the cell centre blocks it.
-  const hit=[[0,0],[.3,0],[-.3,0],[0,.3],[0,-.3]].some(([ox,oz])=>{
-    const p=state.scene.pickWithRay(new BABYLON.Ray(new BABYLON.Vector3(x+ox,top+4,z+oz),down,4-.06),isScenery);
-    return !!p?.hit;
-  });
-  if(state.scene?.meshes.some(isScenery)) sceneryCache.set(key,hit);
-  return hit;
+  if(!sceneryCells) sceneryCells=buildSceneryCells();
+  return sceneryCells.has(Math.round(x)+','+Math.round(z));
 }
 // Named scenery a scenario map can refer to ("near house").
 function sceneryAnchors(){
@@ -927,7 +962,44 @@ function makeBarrel(scene,x,z){
   return b;
 }
 function makeMushroom(scene,x,z,s=.7){ const root=new BABYLON.TransformNode('mushroom_root',scene); root.position.set(x,state.terrainTopY??0,z); const stem=BABYLON.MeshBuilder.CreateCylinder('mushroom_stem',{height:.42*s,diameter:.18*s,tessellation:7},scene); stem.parent=root; stem.position.y=.21*s; stem.material=state.materials.canvas; const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_cap',{diameter:.52*s,segments:10},scene); cap.parent=root; cap.position.y=.46*s; cap.scaling.y=.38; cap.material=state.materials.mushroom; addShadow(stem); addShadow(cap); tag(root,'mushroom',{health:2,material:'soft',soft:true}); stem.metadata={proxy:root}; cap.metadata={proxy:root}; state.props.push(root); return root; }
-function makeLamp(scene,x,z){ const root=new BABYLON.TransformNode('lamp_root',scene); root.position.set(x,state.terrainTopY??0,z); const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.parent=root; pole.position.y=.46; pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.parent=root; c.position.y=.98; c.material=state.materials.magic; addShadow(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(0,.96,0),scene); light.parent=root; light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; tag(root,'lamp',{health:1,material:'crystal'}); pole.metadata={proxy:root}; c.metadata={proxy:root}; state.props.push(root); return root; }
+// Lamps can't take a real light slot (materials are capped at four lights:
+// campfire, lantern, key, rim), so fake their glow with an additive pool of
+// light on the ground around them.
+function addLampPool(scene,root){
+  if(!state.lampPoolMat){
+    const size=128, tex=new BABYLON.DynamicTexture('lamp_pool_tex',{width:size,height:size},scene,false);
+    const ctx=tex.getContext(), g=ctx.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+    g.addColorStop(0,'rgba(140,240,220,0.55)'); g.addColorStop(.45,'rgba(90,200,190,0.22)'); g.addColorStop(1,'rgba(60,160,160,0)');
+    ctx.fillStyle=g; ctx.fillRect(0,0,size,size); tex.update(); tex.hasAlpha=true;
+    const m=new BABYLON.StandardMaterial('lamp_pool_mat',scene);
+    m.diffuseTexture=tex; m.emissiveTexture=tex; m.opacityTexture=tex; m.disableLighting=true; m.useAlphaFromDiffuseTexture=true;
+    m.alphaMode=BABYLON.Engine.ALPHA_ADD; m.backFaceCulling=false; m.disableDepthWrite=true;
+    state.lampPoolMat=m;
+  }
+  const disc=BABYLON.MeshBuilder.CreateDisc('lamp_pool',{radius:1.5,tessellation:24},scene);
+  disc.rotation.x=Math.PI/2; disc.parent=root; disc.position.y=.025; disc.material=state.lampPoolMat; disc.isPickable=false; disc.alphaIndex=5;
+  disc.metadata={proxy:root};
+}
+// Scene lighting presets. 'night' is the normal diorama look; 'bright' raises
+// and strengthens the key light so its falloff no longer leaves the north half
+// of the island in the dark (the sky-dome light never reaches materials: it is
+// fifth in priority under the four-light cap). Used by scenarios.
+let lightingDefaults=null;
+function setLighting(mode='night'){
+  const sc=state.scene; if(!sc) return;
+  const key=sc.getLightByName('tree_key_moved'), rim=sc.getLightByName('teal_rim');
+  if(!lightingDefaults) lightingDefaults={keyPos:key?.position.clone(), keyI:key?.intensity, rimI:rim?.intensity};
+  const d=lightingDefaults;
+  if(mode==='bright'){
+    if(key){ key.position.set(-1,14,10.5); key.intensity=d.keyI*4; }
+    if(rim) rim.intensity=Math.max(d.rimI,.34);
+  } else {
+    if(key && d.keyPos){ key.position.copyFrom(d.keyPos); key.intensity=d.keyI; }
+    if(rim) rim.intensity=d.rimI;
+  }
+  state.lighting=mode;
+}
+function makeLamp(scene,x,z){ const root=new BABYLON.TransformNode('lamp_root',scene); root.position.set(x,state.terrainTopY??0,z); const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.parent=root; pole.position.y=.46; pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.parent=root; c.position.y=.98; c.material=state.materials.magic; addShadow(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(0,.96,0),scene); light.parent=root; light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; tag(root,'lamp',{health:1,material:'crystal'}); pole.metadata={proxy:root}; c.metadata={proxy:root}; addLampPool(scene,root); state.props.push(root); return root; }
 function makeBakery(scene){ const x=-7,z=-4.5; const base=BABYLON.MeshBuilder.CreateBox('mushroom_bakery_base',{width:2.15,height:1.25,depth:1.75},scene); base.position.set(x,.62,z); addToScene(base,state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(base,'bakery',{health:6,material:'stone'}); const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_bakery_cap',{diameter:2.8,segments:14},scene); cap.position.set(x,1.62,z); cap.scaling.set(1.15,.38,1); cap.material=state.materials.mushroom; addShadow(cap); const door=BABYLON.MeshBuilder.CreateBox('tiny_round_door',{width:.50,height:.72,depth:.06},scene); door.position.set(x,.42,z-.91); door.material=state.materials.wood; const chimney=BABYLON.MeshBuilder.CreateCylinder('chimney',{diameter:.28,height:.72,tessellation:6},scene); chimney.position.set(x+.82,1.95,z+.22); chimney.material=state.materials.stone; addShadow(chimney); makeLamp(scene,x-1.8,z-.2); }
 function makeFence(scene,x0,z0,count,dir='x'){ for(let i=0;i<count;i++){ const x=x0+(dir==='x'?i*.52:0),z=z0+(dir==='z'?i*.52:0); const post=BABYLON.MeshBuilder.CreateCylinder('fence_post',{height:.52,diameter:.09,tessellation:5},scene); post.position.set(x,.33,z); addToScene(post,state.materials.wood,{motion:'static',shape:'CYLINDER',mass:0}); tag(post,'fence',{health:1,material:'wood',flammable:true}); } for(const y of [.32,.53]){ const rail=BABYLON.MeshBuilder.CreateBox('fence_rail',{width:dir==='x'?count*.52:.08,height:.07,depth:dir==='x'?.08:count*.52},scene); rail.position.set(x0+(dir==='x'?(count-1)*.26:0),y,z0+(dir==='z'?(count-1)*.26:0)); rail.material=state.materials.wood; addShadow(rail); } }
 
@@ -1434,7 +1506,7 @@ function dropSpot(g,h){
   for(const m of state.props.concat(state.blocks)){
     if(!m || m===h || m.isDisposed?.() || [...state.held.values()].includes(m)) continue;
     const mm=meta(m); if(!mm || ['tile','hole'].includes(mm.type)) continue;
-    const b=m.getHierarchyBoundingVectors(true); boxes.push(b);
+    const b=m.getHierarchyBoundingVectors(true,solidPart); boxes.push(b);
   }
   for(const o of state.geebrs) if(o.collider && o!==g){ o.collider.computeWorldMatrix(true); const bi=o.collider.getBoundingInfo().boundingBox; boxes.push({min:bi.minimumWorld,max:bi.maximumWorld}); }
   const hits=p=>boxes.filter(b=>p.x+r>b.min.x && p.x-r<b.max.x && p.z+r>b.min.z && p.z-r<b.max.z);
@@ -2213,6 +2285,7 @@ function installWorldAPI(){
     findItem:(items,name)=>findItem(items||[],name),
     setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
+    setLighting,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
     executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
