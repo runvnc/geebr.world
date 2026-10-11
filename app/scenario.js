@@ -39,6 +39,7 @@
   // ---------- map description language ----------
   const ITEMS = ['chest', 'table', 'bench', 'stool', 'workbench', 'cauldron', 'anvil', 'weapon_stand', 'axe', 'pickaxe', 'bucket', 'bag', 'potion', 'scroll', 'coin_pile', 'apple_crate', 'carrot_crate'];
   const THINGS = ['crate', 'barrel', 'mushroom', 'lamp', 'wall', 'note', 'counter', ...ITEMS];
+  const WIDE_ITEMS = new Set(['table', 'bench', 'workbench']);
   const ALIASES = { box: 'crate', boxes: 'crate', trunk: 'chest', treasure: 'chest', keg: 'barrel', lantern: 'lamp', light: 'lamp', torch: 'lamp',
     sign: 'note', letter: 'note', paper: 'note', block: 'wall', stone: 'wall', rock: 'wall',
     shroom: 'mushroom', toadstool: 'mushroom', desk: 'counter', stall: 'counter', bar: 'counter',
@@ -383,7 +384,12 @@
       }
       const q = ref ? p : { ...p, rel: p.rel && !['at', 'against'].includes(p.rel) ? (p.area ? 'at' : null) : p.rel };
       const thing = p.thing;
-      const groups = thing === 'counter' ? Array.from({ length: p.count }, () => ({ ...q, count: 3, arrangement: 'row' })) : [{ ...q }];
+      // Wide furniture (~1.35 long) takes two cells: laid out as a row of 2
+      // and placed between them, turned along the row. As one cell it spilled
+      // into its neighbours (characters ended up inside benches).
+      const wide = WIDE_ITEMS.has(thing);
+      const groups = thing === 'counter' ? Array.from({ length: p.count }, () => ({ ...q, count: 3, arrangement: 'row' }))
+        : wide ? Array.from({ length: p.count }, () => ({ ...q, count: 2, arrangement: 'row' })) : [{ ...q }];
       for (const g of groups) {
         const n = g.count;
         const placedCells = placeGroup(g, ref, n);
@@ -393,6 +399,9 @@
         if (p.isAgent) {
           const look = ref ? ref.centre : centre;
           out.agents[thing] = { x: placedCells[0][0], z: placedCells[0][1], facing: facingFrom(placedCells[0], look) };
+        } else if (wide && placedCells.length === 2) {
+          const [a, b] = placedCells;
+          out.objects.push({ type: thing, x: (a[0] + b[0]) / 2, z: (a[1] + b[1]) / 2, ...(a[0] === b[0] ? { ry: Math.PI / 2 } : {}) });
         } else {
           const type = thing === 'counter' ? 'wall' : thing;
           for (const c of placedCells) out.objects.push({ type, x: c[0], z: c[1], ...(p.text ? { text: p.text } : {}) });
@@ -610,7 +619,16 @@
       anchors: W().sceneryAnchors(), player: { gold: +(scn.player?.gold) || 0, items: scn.player?.items || [] }, speech: [], turns: 0 };
   }
 
-  async function playScenario(input, opts = {}) {
+  // Scenario starts run one at a time: a second start (Play pressed while a
+  // linked scenario is still loading) used to interleave with the first and
+  // leave duplicate characters/avatars. Each start waits for the previous.
+  let starting = Promise.resolve();
+  function playScenario(input, opts = {}) {
+    const run = starting.catch(() => {}).then(() => playScenarioNow(input, opts));
+    starting = run;
+    return run;
+  }
+  async function playScenarioNow(input, opts = {}) {
     const w = W(); if (!w?.ready) throw new Error('world not ready');
     const scn = normalizeScenario(input);
     stopChecker();
@@ -634,7 +652,7 @@
     const playerAgent = withAvatar ? [{ id: 'player', at: Array.isArray(scn.player?.at) ? scn.player.at : undefined }] : [];
     const placesPlayer = scn.map.some(l => /\bplayer\b/i.test(l));
     const spec = { ...scn, agents: [...scn.agents, ...playerAgent], existing,
-      map: [...(scn.floor ? ['floor ' + scn.floor] : []), ...scn.map, ...(withAvatar && !placesPlayer && !Array.isArray(scn.player?.at) ? ['place player at south'] : [])] };
+      map: [...(scn.floor ? ['floor ' + scn.floor] : []), ...scn.map, ...(withAvatar && !placesPlayer && !Array.isArray(scn.player?.at) ? [scn.agents[0] ? 'place player in_front_of ' + scn.agents[0].id : 'place player at south'] : [])] };
     let plan = layout(spec);
     if (scn.goal?.win && !opts.keepSeed) {
       for (let k = 1; k <= 8 && evalCond(scn.goal.win, planContext(scn, plan)); k++) {
@@ -661,7 +679,11 @@
     }
     if (withAvatar && w.spawnPlayerAvatar) {
       const pa = Array.isArray(scn.player?.at) ? { x: +scn.player.at[0], z: +scn.player.at[1], facing: scn.player.facing || 'n' } : (plan.agents.player || { x: 0, z: 3, facing: 'n' });
-      await w.spawnPlayerAvatar(pa.x, pa.z, scn.player?.facing || pa.facing, scn.player?.model);
+      // Face the first character (who you'll be talking to) unless told otherwise.
+      let facing = scn.player?.facing;
+      const firstPos = scn.agents[0] && (Array.isArray(scn.agents[0].at) ? { x: +scn.agents[0].at[0], z: +scn.agents[0].at[1] } : plan.agents[scn.agents[0].id]);
+      if (!facing && firstPos) { const dx = firstPos.x - pa.x, dz = firstPos.z - pa.z; facing = Math.abs(dz) >= Math.abs(dx) ? (dz < 0 ? 'n' : 's') : (dx < 0 ? 'e' : 'w'); }
+      await w.spawnPlayerAvatar(pa.x, pa.z, facing || pa.facing, scn.player?.model);
     }
     if (first) w.selectGeebr(first);
     w.inventoryChanged();

@@ -1143,7 +1143,10 @@ function setLighting(mode='night'){
   if(!lightingDefaults) lightingDefaults={keyPos:key?.position.clone(), keyI:key?.intensity, rimI:rim?.intensity};
   const d=lightingDefaults;
   if(mode==='bright'){
-    if(key){ key.position.set(-1,14,10.5); key.intensity=d.keyI*4; }
+    // Raised less and only 2.2x (was y14, 4x): enough to light the north
+    // half, while keeping the glancing highlights that give the glossy
+    // "plastic miniature" look (4x from overhead flattened it).
+    if(key){ key.position.set(-1,9,10.5); key.intensity=d.keyI*2.2; }
     if(rim) rim.intensity=Math.max(d.rimI,.34);
   } else {
     if(key && d.keyPos){ key.position.copyFrom(d.keyPos); key.intensity=d.keyI; }
@@ -2791,6 +2794,7 @@ function saveWorldState() {
       props: state.props.filter(m => m && !m.isDisposed?.()).map(m => {
         const mm = meta(m);
         const rec={ type: mm?.type || 'crate', x: m.position.x, z: m.position.z, state: mm?.state || 'intact', health: mm?.health ?? 2 };
+        const ry=m.rotationQuaternion ? m.rotationQuaternion.toEulerAngles().y : (m.rotation?.y||0); if(Math.abs(ry)>.01) rec.ry=+ry.toFixed(3);
         if(mm?.type==='note'){ rec.noteHtml=mm.noteHtml||''; rec.noteText=mm.noteText||''; }
         return rec;
       }),
@@ -2850,7 +2854,7 @@ async function restoreWorldState(input) {
       else if (p.type === 'mushroom') obj = makeMushroom(state.scene, p.x, p.z);
       else if (p.type === 'lamp') obj = makeLamp(state.scene, p.x, p.z);
       else if (p.type === 'note') obj = makeNote(state.scene, p.x, p.z, p.noteHtml||p.noteText||'<p>note</p>');
-      else if (ITEM_CATALOG[p.type]) obj = makeCatalogItem(state.scene, p.type, p.x, p.z);
+      else if (ITEM_CATALOG[p.type]) obj = makeCatalogItem(state.scene, p.type, p.x, p.z, {ry:p.ry||0});
       else obj = makeCrate(state.scene, p.x, p.z);
     if(obj){ const mm=meta(obj); if(mm){ mm.state=p.state||'intact'; mm.health=p.health??mm.health; } }
   }
