@@ -577,6 +577,11 @@ async function createGeneratedGeebr(scene,id,pos){
       mesh.material.backFaceCulling=false;
     }
   }
+  // Everything this character imported, so clearWorld can free it (each
+  // spawn loads its own GLBs with 2048px textures; without this, every
+  // scenario restart leaked ~7 textures, 2 skeletons and 3 animation groups
+  // until the browser ran out of GPU memory).
+  const owned={meshes:[...idleRes.meshes],skeletons:[...(idleRes.skeletons||[])],groups:[...(idleRes.animationGroups||[])]};
   const rigAnims={};
   const idle=idleRes.animationGroups?.[0];
   if(idle){ idle.name='Idle_A'; idle.stop(); rigAnims.Idle_A=idle; }
@@ -589,6 +594,8 @@ async function createGeneratedGeebr(scene,id,pos){
       if(walk){ walk.name='Walking_A'; walk.stop(); rigAnims.Walking_A=walk; }
     }
     for(const g of walkRes.animationGroups||[]) g.stop();
+    owned.meshes.push(...walkRes.meshes); owned.skeletons.push(...(walkRes.skeletons||[])); owned.groups.push(...(walkRes.animationGroups||[]));
+    if(rigAnims.Walking_A) owned.groups.push(rigAnims.Walking_A);
     // Keep the source hierarchy alive (but invisible): Babylon cloned animation
     // targets can share transform/skeleton internals with this imported source.
     for(const m of walkRes.meshes||[]){ m.setEnabled(false); m.isVisible=false; m.isPickable=false; }
@@ -601,7 +608,7 @@ async function createGeneratedGeebr(scene,id,pos){
   // affecting a PBR material into that material's vertex pipeline; two lights
   // per spawned Geebr pushed WebGPU over its 12-uniform-buffer stage limit.
   // The shared key/rim/fill/practical lights already model every character.
-  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,mouth,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
+  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,mouth,owned,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true); state.geebrs.push(geebr); debugRigAnims(geebr); return geebr;
 }
 async function createAgentCast(scene){
@@ -669,7 +676,7 @@ function disposeWorldObject(mesh){
   const own=new Set();
   for(const m of [mesh,...(mesh.getChildMeshes?.(false)||[])]) if(m.material && !shared.has(m.material)) own.add(m.material);
   try{ mesh.dispose?.(false,false); }catch{}
-  for(const m of own) try{ m.dispose(false,true); }catch{}
+  for(const m of own) disposeOwnMaterial(m);
   if(wasTabletopWall) scheduleWallRebuild();
 }
 
@@ -1379,6 +1386,11 @@ async function importPropAsset(scene,file,opts={}){
   opts.onProxy?.(proxy);
   try{
     const result=await BABYLON.SceneLoader.ImportMeshAsync('',PROP_ASSET,file,scene);
+    // Some props (the chest) bring a skeleton and animation clips; free those
+    // with the object (disposeWorldObject runs meta.cleanup).
+    for(const ag of result.animationGroups||[]) ag.stop();
+    if(proxy.isDisposed?.()){ for(const ag of result.animationGroups||[]) ag.dispose(); for(const sk of result.skeletons||[]) sk.dispose(); for(const m of result.meshes) m.dispose(false,true); return proxy; }
+    const pm=meta(proxy); if(pm){ const prev=pm.cleanup; pm.cleanup=()=>{ try{ prev?.(); }catch{} for(const ag of result.animationGroups||[]) try{ ag.dispose(); }catch{} for(const sk of result.skeletons||[]) try{ sk.dispose(); }catch{} }; }
     const root=new BABYLON.TransformNode('real_'+type+'_root',scene);
     root.parent=proxy;
     root.position.set(0,-(opts.visualYOffset??0),0);
@@ -2495,12 +2507,32 @@ async function spawnAt(type, x, z) {
   saveWorldState();
   return obj;
 }
+// Dispose a material and its own textures, but not textures shared across
+// materials: look.js gives every clay material the same detail-normal
+// texture, and disposing it with one object stripped it from all the others.
+function disposeOwnMaterial(m){
+  if(!m) return;
+  try{ if(m.detailMap) m.detailMap.texture=null; }catch{}
+  try{ m.dispose(false,true); }catch{}
+}
+// Free a character and everything it imported (meshes, their own materials
+// and textures, skeletons, animation groups, the kept walk-clip source).
+function disposeGeebr(g){
+  try { if (g.collider) g.collider.dispose(); } catch {}
+  const o=g.owned;
+  for (const ag of o?.groups||[]) { try{ ag.stop(); ag.dispose(); }catch{} }
+  const mats=new Set(), morphs=new Set();
+  for (const m of [...(o?.meshes||[]), ...(g.root?.getChildMeshes?.(false)||[])]) { if (m?.material) mats.add(m.material); if (m?.morphTargetManager) morphs.add(m.morphTargetManager); }
+  try { if (g.root) g.root.dispose(false,false); } catch {}
+  for (const m of o?.meshes||[]) { try{ if(!m.isDisposed()) m.dispose(false,false); }catch{} }
+  for (const sk of o?.skeletons||[]) { try{ sk.dispose(); }catch{} }
+  for (const mt of morphs) { try{ mt.dispose(); }catch{} }
+  const shared=new Set(Object.values(state.materials||{}));
+  for (const m of mats) { if(!shared.has(m)) disposeOwnMaterial(m); }
+}
 function clearWorld() {
   window.dispatchEvent(new CustomEvent('geebr:clear-conversations'));
-  for (const g of state.geebrs) {
-    try { if (g.collider) g.collider.dispose(); } catch {}
-    try { if (g.root) g.root.dispose(); } catch {}
-  }
+  for (const g of state.geebrs) disposeGeebr(g);
   // Clean up character-local lights left by saves/scenes created by versions
   // before v14.6. TransformNode.dispose() does not dispose light children.
   for(const light of state.scene?.lights?.slice?.()||[]){
