@@ -122,11 +122,24 @@ async function downloadModelToOPFS(modelKey, modelUrl, onProgress) {
   }
 }
 
-// ---- conversation cache (moved from gpt-runner-litert.js; the conversation
-// objects hold WASM/KV-cache state that only exists inside this worker) ----
-const conversationCache = new Map();
-const MAX_CONVERSATIONS = 8;
+// ---- conversations ----
+// The LiteRT-LM web engine keeps ONE working KV cache. Two live conversations
+// used alternately corrupt each other. Measured in the test browser: agent A
+// told a secret number forgot it as soon as agent B spoke in between (and
+// remembered it when nobody did), and a shopkeeper degenerated into
+// mixed-language prose once a second conversation interleaved. Several geebrs
+// taking turns, thinking turns and console llm() calls all interleave.
+//
+// So exactly one conversation is live at a time. The worker keeps every
+// conversation's text history itself; when a different one is needed it
+// disposes the live one and rebuilds the new one from that history (paying a
+// re-prefill on every switch of speaker, but staying correct). All generate
+// requests also run strictly one at a time (see serialize()).
+const histories = new Map();          // key -> {agentId, system, messages:[{role,content}]}
+const MAX_HISTORY_MESSAGES = 24;      // kept per conversation for rebuilds
 const MAX_TURNS_PER_CONVERSATION = 12;
+let live = null;                      // {key, conv, turns}
+let lastDispose = Promise.resolve();
 
 function hashSystemPrompt(text) {
   let h = 0;
@@ -134,53 +147,60 @@ function hashSystemPrompt(text) {
   return String(h);
 }
 
-function disposeConversation(conv) {
+async function disposeConversation(conv) {
   if (!conv) return;
   for (const method of ['delete', 'dispose', 'close']) {
     try {
-      if (typeof conv[method] === 'function') { conv[method](); return; }
+      if (typeof conv[method] === 'function') { await conv[method](); return; }
     } catch (error) {
       console.warn('[litert-worker] conversation disposal failed', error);
       return;
     }
   }
 }
-
-function evictConversation(key) {
-  const entry = conversationCache.get(key);
-  if (!entry) return;
-  conversationCache.delete(key);
-  disposeConversation(entry.conv);
+function dropLive() {
+  if (!live) return lastDispose;
+  const conv = live.conv; live = null;
+  lastDispose = lastDispose.then(() => disposeConversation(conv));
+  return lastDispose;
 }
 
 function clearConversations(agentId = null) {
-  for (const [key, entry] of [...conversationCache]) {
-    if (agentId === null || entry.agentId === String(agentId)) evictConversation(key);
+  for (const [key, h] of [...histories]) {
+    if (agentId === null || h.agentId === String(agentId)) histories.delete(key);
   }
+  if (live && (agentId === null || !histories.has(live.key))) dropLive();
 }
 
-async function getOrCreateConversation(systemContent, agentId) {
-  const owner = String(agentId || 'default');
-  const key = owner + ':' + hashSystemPrompt(systemContent || '');
-  let entry = conversationCache.get(key);
-  if (entry && entry.turns >= MAX_TURNS_PER_CONVERSATION) {
-    evictConversation(key);
-    entry = null;
+// History as a preface: bounded, and opening with a user turn (Gemma expects it).
+function prefaceMessages(system, messages) {
+  const hist = messages.slice(-MAX_HISTORY_MESSAGES).filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({ role: m.role, content: String(m.content || '') }));
+  while (hist.length && hist[0].role !== 'user') hist.shift();
+  return [...(system ? [{ role: 'system', content: system }] : []), ...hist];
+}
+
+// The live conversation for key, rebuilt from history if another one was live.
+async function liveConversation(key, agentId, system, historyOverride = null) {
+  if (live && live.key === key && live.turns < MAX_TURNS_PER_CONVERSATION && !historyOverride) {
+    live.turns += 1;
+    return live.conv;
   }
-  if (!entry) {
-    const conversationConfig = {};
-    if (systemContent) conversationConfig.preface = { messages: [{ role: 'system', content: systemContent }] };
-    const conv = await engine.createConversation(conversationConfig);
-    entry = { conv, agentId: owner, turns: 0, lastUsed: performance.now() };
-    conversationCache.set(key, entry);
-    while (conversationCache.size > MAX_CONVERSATIONS) evictConversation(conversationCache.keys().next().value);
-  } else {
-    conversationCache.delete(key);
-    conversationCache.set(key, entry);
-  }
-  entry.turns += 1;
-  entry.lastUsed = performance.now();
-  return entry.conv;
+  await dropLive();
+  let h = histories.get(key);
+  if (!h) { h = { agentId: String(agentId || 'default'), system, messages: [] }; histories.set(key, h); }
+  const conv = await engine.createConversation({ preface: { messages: prefaceMessages(system, historyOverride || h.messages) } });
+  live = { key, conv, turns: 1 };
+  return conv;
+}
+
+// One generate at a time: overlapping sends on the shared engine stalled for
+// minutes in testing.
+let queue = Promise.resolve();
+function serialize(fn) {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => {});
+  return run;
 }
 
 // Gemma 4 thinking output is "<|channel>thought\n...reasoning...<channel|>answer"
@@ -219,46 +239,40 @@ function messageChannels(msg) {
 async function generateText(messages, opts, onToken) {
   const systemMessages = messages.filter(m => m.role === 'system');
   let systemContent = systemMessages.map(m => m.content).join('\n\n');
-  if (opts.extra_body?.enable_thinking) systemContent = '<|think|>' + (systemContent || '');
-
-  const chatMessages = messages.filter(m => m.role !== 'system');
-  const lastMessage = chatMessages[chatMessages.length - 1];
-  const promptText = lastMessage?.content || '';
   const thinking = !!opts.extra_body?.enable_thinking;
+  if (thinking) systemContent = '<|think|>' + (systemContent || '');
+  const chatMessages = messages.filter(m => m.role !== 'system');
+  const promptText = chatMessages[chatMessages.length - 1]?.content || '';
   try {
     return await runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking);
   } catch (err) {
-    if (thinking) throw err;
-    // A cached conversation that errored is unusable; retry once on a fresh one.
-    console.warn('[litert-worker] generation failed on cached conversation, retrying fresh', err);
-    clearConversations(opts.agentId || 'default');
+    // A conversation that errored is unusable; retry once on a rebuilt one.
+    console.warn('[litert-worker] generation failed, retrying on a rebuilt conversation', err);
+    await dropLive();
     return await runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking);
   }
 }
 
-// Thinking turns use a throwaway conversation seeded with the game's own chat
-// history (which never contains thoughts) instead of the cached per-agent one.
-// Reusing a conversation after a thinking turn broke every later turn, and the
-// thoughts would otherwise pile up in the 8192-token KV cache.
-const THINKING_HISTORY_MESSAGES = 12;
+// Normal turns continue the agent's own conversation (its history lives in
+// this worker). Thinking turns are rebuilt from the game's chat history, which
+// never contains thoughts, and dropped afterwards so the thoughts don't stay in
+// the KV cache.
 async function runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking) {
-  let conversation, oneShot = false;
-  if (thinking) {
-    const history = chatMessages.slice(0, -1).slice(-THINKING_HISTORY_MESSAGES)
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({ role: m.role, content: String(m.content || '') }));
-    // Gemma expects the history to open with a user turn.
-    while (history.length && history[0].role !== 'user') history.shift();
-    const preface = { messages: [{ role: 'system', content: systemContent }, ...history] };
-    conversation = await engine.createConversation({ preface });
-    oneShot = true;
-  } else {
-    conversation = await getOrCreateConversation(systemContent, opts.agentId);
-  }
+  const agentId = String(opts.agentId || 'default');
+  const key = agentId + ':' + (thinking ? 'think:' : '') + hashSystemPrompt(systemContent || '');
+  const conversation = await liveConversation(key, agentId, systemContent, thinking ? chatMessages.slice(0, -1) : null);
   try {
-    return await sendTurn(conversation, promptText, opts, onToken);
+    const out = await sendTurn(conversation, promptText, opts, onToken);
+    if (!thinking) {
+      const h = histories.get(key);
+      if (h) {
+        h.messages.push({ role: 'user', content: promptText }, { role: 'assistant', content: out.text });
+        if (h.messages.length > MAX_HISTORY_MESSAGES * 2) h.messages = h.messages.slice(-MAX_HISTORY_MESSAGES * 2);
+      }
+    }
+    return out;
   } finally {
-    if (oneShot) disposeConversation(conversation);
+    if (thinking) { histories.delete(key); await dropLive(); }
   }
 }
 
@@ -387,7 +401,7 @@ self.onmessage = async (e) => {
       if (!engine) throw new Error('LiteRT-LM engine not loaded');
       const { messages, opts, streaming } = e.data;
       const onToken = streaming ? (fullText) => reply({ type: 'token', text: fullText }) : null;
-      const { text, thinking } = await generateText(messages, opts || {}, onToken);
+      const { text, thinking } = await serialize(() => generateText(messages, opts || {}, onToken));
       reply({ type: 'result', data: { text, thinking } });
     } else if (type === 'clearConversations') {
       clearConversations(e.data.agentId ?? null);
