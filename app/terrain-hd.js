@@ -612,6 +612,7 @@
     API.state.usingGrassGLB=usedGrassGLB;
     if(out.grass?.material) API.state.hdMaterials.grassGLB=out.grass.material;
     API.state.terrainTopY=TOP_Y;
+    API.state.seaLevel=SEA_LEVEL;
     return out;
   }
 

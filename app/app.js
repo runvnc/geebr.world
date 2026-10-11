@@ -9,7 +9,7 @@ const TILE_ASSET = './assets/models/tiles/';
 const DETAIL_NORMAL = './assets/textures/detail_clay_n.png';
 const GEEBR_ASSET = './assets/models/characters/generated/';
 const WORLD = { size: 12, half: 6, w: 12, h: 10, halfW: 6, halfH: 5 };
-const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest'];
+const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest','give'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
   blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new WeakMap(), held:new Map(), allowed:new Set(['walk','face']), zoomFocus:null, animSources:null,
@@ -70,16 +70,27 @@ function setOrthoZoom(camera,halfWidth){
   camera.metadata ||= {}; camera.metadata.orthoHalfWidth=halfWidth;
 }
 function setupMouseWheelZoom(camera){
+  // This handler owns wheel zoom; Babylon's own wheel input would zoom a
+  // second time on every notch.
+  camera.inputs.removeByType('ArcRotateCameraMouseWheelInput');
   canvas.addEventListener('wheel',ev=>{
     ev.preventDefault();
-    const factor=ev.deltaY>0?1.10:.90;
+    // Scale by wheel distance (lines/pages normalised to pixels, one notch is
+    // usually 100px) so a notch is ~10% and trackpads zoom smoothly.
+    const px=ev.deltaY*(ev.deltaMode===1?33:ev.deltaMode===2?400:1);
+    const factor=Math.exp(clamp(px,-150,150)*.001);
+    const zoomIn=px<0;
     const focus=state.zoomFocus || state.target?.getAbsolutePosition?.() || state.selected?.root?.position;
+    // setTarget keeps the camera position and recomputes the radius, which
+    // silently zoomed in a lot whenever the focus was nearer the camera;
+    // keep the radius and only change it through the zoom factor below.
+    const radius=camera.radius;
     if(focus){
       const f=focus.clone ? focus.clone() : new BABYLON.Vector3(focus.x||0,focus.y||0,focus.z||0);
       f.y=0.6;
-      camera.setTarget(BABYLON.Vector3.Lerp(camera.target,f,ev.deltaY>0?.18:.42));
+      camera.setTarget(BABYLON.Vector3.Lerp(camera.target,f,(zoomIn?.42:.18)*Math.min(1,Math.abs(px)/100)));
     }
-    camera.radius=clamp(camera.radius*factor,7,60);
+    camera.radius=clamp(radius*factor,3.5,60);
   },{passive:false});
 }
 function hashNoise(x,z){
@@ -363,6 +374,36 @@ function positionHeldItem(g,dt){
   forceBodyTransform(h,pos);
   if(g.rigged) poseCarryArms(g,g._carryW*g._carryW*(3-2*g._carryW));
 }
+// Talking mouth for the Meshy geebr (geebr_rigged.glb). The face has a small
+// sculpted mouth cavity centred near (0,.881,.26) in the mesh's bind space.
+// A runtime morph target drops the lower lip and chin, lifts the upper lip
+// a little and stretches the dark cavity open. Morphs apply before skinning,
+// so it follows the head bone in every animation.
+const MOUTH_MESH={name:'char1',verts:15845};
+function addMouthMorph(mesh,scene){
+  const P=mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind); if(!P) return null;
+  const open=new Float32Array(P), A=.016;
+  for(let i=0;i<P.length;i+=3){
+    const x=P[i], y=P[i+1], z=P[i+2]; if(z<=.17) continue;   // front of the face only
+    const dy=y-.881, ry=dy<0?.05:.03, r2=(x/.055)**2+(dy/ry)**2; if(r2>=1) continue;
+    const w=(1-r2)**2, t=clamp((dy+.005)/.01,0,1), up=t*t*(3-2*t);   // up: 0 lower lip .. 1 upper lip
+    open[i+1]=y+A*w*(-1+1.3*up);
+    open[i+2]=z-.35*A*w*(1-up);   // the jaw swings slightly back as it drops
+  }
+  const target=new BABYLON.MorphTarget('mouth_open',0,scene); target.setPositions(open);
+  const mtm=new BABYLON.MorphTargetManager(scene); mtm.addTarget(target); mesh.morphTargetManager=mtm;
+  return target;
+}
+// Mouth openness: follows the real TTS waveform when this geebr's voice is
+// playing, and chatters procedurally for unvoiced speech bubbles.
+function updateMouth(g,dt){
+  const tts=window.geebrTTS; let want=0;
+  if(tts?.current?.agent===g) want=clamp((tts.level?.()||0)*7-.03,0,1);
+  else if(g.speaking && !g.voiced) want=Math.max(0,Math.sin(g.t*13))*(.55+.45*Math.sin(g.t*3.3+1.1));
+  const m=g.mouth, rate=want>m.influence?28:14;   // open fast, close a bit slower
+  m.influence+=(want-m.influence)*Math.min(1,rate*dt);
+  if(m.influence<.002) m.influence=0;
+}
 function findHeadNodes(g){
   if(g._headNodes) return g._headNodes;
   const nodes=[];
@@ -493,7 +534,9 @@ async function createKayKitGeebr(scene,id,pos,file,label){
 async function createGeneratedGeebr(scene,id,pos){
   // Meshy's neutral rig already contains a subtle idle clip; walking is loaded as a
   // second container and retargeted by matching the generated skeleton node names.
-  const idleRes=await BABYLON.SceneLoader.ImportMeshAsync('',GEEBR_ASSET,'geebr_rigged.glb',scene);
+  // ?v busts browser caches of the model; bump it whenever the GLB changes
+  // (20261010: right-hand vertices re-weighted off the hips/thigh).
+  const idleRes=await BABYLON.SceneLoader.ImportMeshAsync('',GEEBR_ASSET,'geebr_rigged.glb?v=20261010a',scene,null,'.glb');
   const root=new BABYLON.TransformNode(id,scene);
   root.position.copyFrom(pos); root.scaling.setAll(.87);
   const importedRoot=idleRes.meshes.find(m=>m.name==='__root__') || idleRes.meshes[0];
@@ -506,8 +549,10 @@ async function createGeneratedGeebr(scene,id,pos){
   importedRoot.parent=root; importedRoot.position.set(0,0,0);
   // Meshy exports this character facing local +Z; root yaw zero therefore faces north visually.
   importedRoot.rotationQuaternion=null; importedRoot.rotation.set(0,0,0);
+  let mouth=null;
   for(const mesh of idleRes.meshes){
     mesh.receiveShadows=true; mesh.isPickable=true; mesh.metadata={ownerId:id}; addShadow(mesh); applyClayLook(mesh.material,scene);
+    if(mesh.name===MOUTH_MESH.name && mesh.getTotalVertices()===MOUTH_MESH.verts) mouth=addMouthMorph(mesh,scene);
     if(mesh.material){
       // Keep the clay matte, but avoid forcing it so rough that every highlight disappears.
       if('roughness' in mesh.material) mesh.material.roughness=.24;
@@ -545,7 +590,7 @@ async function createGeneratedGeebr(scene,id,pos){
   // affecting a PBR material into that material's vertex pipeline; two lights
   // per spawned Geebr pushed WebGPU over its 12-uniform-buffer stage limit.
   // The shared key/rim/fill/practical lights already model every character.
-  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
+  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:'geebr',traits:{fireball:40,obedience:52},rigged:true,rigRoot:importedRoot,rigAnims,mouth,rigMode:null,activeRigAnim:null,cosmetic:{},stepDistance:.72,logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true); state.geebrs.push(geebr); debugRigAnims(geebr); return geebr;
 }
 async function createAgentCast(scene){
@@ -671,10 +716,107 @@ function setGeebrLogicalPosition(g,pos){
     zeroMeshMotion(g.collider);
   }
 }
+// Is there island top under (x,z)? The HD island is irregular (bays, noses,
+// stepped ledges) and the invisible physics_ground is just the WORLD
+// rectangle, so ask the visible top meshes. The ray stops .25 below the
+// plateau, so the lower grass ledges count as a drop. Terrain is static, so
+// results are cached per 1/4 tile.
+const GROUND_MESH=/^(hd_island_|voxel_island)/;
+const groundCache=new Map();
+function hasGroundAt(x,z){
+  const key=Math.round(x*4)+','+Math.round(z*4);
+  if(groundCache.has(key)) return groundCache.get(key);
+  const top=state.terrainTopY??0, down=new BABYLON.Vector3(0,-1,0);
+  const isGround=m=>GROUND_MESH.test(m.name) && m.isEnabled();
+  // No terrain meshes at all (still loading / unusual build): never fall.
+  const anyTerrain=!!state.scene?.meshes.some(m=>GROUND_MESH.test(m.name));
+  // Tiles have 1.4cm seams between them; probe a small cross so a seam or a
+  // tile corner never reads as a cliff.
+  const ok=!anyTerrain || [[0,0],[.15,0],[-.15,0],[0,.15],[0,-.15]].some(([ox,oz])=>
+    !!state.scene.pickWithRay(new BABYLON.Ray(new BABYLON.Vector3(x+ox,top+1,z+oz),down,1.25),isGround)?.hit);
+  if(anyTerrain) groundCache.set(key,ok);
+  return ok;
+}
+// Collision group of the invisible rectangular physics_ground. A falling geebr
+// must not land on it where the real island has a bay cut out of it.
+const GROUND_FILTER=2;
+// Walked off the edge: hand the collider to Havok with the walking velocity
+// plus a forward tumble, and let the rig follow it down into the sea.
+function startFall(g,vel){
+  if(g.falling || !g.collider?.physicsBody) return;
+  const body=g.collider.physicsBody;
+  delete g.turnMove;
+  const held=state.held.get(g.id);
+  if(held){ state.held.delete(g.id); endCarry(held,held.position.clone()); try{ held.physicsBody?.setLinearVelocity(vel); }catch{} }
+  const yaw=BABYLON.Quaternion.RotationAxis(BABYLON.Axis.Y,yawForDir(g.dir));
+  g.falling={t:0,yaw,splashed:false,mask:null};
+  g.root.rotationQuaternion=yaw.clone();
+  try{ g.falling.mask=body.shape.filterCollideMask; body.shape.filterCollideMask=(g.falling.mask & ~GROUND_FILTER)>>>0; }catch{}
+  try{ body.setPrestepType?.(BABYLON.PhysicsPrestepType.TELEPORT); }catch{}
+  body.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
+  state.scene.onAfterPhysicsObservable?.addOnce(()=>{ try{ body.setPrestepType?.(BABYLON.PhysicsPrestepType.DISABLED); }catch{} });
+  try{
+    body.setLinearVelocity(vel.add(new BABYLON.Vector3(0,.6,0)));
+    // Pitch forward (head toward the walking direction): spinning about
+    // Y x dir carries +Y toward dir.
+    const axis=BABYLON.Vector3.Cross(BABYLON.Axis.Y,g.dir).normalize();
+    body.setAngularVelocity(axis.scale(3.2+Math.random()*1.5));
+  }catch{}
+  g.anim='panic'; playRig(g,'panic',true);
+  say(g,'wait where did the floor go');
+}
+function updateFall(g,dt){
+  const f=g.falling, c=g.collider; f.t+=dt;
+  const q=c.rotationQuaternion || BABYLON.Quaternion.FromEulerAngles(c.rotation.x,c.rotation.y,c.rotation.z);
+  // The collider centre sits .74 above the feet; keep that offset in its frame.
+  const off=new BABYLON.Vector3(0,-.74,0).applyRotationQuaternion(q);
+  g.root.position.copyFrom(c.position.add(off));
+  g.root.rotationQuaternion=q.multiply(f.yaw);
+  const sea=state.seaLevel ?? ((state.terrainTopY??0)-1.85);
+  if(!f.splashed && c.position.y<sea+.3){
+    f.splashed=true; f.splashAt=f.t;
+    try{ emitBadge(g,'splash'); }catch{}
+    makeSplash(new BABYLON.Vector3(c.position.x,sea+.03,c.position.z));
+    // Water drag: slow right down and sink.
+    try{ c.physicsBody.setLinearDamping(4); c.physicsBody.setAngularDamping(3); }catch{}
+  }
+  if(f.splashed && f.t-f.splashAt>1.6) endFall(g);
+}
+// Expanding foam ring where a falling geebr hits the water.
+function makeSplash(pos){
+  const ring=BABYLON.MeshBuilder.CreateTorus('splash_ring',{diameter:.5,thickness:.06,tessellation:28},state.scene);
+  ring.position.copyFrom(pos); ring.isPickable=false;
+  const m=new BABYLON.StandardMaterial('splash_mat',state.scene);
+  m.diffuseColor=new BABYLON.Color3(.85,.95,1); m.emissiveColor=new BABYLON.Color3(.45,.6,.7); m.disableLighting=false;
+  ring.material=m; let t=0;
+  const obs=state.scene.onBeforeRenderObservable.add(()=>{
+    t+=state.engine.getDeltaTime()/1000;
+    const s=1+t*5; ring.scaling.set(s,1,s); m.alpha=Math.max(0,1-t/1.1);
+    if(t>1.1){ state.scene.onBeforeRenderObservable.remove(obs); ring.dispose(); m.dispose(); }
+  });
+}
+// Washed back ashore at the last tile it stood on.
+function endFall(g){
+  const body=g.collider.physicsBody, mask=g.falling.mask;
+  try{ body.setLinearDamping(0); body.setAngularDamping(.1); if(mask!=null) body.shape.filterCollideMask=mask; }catch{}
+  zeroBody(body);
+  g.collider.rotationQuaternion=BABYLON.Quaternion.Identity();
+  delete g.falling;
+  g.root.rotationQuaternion=null;
+  setGeebrLogicalPosition(g,g.lastSafePos||new BABYLON.Vector3(0,0,0));
+  // The ACTION prestep reads the collider's cached world matrix, which still
+  // says "under the sea"; teleport the body for one step, then resume ACTION.
+  g.collider.computeWorldMatrix(true);
+  try{ body.setPrestepType(BABYLON.PhysicsPrestepType.TELEPORT); }catch{}
+  state.scene.onAfterPhysicsObservable?.addOnce(()=>{ try{ body.setPrestepType(BABYLON.PhysicsPrestepType.ACTION); }catch{} });
+  g.anim='idle'; playRig(g,'idle',true);
+  say(g,'blub. I have returned from the sea');
+  saveWorldState();
+}
 function syncGeebr(g){
   // v14.1: authoritative character position is logical/grid position, not Havok momentum.
   // Otherwise the invisible physics body can snap the visual rig back to its old position after a turn.
-  if(!g.collider) return;
+  if(!g.collider || g.falling) return;
   if(!g.logicalPos) g.logicalPos=new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
   if(g.turnMove) return;
   setGeebrLogicalPosition(g,g.logicalPos);
@@ -899,6 +1041,7 @@ function zeroBody(body){
 function zeroMeshMotion(mesh){ zeroBody(mesh?.physicsBody); }
 function settleWorld(reason='settled'){
   for(const g of state.geebrs){
+    if(g.falling) continue;
     if(g.turnMove){
       setGeebrLogicalPosition(g,g.turnMove.end || g.logicalPos || g.root.position);
       delete g.turnMove;
@@ -1011,18 +1154,18 @@ function say(g,text,voiced=false){
   log(g.id+': '+text);
   const div=document.createElement('div'); div.className='bubble'; div.textContent=(text||'...').slice(0,86);
   document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:2.8});
-  g.anim='talk'; playRig(g,'talk',true); g.speaking=true;
   const speechRequested=localStorage.getItem('geebrTtsEnabled')==='1' && getBrainConfig(g.id).ttsEnabled!==false;
+  g.anim='talk'; playRig(g,'talk',true); g.speaking=true; g.voiced=voiced && speechRequested;
   setTimeout(()=>{ if(g.anim==='talk' && (!speechRequested || window.geebrTTS?.current?.agent!==g)){ g.anim='idle'; playRig(g,'idle',true); g.speaking=false; if(g._headNodes)for(const h of g._headNodes)h.scaling.y=1; } },speechRequested?2000:900);
   if(state.globalHistory?.length){ const last=state.globalHistory[state.globalHistory.length-1]; if(last && last.startsWith('T') && last.includes(g.id+':')) state.globalHistory[state.globalHistory.length-1]=last+' -> '+text; }
 }
 window.geebrTTS?.addEventListener('speechstart',e=>{ const g=e.detail.agent; if(g){g.speaking=true;g.anim='talk';playRig(g,'talk',true);} });
-window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g){g.speaking=false;if(g.anim==='talk'){g.anim='idle';playRig(g,'idle',true);}if(g._headNodes)for(const h of g._headNodes)h.scaling.y=1;} });
+window.geebrTTS?.addEventListener('speechend',e=>{ const g=e.detail.agent; if(g){g.speaking=false;g.voiced=false;if(g.anim==='talk'){g.anim='idle';playRig(g,'idle',true);}if(g._headNodes)for(const h of g._headNodes)h.scaling.y=1;} });
 function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed()) return state.target; let best=null,bd=99; const p=g.root.position; for(const m of state.props.concat(state.blocks)){ if(m.isDisposed()) continue; const d=BABYLON.Vector3.Distance(p,m.position); if(d<bd){ bd=d; best=m; } } return bd<range?best:null; }
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
 function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build'){ const bc=String(raw).match(/\bat\s+(.+)$/); return {kind:'build',thing:b||'wall',at:bc?parseLocationArg(bc[1].trim()):null}; }
-  if(a==='face') return {kind:'face',dir:(b||'n').toLowerCase()}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='note') return {kind:'note',html:String(raw).replace(/^note\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'unknown',text:'unknown command: '+raw,raw:String(raw)}; }
+  if(a==='face') return {kind:'face',dir:(b||'n').toLowerCase()}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='give') return {kind:'give',item:String(raw).replace(/^give\s*/,'').trim()}; if(a==='note') return {kind:'note',html:String(raw).replace(/^note\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'unknown',text:'unknown command: '+raw,raw:String(raw)}; }
 function parseWalkDestination(arg){
   arg=String(arg||'').trim();
   if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1).trim();
@@ -1068,6 +1211,7 @@ function parseLLMCommandLine(line){
   if(name==='face'){ const fd=(arg.split(',')[0]||'n').trim().toLowerCase(); return {kind:'face',dir:fd||'n'}; }
   if(name==='goal') return {kind:'goal',text:arg||''};
   if(name==='give_quest') return {kind:'give_quest',text:arg||''};
+  if(name==='give') return {kind:'give',item:arg.trim()};
   if(name==='note') return {kind:'note',html:arg||''};
   if(name==='touch') return {kind:'touch',target:arg||''};
   if(name==='emote') return {kind:'emote',emote:(arg.split(',')[0]||'dance').trim().toLowerCase()||'dance'};
@@ -1075,7 +1219,7 @@ function parseLLMCommandLine(line){
   return null;
 }
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
-  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing']),true); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall',cmd.at||null); case 'face': return face(g,cmd.dir||'n'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'note': return note(g,cmd.html||cmd.text||''); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); case 'unknown': return say(g,cmd.text||'unknown command',false); default: return say(g,'unknown command object',false); } }
+  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing']),true); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall',cmd.at||null); case 'face': return face(g,cmd.dir||'n'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'note': return note(g,cmd.html||cmd.text||''); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); case 'give': return give(g,cmd.item||''); case 'unknown': return say(g,cmd.text||'unknown command',false); default: return say(g,'unknown command object',false); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
 window.splitPlanLines=splitPlanLines; window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
@@ -1250,6 +1394,14 @@ function emote(g,name){
   }
 }
 function setGoal(g,text){ const cfg=getBrainConfig(g.id); cfg.goal=text||''; setBrainConfig(g.id,cfg); say(g,text?`goal set: ${text}`:'goal cleared'); updatePerceptionUI(); }
+// Shop test: the character hands an item to the person in the corner chat
+// (their chat name). For now this only announces the hand-over.
+function give(g,item){
+  item=String(item||'').trim();
+  if(!item) return say(g,'give what, exactly?');
+  const recipient=document.getElementById('chatName')?.value.trim() || 'God';
+  return say(g,`${g.id} gives ${recipient} ${item}`);
+}
 function giveQuest(g,text){ if(!state.allowed.has('give_quest')){ return say(g,'I cannot bestow quests'); } const targets=state.geebrs.filter(x=>x!==g && BABYLON.Vector3.Distance(g.root.position,x.root.position)<=2.0); if(!targets.length){ return say(g,'no one nearby to quest upon'); } const target=pickRandom(targets); const tcfg=getBrainConfig(target.id); tcfg.quest=text||''; setBrainConfig(target.id,tcfg); say(g,`bestowed quest upon ${target.id}: ${text}`); say(target,`received quest: ${text}`); updatePerceptionUI(); }
 function castSpell(g,spell){ g.anim='cast'; playRig(g,'cast',true); const origin=g.root.position.clone(); makeRing(origin,spell==='fireball'?state.materials.fire:state.materials.magic); if(spell==='spark'){ const t=nearestTarget(g,3); if(t){ const m=meta(t); if(m?.type==='lamp'||m?.type==='crystal') emitBadge(t,'glow'); else damage(t,.35,'spark'); } return setTimeout(()=>{ say(g,'sparkles are a valid plan'); g.anim='idle'; playRig(g,'idle',true); },220); }
   if(spell==='push'){ for(const m of state.props) if(!m.isDisposed() && BABYLON.Vector3.Distance(origin,m.position)<3.4) impulse(m,origin,6.5,.28); setTimeout(()=>{ say(g,'physics has been consulted'); g.anim='idle'; },220); return; }
@@ -1378,19 +1530,33 @@ function describeThing(id, type, pos, marks, extra=''){
   const st=marks ? ' flags='+marks : '';
   return `${id} ${type} at (${Math.round(pos.x)},${Math.round(pos.z)})${st}${extra}`;
 }
+// Whole-map vision: every agent sees the entire island regardless of facing,
+// distance or walls. The facing cone (isWithinFacingVision), line-of-sight
+// occlusion (canSeeCell/opaqueCells) and the vision radius are kept intact;
+// set this to false to bring limited vision back.
+const FULL_MAP_VISION=true;
+// Grid bounds of the whole-map view: the island rectangle plus a margin for
+// the HD island's irregular noses/terraces and one row of sea around it.
+function fullMapBounds(cx,cz){
+  return { x0:Math.min(-WORLD.halfW-3,cx-1), x1:Math.max(WORLD.halfW+3,cx+1),
+           z0:Math.min(-WORLD.halfH-2,cz-1), z1:Math.max(WORLD.halfH+2,cz+1) };
+}
 function buildVisiblePerception(agentId=null,radius=7){
   const g=agentId ? state.geebrs.find(x=>x.id===agentId) : (state.selected||state.geebrs[0]);
   if(!g) return 'No agent selected.';
   radius=clamp(Number(radius)||5,2,8);
   const cx=Math.round(g.root.position.x), cz=Math.round(g.root.position.z);
-  const opaque=opaqueCells();
+  const opaque=FULL_MAP_VISION ? null : opaqueCells();
   const facingName=facingNameFromDir(g.dir);
+  const B=FULL_MAP_VISION ? fullMapBounds(cx,cz) : {x0:cx-radius,x1:cx+radius,z0:cz-radius,z1:cz+radius};
+  const sees=(x,z)=>FULL_MAP_VISION ||
+    (Math.abs(x-cx)<=radius && Math.abs(z-cz)<=radius && isWithinFacingVision(g,cx,cz,x,z,radius) && canSeeCell(cx,cz,x,z,opaque));
   state.perceptionLabels=new Map();
   const cells=new Map(); const details=[];
-  for(let z=cz-radius; z<=cz+radius; z++) for(let x=cx-radius; x<=cx+radius; x++){
-    const inCone=isWithinFacingVision(g,cx,cz,x,z,radius);
-    const visible=inCone && canSeeCell(cx,cz,x,z,opaque);
-    cells.set(gridKey(x,z), {base:visible?baseGlyphForTile(x,z):' ', marks:'', prio:visible?0:99, visible});
+  for(let z=B.z0; z<=B.z1; z++) for(let x=B.x0; x<=B.x1; x++){
+    const visible=sees(x,z);
+    const base=!visible ? ' ' : (FULL_MAP_VISION && !hasGroundAt(x,z) ? '~' : baseGlyphForTile(x,z));
+    cells.set(gridKey(x,z), {base, marks:'', prio:visible?0:99, visible});
   }
   function put(x,z,base,marks,prio){ const k=gridKey(x,z); const c=cells.get(k); if(!c || !c.visible) return; if(prio>=c.prio){ c.base=base; c.marks=marks||''; c.prio=prio; } else if(marks && !c.marks) c.marks=marks; }
   let objectNumber=1;
@@ -1398,9 +1564,7 @@ function buildVisiblePerception(agentId=null,radius=7){
     if(!m || m.isDisposed?.()) continue;
     const p=m.getAbsolutePosition?.() || m.position; if(!p) continue;
     const x=Math.round(p.x), z=Math.round(p.z);
-    if(Math.abs(x-cx)>radius || Math.abs(z-cz)>radius) continue;
-    if(!isWithinFacingVision(g,cx,cz,x,z,radius)) continue;
-    if(!canSeeCell(cx,cz,x,z,opaque)) continue;
+    if(!cells.has(gridKey(x,z)) || !sees(x,z)) continue;
     const mm=meta(m); if(!mm || mm.type==='tile') continue;
     const glyph=typeGlyph(mm.type), marks=stateMarksFor(mm,m);
     put(x,z,glyph,marks,55);
@@ -1409,24 +1573,22 @@ function buildVisiblePerception(agentId=null,radius=7){
     const id=(glyph.replace(/[^A-Za-z$/*]/g,'O')||'O')+objectNumber++;
     // Walking accepts every label shown on the map, not only touchable items.
     state.perceptionLabels.set(id.toLowerCase(),m); state.perceptionLabels.set(id,m);
-    details.push(describeThing(id,mm.type,p,marks, mm.state&&mm.state!=='intact'?`, state=${mm.state}`:''));
+    details.push({d:Math.hypot(x-cx,z-cz), text:describeThing(id,mm.type,p,marks, mm.state&&mm.state!=='intact'?`, state=${mm.state}`:'')});
   }
   for(const other of state.geebrs){
     const p=other.root.position; const x=Math.round(p.x), z=Math.round(p.z);
-    if(Math.abs(x-cx)>radius || Math.abs(z-cz)>radius) continue;
-    if(!isWithinFacingVision(g,cx,cz,x,z,radius)) continue;
-    if(!canSeeCell(cx,cz,x,z,opaque)) continue;
+    if(!cells.has(gridKey(x,z)) || !sees(x,z)) continue;
     const isSelf=other===g; put(x,z,isSelf?'@':'g', other.anim==='panic'?'?':'', 90);
-    if(!isSelf) details.push(`${other.id} other_geebr at (${x},${z}), anim=${other.anim||'idle'}`);
+    if(!isSelf) details.push({d:Math.hypot(x-cx,z-cz), text:`${other.id} other_geebr at (${x},${z}), anim=${other.anim||'idle'}`});
   }
   const rows=[];
-  const mapWidth=(radius*2+1)*2;
-  for(let z=cz-radius; z<=cz+radius; z++){
+  const mapCols=B.x1-B.x0+1, mapRows=B.z1-B.z0+1, mapWidth=mapCols*2;
+  for(let z=B.z0; z<=B.z1; z++){
     let row='';
     // Keep the cell ordering matched to the validated 3D presentation. The
     // edge labels use the conventional compass layout requested for the UI:
     // W on the left and E on the right.
-    for(let x=cx+radius; x>=cx-radius; x--){
+    for(let x=B.x1; x>=B.x0; x--){
       const c=cells.get(gridKey(x,z));
       row += compactCell(c.base,c.marks);
     }
@@ -1434,7 +1596,7 @@ function buildVisiblePerception(agentId=null,radius=7){
     rows.push(`z=${String(z).padStart(3,' ')} ${middle?'W ': '  '}${row}${middle?'E':''}`);
   }
   const absoluteX=[];
-  for(let x=cx+radius; x>=cx-radius; x--) absoluteX.push(x);
+  for(let x=B.x1; x>=B.x0; x--) absoluteX.push(x);
   const compassRows=[
     `                 ${' '.repeat(Math.max(0,mapWidth/2-1))}N`,
     ...rows,
@@ -1472,12 +1634,13 @@ function buildVisiblePerception(agentId=null,radius=7){
   const showMap = document.getElementById('showAsciiMap')?.checked !== false;
   return [
     `Agent perception for ${g.id}`,
-    `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  Radius: ${radius}`,
+    `Center: (${cx},${cz})  Facing: ${facingName} (${Math.round(g.dir.x)},${Math.round(g.dir.z)})  ${FULL_MAP_VISION?'View: whole map':'Radius: '+radius}`,
     `Holding: ${held ? (heldMeta?.type||held.name) : 'none'}  Target: ${target ? (targetMeta?.type||target.name)+' at ('+Math.round(target.position.x)+','+Math.round(target.position.z)+')' : 'none'}`,
     '',
-    ...(showMap ? [`North-up ${(radius*2+1)}x${(radius*2+1)} map (left=W, right=E; N=-Z, E=-X). Each row shows absolute z:`, ...compassRows, ''] : []),
+    ...(showMap ? [`North-up ${mapCols}x${mapRows} map (left=W, right=E; N=-Z, E=-X). Each row shows absolute z:`, ...compassRows, ''] : []),
     details.length ? 'Nearby visible objects:' : 'Nearby visible objects: none',
-    ...details.slice(0,24),
+    // Nearest first, so the cap only drops far-away things.
+    ...details.sort((p,q)=>p.d-q.d).slice(0,FULL_MAP_VISION?48:24).map(e=>e.text),
     '',
     ...(showMap ? legend : []),
   ].join('\n');
@@ -1505,6 +1668,7 @@ function buildCommandExamples(){
   if(state.allowed.has('goal')) ex.push('goal(text) e.g. goal(get axe)');
   if(state.allowed.has('note')) ex.push('note(html) e.g. note(<h2>Warning</h2><p>the bridge is out</p>) - inscribe an HTML note on the ground; carrying it reads its text aloud');
   if(state.allowed.has('give_quest')) ex.push('give_quest(text) e.g. give_quest(find the magic sword)');
+  if(state.allowed.has('give')) ex.push('give(item) e.g. give(magic sword) - hand an item to the person you are chatting with');
   return ex.length?ex:['walk("0,0")'];
 }
 function buildAgentPrompt(g, cfg) {
@@ -1986,14 +2150,17 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k); g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } positionHeldItem(g,dt); continue; } positionHeldItem(g,dt);
+function animate(dt){ for(const g of state.geebrs){ if(g.falling){ g.t+=dt; updateFall(g,dt); continue; } if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k);
+      // Walked off the island: fall instead of hovering over the sea.
+      if(!hasGroundAt(p.x,p.z)){ const tm=g.turnMove, len=BABYLON.Vector3.Distance(tm.start,tm.end)||1; g.lastSafePos=tm.start.clone(); startFall(g,tm.end.subtract(tm.start).scale(clamp(len/tm.dur,1.4,3.4)/len)); continue; }
+      g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.mouth) updateMouth(g,dt); else if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } positionHeldItem(g,dt); continue; } positionHeldItem(g,dt);
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
     else if(g.anim==='cast'){ g.arms[0].rotation.z=1.05+Math.sin(g.t*18)*.1; g.arms[1].rotation.z=-1.05-Math.sin(g.t*18)*.1; g.head.position.y=1.15; }
     else if(g.anim==='push'){ g.body.rotation.x=Math.sin(g.t*18)*.08; g.arms[0].rotation.z=.72; g.arms[1].rotation.z=-.72; }
     else { g.head.scaling.set(1,1,1); g.body.rotation.x=0; g.arms[0].rotation.z=.28+Math.sin(g.t*2)*.04; g.arms[1].rotation.z=-.28-Math.sin(g.t*2.1)*.04; }
-  } if(isTurnMode() && state.turn.phase==='ready'){ for(const g of state.geebrs) zeroMeshMotion(g.collider); } updateBubbles(dt); updateCompassHUD(); }
+  } if(isTurnMode() && state.turn.phase==='ready'){ for(const g of state.geebrs) if(!g.falling) zeroMeshMotion(g.collider); } updateBubbles(dt); updateCompassHUD(); }
 
 // v12 terrain patch: avoid WebGPU vertex-color/material weirdness and water z-fighting.
 // Uses simple StandardMaterial colored meshes at separated Y heights.
@@ -2229,7 +2396,7 @@ function makeSea(scene){
   seaM.diffuseColor=new BABYLON.Color3(.05,.13,.20); seaM.emissiveColor=new BABYLON.Color3(.012,.032,.055);
   seaM.specularColor=new BABYLON.Color3(.10,.16,.20); seaM.specularPower=128; seaM.alpha=.96;
   const sea=BABYLON.MeshBuilder.CreateGround('sea',{width:90,height:90,subdivisions:48},scene);
-  sea.position.y=-.42; sea.material=seaM; sea.isPickable=false;
+  sea.position.y=-.42; sea.material=seaM; sea.isPickable=false; state.seaLevel=sea.position.y;
   const pos=sea.getVerticesData(BABYLON.VertexBuffer.PositionKind); const base=pos.slice();
   scene.onBeforeRenderObservable.add(()=>{
     const t=performance.now()*.001;
@@ -2346,13 +2513,14 @@ async function addTerrainPolish(scene){
   ground.position.y=(state.terrainTopY??0)-.005; ground.isVisible=false; ground.isPickable=false;
   const groundBody=new BABYLON.PhysicsAggregate(ground,BABYLON.PhysicsShapeType.BOX,{mass:0,friction:.9,restitution:.02},scene);
   groundBody.body.setMotionType(BABYLON.PhysicsMotionType.STATIC);
+  try{ groundBody.shape.filterMembershipMask=GROUND_FILTER; }catch{}
 }
 
 async function main(){ window.GEEBR_STATE=state; const engine=await createEngine(); state.engine=engine; const scene=new BABYLON.Scene(engine); state.scene=scene; scene.clearColor=new BABYLON.Color4(.030,.058,.088,1);
   scene.fogMode=BABYLON.Scene.FOGMODE_EXP2; scene.fogDensity=.0075; scene.fogColor=new BABYLON.Color3(.045,.105,.145); const hk=await HavokPhysics(); scene.enablePhysics(new BABYLON.Vector3(0,-9.81,0),new BABYLON.HavokPlugin(true,hk)); if(window.GEEBR_STILL_MODE){ try{ scene.getPhysicsEngine()?.setTimeStep(0); console.warn('GEEBR: still mode - physics frozen'); }catch(e){} }
   // Initial three-quarter composition: house high-right, fire/geebr left of
   // centre, and the near tree/crates framing the lower-right foreground.
-  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI*.69+Math.PI,1.16,20.5,new BABYLON.Vector3(.9,.62,-.15),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=7; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
+  const camera=new BABYLON.ArcRotateCamera('camera',-Math.PI*.69+Math.PI,1.16,20.5,new BABYLON.Vector3(.9,.62,-.15),scene); state.camera=camera; camera.fov=.46; camera.lowerRadiusLimit=3.5; camera.upperRadiusLimit=60; camera.panningSensibility=60; camera.minZ=.5; camera.maxZ=600; camera.upperBetaLimit=1.42; camera.lowerBetaLimit=.22; camera.attachControl(canvas,true); setupMouseWheelZoom(camera);
   // Left-drag = orbit (default Babylon). Left-click (no drag) = center on clicked tile. Right-click = show tile info in history.
   if(camera.inputs?.attached?.pointers){ camera.inputs.attached.pointers.buttons=[0]; }
   let clickStart=null;

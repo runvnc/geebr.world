@@ -1,5 +1,5 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20261010a';
-import { installDevConsole } from './dev-console.js?v=20261010a';
+import { createAgentBrainManager } from './agent-brain.js?v=20261010b';
+import { installDevConsole } from './dev-console.js?v=20261010b';
 import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261010a';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20261010a';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
@@ -200,7 +200,7 @@ function formatActionSummary(historyEntry) {
   // Also strip the raw command form like 'geebr1 walk(n)' -> 'walk(n)'
   if (agentId && action.startsWith(agentId)) action = action.slice(agentId.length).trim();
   // Conjugate common verbs: walk->walks, say->says, look->looks, etc.
-  const verbMap = { walk: 'walks', say: 'says', look: 'looks', touch: 'touches', push: 'pushes', pull: 'pulls', carry: 'carries', drop: 'drops', throw: 'throws', dig: 'digs', build: 'builds', repair: 'repairs', panic: 'panics', spell: 'casts', goal: 'sets goal', give_quest: 'gives quest' };
+  const verbMap = { walk: 'walks', say: 'says', look: 'looks', touch: 'touches', push: 'pushes', pull: 'pulls', carry: 'carries', drop: 'drops', throw: 'throws', dig: 'digs', build: 'builds', repair: 'repairs', panic: 'panics', spell: 'casts', goal: 'sets goal', give_quest: 'gives quest', give: 'gives' };
   const parts = action.split(/\s+/);
   if (parts.length > 0 && verbMap[parts[0]]) parts[0] = verbMap[parts[0]];
   action = parts.join(' ');

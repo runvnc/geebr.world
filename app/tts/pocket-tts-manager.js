@@ -13,6 +13,8 @@
   const settings=()=>({enabled:localStorage.getItem('geebrTtsEnabled')==='1',language:localStorage.getItem('geebrTtsLanguage')||'english_2026-04',volume:Number(localStorage.getItem('geebrTtsVolume')||.85),bufferMs:clamp(Number(localStorage.getItem('geebrTtsBufferMs')||350),150,1500)});
   class PocketTTSManager extends EventTarget {
     constructor(){ super(); this.worker=null; this.ready=false; this.loading=false; this.queue=[]; this.running=false; this.audioCtx=null; this.gain=null; this.pcmNode=null; this.directPort=false; this.sampleRate=24000; this.receivedSamples=0; this.pendingAudio=[]; this.pendingStreamEnd=false; this.custom=new Map(); this.pending=new Map(); this.spatial=true; this.panner=null; this.stereoPanner=null; this.spatialAgent=null; this.spatialRAF=null; this.spatialDebug=null; this.showPanDebug=false; this.telemetry={backend:'WASM CPU',isolated:false,threads:1,hardwareConcurrency:navigator.hardwareConcurrency||0,bufferedMs:0,underruns:0,resumeCount:0,minBufferedMs:null,chunks:0,lastChunkRtfx:0,rtfx:0,firstAudioMs:null,audioArrivalMs:null,playbackStartMs:null}; this.loadCustomIndex(); }
+    // RMS of the speech currently playing (0 when silent); drives mouth animation.
+    level(){ if(!this.analyser||!this.current)return 0; this.analyser.getFloatTimeDomainData(this.levelBuf); let sum=0; for(const v of this.levelBuf)sum+=v*v; return Math.sqrt(sum/this.levelBuf.length); }
     status(text,state='idle'){ this.dispatchEvent(new CustomEvent('status',{detail:{text,state}})); }
     wasLoaded(){return localStorage.getItem(CACHE_MARKER)==='1';}
     async loadCustomIndex(){ for(const v of await this.dbAll().catch(()=>[])) this.custom.set(v.id,v); this.dispatchEvent(new Event('voiceschanged')); }
@@ -38,6 +40,10 @@
       this.stereoPanner=this.audioCtx.createStereoPanner();
       this.stereoPanner.pan.value=0;
       this.pcmNode.connect(this.stereoPanner).connect(this.gain).connect(this.audioCtx.destination);
+      // Side tap before the volume/distance gain so lip sync tracks the voice
+      // itself, not how loud it is at the listener. Read by level().
+      this.analyser=this.audioCtx.createAnalyser(); this.analyser.fftSize=512; this.levelBuf=new Float32Array(this.analyser.fftSize);
+      this.pcmNode.connect(this.analyser);
       this.startSpatialTicker();
       // Create a direct MessageChannel: worker port1 -> worklet port2.
       // Audio chunks flow worker->worklet without touching the main thread.
@@ -161,7 +167,7 @@
           '<span>R</span>'+
         '</div>';
     }    stop(){this.queue=[];try{this.worker?.postMessage({type:'stop'});this.pcmNode?.port.postMessage({type:'reset'});}catch{}this.finishCurrent(false);}
-    unload(){this.stopSpatialTicker();this.stop();try{this.worker?.terminate();}catch{}this.worker=null;this.ready=false;this.loading=false;this.pendingLoad=null;this.pendingAudio=[];this.pending.clear();try{this.pcmNode?.disconnect();}catch{}try{this.gain?.disconnect();}catch{}try{this.audioCtx?.close();}catch{}this.pcmNode=null;this.gain=null;this.audioCtx=null;this.directPort=false;}
+    unload(){this.stopSpatialTicker();this.stop();try{this.worker?.terminate();}catch{}this.worker=null;this.ready=false;this.loading=false;this.pendingLoad=null;this.pendingAudio=[];this.pending.clear();try{this.pcmNode?.disconnect();}catch{}this.analyser=null;try{this.gain?.disconnect();}catch{}try{this.audioCtx?.close();}catch{}this.pcmNode=null;this.gain=null;this.audioCtx=null;this.directPort=false;}
     async setLanguage(language){localStorage.setItem('geebrTtsLanguage',language);if(!this.worker)return;this.ready=false;this.status('Loading language…','loading');this.worker.postMessage({type:'set_language',data:{language}});}
     setEnabled(v){localStorage.setItem('geebrTtsEnabled',v?'1':'0');if(!v)this.stop();}
     setVolume(v){localStorage.setItem('geebrTtsVolume',String(v));if(this.gain)this.gain.gain.value=Number(v);}

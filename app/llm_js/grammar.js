@@ -49,7 +49,8 @@ panic()
 spell(name: push|spark|fireball)
 note(html)
 goal(text)
-give_quest(text)`),
+give_quest(text)
+give(item)`),
     instruction: 'Output one to three plain command lines matching the geebr.world command syntax, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. Pick actions for this character based on perception, personality, goals, quest, and current goal.',
   },
   choice: { label: 'Custom choice example', grammar: `root ::= "option-a" | "option-b" | "option-c"` },
@@ -222,6 +223,7 @@ export function buildDynamicGrammar(allowedCommands) {
   if (allowedCommands.has('spell.fireball')) parts.push('spell(name: fireball)');
   if (allowedCommands.has('goal')) parts.push('goal(text)');
   if (allowedCommands.has('give_quest')) parts.push('give_quest(text)');
+  if (allowedCommands.has('give')) parts.push('give(item)');
   if (parts.length <= 1) parts.push('say(text)'); // fallback
   const spec = parts.join('\n');
   return {

@@ -23,6 +23,7 @@ function buildTools(allowed) {
     face: { dir: { type: 'string' } },
     goal: { text: { type: 'string' } },
     give_quest: { text: { type: 'string' } },
+    give: { item: { type: 'string' } },
     note: { html: { type: 'string' } },
     touch: { target: { type: 'string' } },
   };

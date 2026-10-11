@@ -33,14 +33,14 @@
     ['https://cdn.babylonjs.com/babylon.js'],
     ['https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js'],
     ['https://cdn.babylonjs.com/havok/HavokPhysics_umd.js'],
-    ['tts/pocket-tts-manager.js?v=20260824c'],
+    ['tts/pocket-tts-manager.js?v=20261010a'],
     ['tts/tts-ui.js?v=20260824a'],
     ['look.js?v=20260823t'],
     ['perf-monitor.js?v=20260823x'],
     ['graphics-settings.js?v=20260823u'],
-    ['terrain-hd.js?v=20260823v'],
-    ['app.js?v=20261010a'],
-    ['llm_js/world-integration.js?v=20261010a', 'module'],
+    ['terrain-hd.js?v=20261010a'],
+    ['app.js?v=20261010f'],
+    ['llm_js/world-integration.js?v=20261010b', 'module'],
   ];
 
   function browserSummary() {
