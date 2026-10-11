@@ -10,26 +10,30 @@ import { loadModel as loadModelWllama3, getCapabilityInfo as getCapWllama3 } fro
 import { generate as generateWllama3, createWllama3Engine } from './gpt-runner-wllama3.js?v=20260823q';
 import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20261011a';
 
+// hidden: kept working but not offered in the model picker (MiniCPM retired
+// from the UI 2026-10-11). Still reachable with ?model=<key>.
 const SUPPORTED_MODELS = {
-  'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama', size: '~690 MB' },
-  'minicpm5-1b-q8': { label: 'MiniCPM5-1B (CPU, Q8_0)', engine: 'wllama', size: '~1.15 GB' },
-  'minicpm5-1b-wgpu': { label: 'MiniCPM5-1B (WebGPU GGUF)', engine: 'wllama3', size: '~690 MB' },
-  'minicpm5-1b-wgpu-q8': { label: 'MiniCPM5-1B (WebGPU GGUF Q8_0)', engine: 'wllama3', size: '~1.15 GB' },
-  'minicpm5-1b-gpu': { label: 'MiniCPM5-1B (GPU/WebGPU)', engine: 'transformers.js', size: '~1.4 GB' },
+  'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama', size: '~690 MB', hidden: true },
+  'minicpm5-1b-q8': { label: 'MiniCPM5-1B (CPU, Q8_0)', engine: 'wllama', size: '~1.15 GB', hidden: true },
+  'minicpm5-1b-wgpu': { label: 'MiniCPM5-1B (WebGPU GGUF)', engine: 'wllama3', size: '~690 MB', hidden: true },
+  'minicpm5-1b-wgpu-q8': { label: 'MiniCPM5-1B (WebGPU GGUF Q8_0)', engine: 'wllama3', size: '~1.15 GB', hidden: true },
+  'minicpm5-1b-gpu': { label: 'MiniCPM5-1B (GPU/WebGPU)', engine: 'transformers.js', size: '~1.4 GB', hidden: true },
   'gemma4-e2b-litert': { label: 'Gemma 4 E2B (LiteRT-LM)', engine: 'litert-lm', size: '~2 GB' },
 };
+const DEFAULT_MODEL = 'gemma4-e2b-litert';
 
-// Default model is MiniCPM5-1B. Toggle to Gemma 4 E2B (LiteRT) with
-// ?model=gemma4-e2b-litert URL param or localStorage geebr_model flag.
+// Default model is Gemma 4 E2B. ?model=<key> picks any model, hidden ones
+// included; a remembered choice (localStorage geebr_model) only counts if
+// that model is still offered in the picker.
 function resolveDefaultModel() {
   try {
     const qs = new URLSearchParams(window.location.search);
     const fromQs = qs.get('model');
     if (fromQs && SUPPORTED_MODELS[fromQs]) return fromQs;
     const stored = localStorage.getItem('geebr_model');
-    if (stored && SUPPORTED_MODELS[stored]) return stored;
+    if (stored && SUPPORTED_MODELS[stored] && !SUPPORTED_MODELS[stored].hidden) return stored;
   } catch {}
-  return 'minicpm5-1b';
+  return DEFAULT_MODEL;
 }
 
 function persistModelChoice(key) {
@@ -208,7 +212,7 @@ export function createAgentBrainManager(config = {}) {
     isLoaded: () => loaded,
     setModel,
     getModelKey,
-    getSupportedModels: () => Object.entries(SUPPORTED_MODELS).map(([key, cfg]) => ({ key, label: cfg.label, engine: cfg.engine, size: cfg.size })),
+    getSupportedModels: () => Object.entries(SUPPORTED_MODELS).map(([key, cfg]) => ({ key, label: cfg.label, engine: cfg.engine, size: cfg.size, hidden: !!cfg.hidden })),
     clearConversations: (agentId = null) => clearLiteRTConversations(agentId),
   };
 }

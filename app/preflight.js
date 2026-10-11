@@ -41,7 +41,7 @@
     ['terrain-hd.js?v=20261011a'],
     ['app.js?v=20261011d'],
     ['scenario.js?v=20261011d'],
-    ['llm_js/world-integration.js?v=20261011d', 'module'],
+    ['llm_js/world-integration.js?v=20261011e', 'module'],
   ];
 
   function browserSummary() {

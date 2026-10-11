@@ -3,7 +3,7 @@
 // world-integration.js (that one tracks whatever model the UI has loaded for
 // the geebrs) - these console helpers always default to Gemma 4 E2B so
 // switching a geebr's brain model never changes what a console call does.
-import { createAgentBrainManager } from './agent-brain.js?v=20261011b';
+import { createAgentBrainManager } from './agent-brain.js?v=20261011c';
 
 const DEFAULT_MODEL = 'gemma4-e2b-litert';
 

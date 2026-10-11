@@ -1,5 +1,5 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20261011b';
-import { installDevConsole } from './dev-console.js?v=20261011b';
+import { createAgentBrainManager } from './agent-brain.js?v=20261011c';
+import { installDevConsole } from './dev-console.js?v=20261011c';
 import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261011a';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20261010a';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
@@ -353,6 +353,8 @@ async function main() {
   if (modelSelect) {
     modelSelect.textContent = '';
     for (const m of manager.getSupportedModels()) {
+      // Hidden models only appear if one was picked explicitly via ?model=.
+      if (m.hidden && m.key !== manager.getModelKey()) continue;
       const opt = document.createElement('option');
       opt.value = m.key;
       opt.textContent = m.label;
