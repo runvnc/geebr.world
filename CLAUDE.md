@@ -6,7 +6,8 @@
 - Cache busting: modules and assets load with `?v=` strings (see
   `app/preflight.js` and the `import ... ?v=` lines in `app/llm_js/`). Bump the
   version of every changed file, and of every importer up the chain, so all
-  importers share one module instance.
+  importers share one module instance. `preflight.js` itself is loaded from
+  `app/index.html` with its own `?v=`: bump that too whenever preflight.js changes.
 - **Testing in a real browser:** `tools/browser-test/README.md`, a dedicated
   Chrome profile driven over the DevTools protocol with the real WebGPU model
   (`launch-chrome.sh`, `wait-ready.sh`, `eval.mjs`, `runtests.mjs`).

@@ -27,6 +27,11 @@ class GeebrHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
     def end_headers(self):
+        # Entry points must be revalidated or browsers keep running an old
+        # build: preflight.js carries every other file's ?v= version string.
+        path = self.path.split("?", 1)[0]
+        if path.endswith((".html", "/", "preflight.js")):
+            self.send_header("Cache-Control", "no-cache")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")

@@ -523,6 +523,19 @@
     return out;
   }
 
+  // Goal context for a planned (not yet built) world: positions from the plan.
+  function planContext(scn, plan) {
+    const pos = new Map();
+    for (const a of scn.agents) {
+      const p = Array.isArray(a.at) ? { x: +a.at[0], z: +a.at[1] } : plan.agents[a.id];
+      if (p) pos.set(a.id.toLowerCase(), { id: a.id, root: { position: { x: p.x, z: p.z } } });
+    }
+    const cfgs = new Map(scn.agents.map(a => [a.id, { inventory: { gold: +(a.inventory?.gold) || 0, items: (a.inventory?.items || []).map(i => typeof i === 'string' ? { name: i, qty: 1 } : i) } }]));
+    const w = { getBrainConfig: id => cfgs.get(id) || {}, findItem: (items, n) => W().findItem(items, n) };
+    return { w, agents: pos, objects: [...scn.objects, ...plan.objects].map(o => ({ type: o.type, x: +o.x, z: +o.z, state: o.state || 'intact' })),
+      anchors: W().sceneryAnchors(), player: { gold: +(scn.player?.gold) || 0, items: scn.player?.items || [] }, speech: [], turns: 0 };
+  }
+
   async function playScenario(input, opts = {}) {
     const w = W(); if (!w?.ready) throw new Error('world not ready');
     const scn = normalizeScenario(input);
@@ -533,7 +546,17 @@
     w.setAllowed(scn.allowed);
     w.setLighting?.(scn.lighting === 'night' ? 'night' : 'bright');
     w.setPlayer(scn.player);
-    const plan = layout(scn);
+    // Never start already won: if the layout satisfies the win condition at
+    // turn 0 (e.g. "get Pip to the campfire" with Pip placed by the fire),
+    // re-roll with the next seeds.
+    let plan = layout(scn);
+    if (scn.goal?.win && !opts.keepSeed) {
+      for (let k = 1; k <= 8 && evalCond(scn.goal.win, planContext(scn, plan)); k++) {
+        plan = layout({ ...scn, seed: scn.seed + k });
+        plan.warnings.unshift(`layout seed ${scn.seed} would have started already won; used seed ${scn.seed + k}`);
+      }
+      if (evalCond(scn.goal.win, planContext(scn, plan))) plan.warnings.unshift('warning: the goal is already met at the start for every layout tried');
+    }
     for (const o of scn.objects) w.makeObject(o.type, +o.x, +o.z, o);
     for (const o of plan.objects) w.makeObject(o.type, o.x, o.z, o);
     let first = null;
@@ -722,8 +745,8 @@
       player: { name: 'Traveller', gold: 0, items: [] },
       allowed: ['say', 'walk', 'face', 'emote'],
       agents: [{ id: 'pip', personality: 'a shy little geebr who loves stories but is nervous around fire. You can walk to coordinates with walk("x,z").' }],
-      map: ['place crate x3 cluster at southwest', 'place pip beside crate', 'place mushroom x4 scattered'],
-      goal: { text: 'Talk Pip into walking to the campfire.', win: { agent_near: ['pip', 'campfire', 2] }, maxTurns: 12, winText: 'Pip sits down by the fire, warming tiny hands.', score: 'turns_left' },
+      map: ['place crate x3 cluster against west_wall', 'place pip beside crate', 'place mushroom x4 scattered'],
+      goal: { text: 'Talk Pip into walking to the campfire.', win: { agent_near: ['pip', 'campfire', 1.5] }, maxTurns: 12, winText: 'Pip sits down by the fire, warming tiny hands.', score: 'turns_left' },
     },
   };
 
