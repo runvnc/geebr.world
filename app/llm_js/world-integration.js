@@ -1,5 +1,5 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20261010d';
-import { installDevConsole } from './dev-console.js?v=20261010d';
+import { createAgentBrainManager } from './agent-brain.js?v=20261011a';
+import { installDevConsole } from './dev-console.js?v=20261011a';
 import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261010d';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20261010a';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
@@ -200,7 +200,7 @@ function formatActionSummary(historyEntry) {
   // Also strip the raw command form like 'geebr1 walk(n)' -> 'walk(n)'
   if (agentId && action.startsWith(agentId)) action = action.slice(agentId.length).trim();
   // Conjugate common verbs: walk->walks, say->says, look->looks, etc.
-  const verbMap = { walk: 'walks', say: 'says', look: 'looks', touch: 'touches', push: 'pushes', pull: 'pulls', carry: 'carries', drop: 'drops', throw: 'throws', dig: 'digs', build: 'builds', repair: 'repairs', panic: 'panics', spell: 'casts', goal: 'sets goal', give_quest: 'gives quest', give: 'gives' };
+  const verbMap = { walk: 'walks', say: 'says', look: 'looks', touch: 'touches', push: 'pushes', pull: 'pulls', carry: 'carries', drop: 'drops', throw: 'throws', dig: 'digs', build: 'builds', repair: 'repairs', panic: 'panics', spell: 'casts', goal: 'sets goal', give_quest: 'gives quest', give: 'gives', sell: 'sells', inventory: 'checks inventory' };
   const parts = action.split(/\s+/);
   if (parts.length > 0 && verbMap[parts[0]]) parts[0] = verbMap[parts[0]];
   action = parts.join(' ');
@@ -255,6 +255,8 @@ function syncSelectedBrainUI(world) {
   if (el('agentTtsEnabled')) el('agentTtsEnabled').checked = cfg.ttsEnabled !== false;
   if (el('agentThinking')) el('agentThinking').checked = cfg.thinking === true;
   if (el('agentShowThoughts')) el('agentShowThoughts').checked = cfg.showThoughts !== false;
+  if (el('agentGold')) el('agentGold').value = cfg.inventory?.gold ?? 0;
+  if (el('agentItems') && document.activeElement !== el('agentItems')) el('agentItems').value = world.formatInventoryItems?.(cfg.inventory?.items) || '';
   if (el('agentTtsVoice')) el('agentTtsVoice').value = cfg.ttsVoiceId || 'builtin:alba';
 }
 
@@ -271,6 +273,7 @@ function saveSelectedBrainUI(world) {
     ttsEnabled: el('agentTtsEnabled')?.checked !== false,
     thinking: el('agentThinking')?.checked === true,
     showThoughts: el('agentShowThoughts')?.checked !== false,
+    inventory: { gold: Math.max(0, parseInt(el('agentGold')?.value, 10) || 0), items: world.parseInventoryItems?.(el('agentItems')?.value) || [] },
     ttsVoiceId: el('agentTtsVoice')?.value || 'builtin:alba',
   });
 }
@@ -450,9 +453,11 @@ async function main() {
   }
 
   world.onAgentSelected = () => syncSelectedBrainUI(world);
+  // A sale changes gold/stock; refresh the Character setup fields.
+  world.onInventoryChanged = () => syncSelectedBrainUI(world);
   syncSelectedBrainUI(world);
 
-  for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest', 'agentTtsEnabled', 'agentTtsVoice', 'agentThinking', 'agentShowThoughts']) {
+  for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest', 'agentTtsEnabled', 'agentTtsVoice', 'agentThinking', 'agentShowThoughts', 'agentGold', 'agentItems']) {
     const node = el(id);
     if (node) node.addEventListener('change', () => saveSelectedBrainUI(world));
     if (node && (node.type === 'range' || node.type === 'text' || node.tagName === 'TEXTAREA')) node.addEventListener('input', () => saveSelectedBrainUI(world));

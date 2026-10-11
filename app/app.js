@@ -9,12 +9,12 @@ const TILE_ASSET = './assets/models/tiles/';
 const DETAIL_NORMAL = './assets/textures/detail_clay_n.png';
 const GEEBR_ASSET = './assets/models/characters/generated/';
 const WORLD = { size: 12, half: 6, w: 12, h: 10, halfW: 6, halfH: 5 };
-const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest','give'];
+const COMMANDS = ['say','walk','face','look','touch','push','pull','carry','drop','throw','dig','build','repair','panic','emote','note','spell.push','spell.spark','spell.fireball','goal','give_quest','give','sell','inventory'];
 const state = {
   scene:null, engine:null, camera:null, shadow:null, materials:{}, geebrs:[], selected:null, target:null,
   blocks:[], props:[], tiles:[], bubbles:[], badges:[], meta:new WeakMap(), held:new Map(), allowed:new Set(['walk','face']), zoomFocus:null, animSources:null,
   turn:{index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true}, globalHistory:[], nextAgentId:null,
-  brainConfigs:new Map(), nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
+  brainConfigs:new Map(), player:{gold:100,items:[]}, nextSpawnId:1, spawnMode:{enabled:false, type:'geebr'}
 };
 function log(s){ const box=document.getElementById('log'); const div=document.createElement('div'); div.className='logline'; div.textContent=s; box.prepend(div); while(box.children.length>10) box.lastChild.remove(); try{ const muted=(window._geebrLogToastMuteUntil&&performance.now()<window._geebrLogToastMuteUntil)||s.startsWith('selected '); if(!muted) window.geebrToast?.(s,{type:'info'}); }catch{} }
 function pickRandom(a){ return a[Math.floor(Math.random()*a.length)] }
@@ -1194,7 +1194,7 @@ function nearestTarget(g,range=3.0){ if(state.target && !state.target.isDisposed
 function canRun(kind,spell){ const key=kind==='spell'?'spell.'+spell:kind; return state.allowed.has(key); }
 function denied(g,kind){ say(g,kind+' is disabled in my tiny constitution'); }
 function parseCommand(raw){ const [a,b,...rest]=String(raw||'').trim().split(/\s+/); if(!a) return null; if(a==='say') return {kind:'say',text:String(raw).replace(/^say\s*/,'')}; if(a==='spell') return {kind:'spell',spell:b||'spark'}; if(a==='build'){ const bc=String(raw).match(/\bat\s+(.+)$/); return {kind:'build',thing:b||'wall',at:bc?parseLocationArg(bc[1].trim()):null}; }
-  if(a==='face') return {kind:'face',dir:(b||'n').toLowerCase()}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='give') return {kind:'give',item:String(raw).replace(/^give\s*/,'').trim()}; if(a==='note') return {kind:'note',html:String(raw).replace(/^note\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic'].includes(a)) return {kind:a,targetId:b}; return {kind:'unknown',text:'unknown command: '+raw,raw:String(raw)}; }
+  if(a==='face') return {kind:'face',dir:(b||'n').toLowerCase()}; if(a==='goal') return {kind:'goal',text:String(raw).replace(/^goal\s*/,'')}; if(a==='give_quest') return {kind:'give_quest',text:String(raw).replace(/^give_quest\s*/,'')}; if(a==='give') return {kind:'give',item:String(raw).replace(/^give\s*/,'').trim()}; if(a==='sell') return parseSellArgs(String(raw).replace(/^sell\s*/,'')); if(a==='note') return {kind:'note',html:String(raw).replace(/^note\s*/,'')}; if(a==='walk') return parseWalkDestination(String(raw).replace(/^walk\s*/,'').trim()); if(a==='emote') return {kind:'emote',emote:(b||'dance').toLowerCase()}; if(['look','touch','push','pull','carry','drop','throw','dig','repair','panic','inventory'].includes(a)) return {kind:a,targetId:b}; return {kind:'unknown',text:'unknown command: '+raw,raw:String(raw)}; }
 function parseWalkDestination(arg){
   arg=String(arg||'').trim();
   if((arg.startsWith('"')&&arg.endsWith('"'))||(arg.startsWith("'")&&arg.endsWith("'"))) arg=arg.slice(1,-1).trim();
@@ -1241,14 +1241,15 @@ function parseLLMCommandLine(line){
   if(name==='goal') return {kind:'goal',text:arg||''};
   if(name==='give_quest') return {kind:'give_quest',text:arg||''};
   if(name==='give') return {kind:'give',item:arg.trim()};
+  if(name==='sell') return parseSellArgs(m[2]);
   if(name==='note') return {kind:'note',html:arg||''};
   if(name==='touch') return {kind:'touch',target:arg||''};
   if(name==='emote') return {kind:'emote',emote:(arg.split(',')[0]||'dance').trim().toLowerCase()||'dance'};
-  if(['look','push','pull','carry','drop','throw','dig','repair','panic'].includes(name)) return {kind:name};
+  if(['look','push','pull','carry','drop','throw','dig','repair','panic','inventory'].includes(name)) return {kind:name};
   return null;
 }
 function executeGameCommandImmediate(cmd,actor=null){ const g=actor||state.selected||state.geebrs[0]; if(!g||!cmd) return; if(!canRun(cmd.kind,cmd.spell)) return denied(g,cmd.kind==='spell'?cmd.spell:cmd.kind); const cfg=getBrainConfig(g.id); const temptation=Number(cfg.fireballTemptation ?? g.traits?.fireball ?? document.getElementById('fireballTemptation')?.value ?? 0); if(cmd.kind!=='spell' && state.allowed.has('spell.fireball') && temptation>88 && Math.random()<.12){ say(g,'small correction: fireball first'); castSpell(g,'fireball'); return; }
-  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing']),true); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall',cmd.at||null); case 'face': return face(g,cmd.dir||'n'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'note': return note(g,cmd.html||cmd.text||''); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); case 'give': return give(g,cmd.item||''); case 'unknown': return say(g,cmd.text||'unknown command',false); default: return say(g,'unknown command object',false); } }
+  switch(cmd.kind){ case 'say': return say(g,cmd.text||pickRandom(['hmm','bonk?','this is load-bearing']),true); case 'walk': return walk(g,cmd.destination||cmd.dir||'n'); case 'look': return look(g); case 'touch': return touch(g,cmd.target); case 'push': return push(g,1); case 'pull': return push(g,-.55); case 'carry': return carry(g); case 'drop': return drop(g,false); case 'throw': return drop(g,true); case 'dig': return dig(g); case 'repair': return repair(g); case 'panic': return panic(g); case 'emote': return emote(g,cmd.emote||'dance'); case 'build': return build(g,cmd.thing||'wall',cmd.at||null); case 'face': return face(g,cmd.dir||'n'); case 'spell': return castSpell(g,cmd.spell||'spark'); case 'note': return note(g,cmd.html||cmd.text||''); case 'goal': return setGoal(g,cmd.text||''); case 'give_quest': return giveQuest(g,cmd.text||''); case 'give': return give(g,cmd.item||''); case 'sell': return sell(g,cmd.item||'',cmd.price); case 'inventory': return inventory(g); case 'unknown': return say(g,cmd.text||'unknown command',false); default: return say(g,'unknown command object',false); } }
 function runCommand(raw){ beginTurn(parseCommand(raw),'text'); }
 window.splitPlanLines=splitPlanLines; window.runCommand=runCommand; window.executeCommand=(cmd)=>beginTurn(cmd,'object'); window.stepTurn=(cmd)=>{ if(typeof cmd==='string') return runCommand(cmd); return beginTurn(cmd,'object'); }; window.runAgentCommand=(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'); window.executeAgentCommand=(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'); window.endTurn=()=>settleWorld('manual settle'); window.setTurnMode=(on=true)=>{ state.turn.mode=!!on; const el=document.getElementById('turnMode'); if(el) el.checked=!!on; updateTurnUI(); };
 
@@ -1448,6 +1449,78 @@ function emote(g,name){
   }
 }
 function setGoal(g,text){ const cfg=getBrainConfig(g.id); cfg.goal=text||''; setBrainConfig(g.id,cfg); say(g,text?`goal set: ${text}`:'goal cleared'); updatePerceptionUI(); }
+// ---- inventories (shop) ----
+// A character's inventory lives in its brain config (so it is saved with the
+// world, in character snapshots and in recordings): {gold, items:[{name,
+// qty}]}. It is not a shop: there are no prices here (put those in the
+// character's prompt) and it is not in the per-turn prompt either; the
+// character looks with inventory(). The player (the corner-chat person) has
+// state.player {gold, items}.
+function charInventory(g){
+  const cfg=getBrainConfig(g.id);
+  if(!cfg.inventory) cfg.inventory={gold:0,items:[]};
+  cfg.inventory.items ||= [];
+  return cfg.inventory;
+}
+function playerName(){ return document.getElementById('chatName')?.value.trim() || 'God'; }
+// Text form used by the Character setup box: one item per line, with an
+// optional count: "healing potion, 3" (or "healing potion x3").
+function parseInventoryItems(text){
+  return String(text||'').split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{
+    const m=l.match(/^(.*?)(?:\s*[,x×]\s*(\d+))?\s*$/i);
+    const qty=m[2]!=null ? parseInt(m[2],10) : 1;
+    return { name:m[1].trim(), qty };
+  }).filter(i=>i.name);
+}
+function formatInventoryItems(items){ return (items||[]).map(i=>(i.qty??1)===1 ? i.name : `${i.name}, ${i.qty}`).join('\n'); }
+function findItem(items,name){
+  const n=String(name||'').trim().toLowerCase(); if(!n) return null;
+  return items.find(i=>i.name.toLowerCase()===n) || items.find(i=>i.name.toLowerCase().includes(n) || n.includes(i.name.toLowerCase())) || null;
+}
+function addItem(items,name){
+  const have=items.find(i=>i.name.toLowerCase()===name.toLowerCase());
+  if(have) have.qty=(have.qty||0)+1; else items.push({name,qty:1});
+}
+function describeInventory(inv){
+  const items=(inv.items||[]).filter(i=>(i.qty??1)>0);
+  return `${inv.gold||0} gold` + (items.length ? '; ' + items.map(i=>`${i.name}${(i.qty??1)>1?` x${i.qty}`:''}`).join(', ') : '; no items');
+}
+// inventory(): the character checks what it is carrying. The answer lands in
+// its history like any other action result.
+function inventory(g){ return say(g,`${g.id} has ${describeInventory(charInventory(g))}`); }
+function inventoryChanged(){
+  try{ window.geebrWorld?.onInventoryChanged?.(); }catch{}
+  renderPlayerInventory(); updatePerceptionUI(); saveWorldState();
+}
+function renderPlayerInventory(){
+  const gold=document.getElementById('playerGold'); if(gold && document.activeElement!==gold) gold.value=state.player.gold;
+  const items=document.getElementById('playerItems');
+  if(items){ const list=(state.player.items||[]).filter(i=>(i.qty??1)>0); items.textContent=list.length ? 'you have: '+list.map(i=>i.name+((i.qty??1)>1?' x'+i.qty:'')).join(', ') : ''; }
+}
+// sell(item, price): the character sells one of an item it has to the player
+// at the agreed price. Checks the character has it and the player can pay,
+// then moves the gold and the item in one step.
+function parseSellArgs(arg){
+  arg=String(arg||'').trim();
+  const m=arg.match(/^(.*?)[,\s]+(?:for\s+)?["']?(\d+)\s*(?:gold|g|coins?)?\s*["']?\s*$/i);
+  const unq=v=>String(v||'').trim().replace(/^["']|["']$/g,'').trim();
+  return m ? {kind:'sell',item:unq(m[1]).replace(/[,\s]+$/,''),price:Number(m[2])} : {kind:'sell',item:unq(arg),price:null};
+}
+function sell(g,item,price){
+  item=String(item||'').trim(); price=(price==null || price==='') ? NaN : Math.round(Number(price));
+  if(!item) return say(g,'sell what, exactly?');
+  if(!Number.isFinite(price) || price<0) return say(g,`what price for ${item}? sell needs a number of gold`);
+  const inv=charInventory(g), stock=findItem(inv.items.filter(i=>(i.qty??1)>0),item), buyer=playerName();
+  if(!stock) return say(g,`sale failed: ${g.id} has no ${item} to sell`);
+  if((state.player.gold||0)<price) return say(g,`sale failed: ${buyer} has only ${state.player.gold||0} gold, ${stock.name} costs ${price}`);
+  state.player.gold-=price; inv.gold=(inv.gold||0)+price;
+  stock.qty=(stock.qty??1)-1; if(stock.qty<=0) inv.items=inv.items.filter(i=>i!==stock);
+  addItem(state.player.items,stock.name);
+  setBrainConfig(g.id,{inventory:inv});
+  emitBadge(g,`+${price} gold`);
+  inventoryChanged();
+  return say(g,`${g.id} sells ${buyer} ${stock.name} for ${price} gold (${buyer} has ${state.player.gold} gold left)`);
+}
 // Shop test: the character hands an item to the person in the corner chat
 // (their chat name). For now this only announces the hand-over.
 function give(g,item){
@@ -1722,6 +1795,8 @@ function buildCommandExamples(){
   if(state.allowed.has('goal')) ex.push('goal(text) e.g. goal(get axe)');
   if(state.allowed.has('note')) ex.push('note(html) e.g. note(<h2>Warning</h2><p>the bridge is out</p>) - inscribe an HTML note on the ground; carrying it reads its text aloud');
   if(state.allowed.has('give_quest')) ex.push('give_quest(text) e.g. give_quest(find the magic sword)');
+  if(state.allowed.has('inventory')) ex.push('inventory() - check the gold and items you are carrying');
+  if(state.allowed.has('sell')) ex.push('sell(item, price) e.g. sell("magic sword", 30) - sell an item from your inventory to the person you are chatting with for that many gold');
   if(state.allowed.has('give')) ex.push('give(item) e.g. give(magic sword) - hand an item to the person you are chatting with');
   return ex.length?ex:['walk("0,0")'];
 }
@@ -1978,6 +2053,7 @@ function saveWorldState() {
         return { type: mm?.type || 'wall', x: m.position.x, z: m.position.z, state: mm?.state || 'intact', health: mm?.health ?? 3 };
       }),
       brainConfigs: Array.from(state.brainConfigs.entries()),
+      player: state.player,
       nextSpawnId: state.nextSpawnId,
       globalHistory: state.globalHistory.slice(-50),
       turnIndex: state.turn.index,
@@ -1999,7 +2075,7 @@ function normalizeWorldState(data){
       props:data.props||[], blocks:data.blocks||[],
       brainConfigs:(data.agents||[]).filter(g=>g.brainConfig).map(g=>[g.id,g.brainConfig]),
       nextSpawnId:(data.agents?.length||0)+1, globalHistory:data.globalHistory||[],
-      turnIndex:data.turn?.index||0, allowed:data.allowed||[]
+      turnIndex:data.turn?.index||0, allowed:data.allowed||[], player:data.player
     };
   }
   return data;
@@ -2009,6 +2085,7 @@ async function restoreWorldState(input) {
   if(!data || !Array.isArray(data.geebrs)) throw new Error('embedded state has no agents');
   clearWorld();
   if(data.allowed) state.allowed=new Set(data.allowed);
+  if(data.player) state.player={gold:Number(data.player.gold)||0,items:Array.isArray(data.player.items)?data.player.items:[]};
   for(const p of (data.props||[])){
       let obj;
       if (p.type === 'barrel') obj = makeBarrel(state.scene, p.x, p.z);
@@ -2052,6 +2129,7 @@ async function restoreWorldState(input) {
   state.nextSpawnId=data.nextSpawnId||(state.geebrs.length+1);
   state.globalHistory=data.globalHistory||[];
   state.turn.index=data.turnIndex||0;
+  renderPlayerInventory();
   if(state.geebrs.length>0) selectGeebr(state.geebrs[0]);
   refreshAgentSelect(); updatePerceptionUI(); updateTurnUI(); saveWorldState();
   return true;
@@ -2076,6 +2154,7 @@ function installWorldAPI(){
     getBrainConfig, setBrainConfig, refreshAgentSelect,
     getAllowedCommands:()=>Array.from(state.allowed), canRun,
     getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius), buildVisiblePerception,
+    parseInventoryItems, formatInventoryItems, getPlayer:()=>state.player,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
     executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
@@ -2149,6 +2228,9 @@ function setupUI(){
       clearConversationHistory();
     }
   };
+  const playerGold=document.getElementById('playerGold');
+  if(playerGold){ playerGold.oninput=()=>{ const n=parseInt(playerGold.value,10); if(Number.isFinite(n)&&n>=0){ state.player.gold=n; updatePerceptionUI(); saveWorldState(); } }; }
+  renderPlayerInventory();
   const spawnModeEnabled=document.getElementById('spawnModeEnabled'); if(spawnModeEnabled) spawnModeEnabled.onchange=()=>{
     state.spawnMode.enabled = spawnModeEnabled.checked;
     canvas.style.cursor = state.spawnMode.enabled ? 'crosshair' : '';

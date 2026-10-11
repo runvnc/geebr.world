@@ -24,7 +24,7 @@
     ['https://cdn.jsdelivr.net/npm/upng-js@2.1.0/UPNG.js'],
     ['https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'],
     ['note-svg.js?v=20260823t'],
-    ['recorder.js?v=20260823t'],
+    ['recorder.js?v=20261011a'],
     ['confirm-dialog.js?v=20260823t'],
     ['toast.js?v=20260823t'],
     ['ui-polish.js?v=20260823t'],
@@ -39,8 +39,8 @@
     ['perf-monitor.js?v=20260823x'],
     ['graphics-settings.js?v=20260823u'],
     ['terrain-hd.js?v=20261010a'],
-    ['app.js?v=20261010h'],
-    ['llm_js/world-integration.js?v=20261010e', 'module'],
+    ['app.js?v=20261011a'],
+    ['llm_js/world-integration.js?v=20261011a', 'module'],
   ];
 
   function browserSummary() {

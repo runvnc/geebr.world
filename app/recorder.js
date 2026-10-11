@@ -39,6 +39,7 @@
       props:(state.props || []).filter(m => !m?.isDisposed?.()).map(meshRecord),
       blocks:(state.blocks || []).filter(m => !m?.isDisposed?.()).map(meshRecord),
       globalHistory:[...(state.globalHistory || [])],
+      player:state.player ? JSON.parse(JSON.stringify(state.player)) : undefined,
       camera:state.camera ? {
         alpha:state.camera.alpha, beta:state.camera.beta, radius:state.camera.radius,
         target:{x:state.camera.target.x,y:state.camera.target.y,z:state.camera.target.z},

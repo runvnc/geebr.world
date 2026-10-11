@@ -136,6 +136,11 @@
       <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">helpful and friendly</textarea></label>
       <label class="spawn-mode-toggle"><input id="agentThinking" type="checkbox" /> thinking mode (reasons before acting: slower, smarter)</label>
       <label class="spawn-mode-toggle"><input id="agentShowThoughts" type="checkbox" checked /> show thought text in a bubble (otherwise just "thinking…" while it reasons)</label>
+      <div class="section-subtitle">Inventory</div>
+      <div class="custom-grid">
+        <label>Gold <input id="agentGold" type="number" min="0" step="1" value="0" /></label>
+      </div>
+      <label class="personality-label">Items, one per line (optional count: "healing potion, 3")<textarea id="agentItems" rows="3" spellcheck="false" placeholder="magic sword&#10;healing potion, 3"></textarea></label>
       <div class="section-subtitle">Character voice</div>
       <div class="custom-grid">
         <label>Speak aloud <input id="agentTtsEnabled" type="checkbox" checked /></label>
@@ -237,6 +242,8 @@
   <div id="chatDock">
     <div class="chat-target" id="chatTarget">to: click a geebr</div>
     <label class="chat-name-label">Chat name <input id="chatName" type="text" value="God" placeholder="Your name" /></label>
+    <label class="chat-name-label">Your gold <input id="playerGold" type="number" min="0" step="1" value="100" /></label>
+    <div id="playerItems" class="chat-target"></div>
     <div class="chat-send-row">
       <input id="chatInput" type="text" placeholder="Message selected agent..." />
       <button id="chatSend" type="button">send</button>

@@ -50,7 +50,9 @@ spell(name: push|spark|fireball)
 note(html)
 goal(text)
 give_quest(text)
-give(item)`),
+give(item)
+sell(item, price: %int)
+inventory()`),
     instruction: 'Output one to three plain command lines matching the geebr.world command syntax, each on its own line; they run in order as one plan. Do not output JSON. Do not explain. Pick actions for this character based on perception, personality, goals, quest, and current goal.',
   },
   choice: { label: 'Custom choice example', grammar: `root ::= "option-a" | "option-b" | "option-c"` },
@@ -157,7 +159,9 @@ export function commandSpecToGrammar(specText) {
       const fr = `${rn}_${ruleName(field.name)}`;
       if (idx > 0) pieces.push(grammarLiteral(','));
       pieces.push(fr);
-      if (field.values && field.values.length) valueRules.push(`${fr} ::= ${literalRule(field.values)}`);
+      // "field: %int" is a bare whole number, e.g. sell(item, price: %int).
+      if (field.values?.length === 1 && field.values[0] === '%int') valueRules.push(`${fr} ::= [0-9]+`);
+      else if (field.values && field.values.length) valueRules.push(`${fr} ::= ${literalRule(field.values)}`);
       else valueRules.push(`${fr} ::= string`);
     });
     pieces.push(grammarLiteral(')'));
@@ -224,6 +228,8 @@ export function buildDynamicGrammar(allowedCommands) {
   if (allowedCommands.has('goal')) parts.push('goal(text)');
   if (allowedCommands.has('give_quest')) parts.push('give_quest(text)');
   if (allowedCommands.has('give')) parts.push('give(item)');
+  if (allowedCommands.has('sell')) parts.push('sell(item, price: %int)');
+  if (allowedCommands.has('inventory')) parts.push('inventory()');
   if (parts.length <= 1) parts.push('say(text)'); // fallback
   const spec = parts.join('\n');
   return {

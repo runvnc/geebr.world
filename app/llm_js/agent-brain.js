@@ -8,7 +8,7 @@ import { loadModel as loadModelWllama, getCapabilityInfo as getCapWllama } from 
 import { generate as generateWllama, createWllamaEngine } from './gpt-runner-wllama.js?v=20260823q';
 import { loadModel as loadModelWllama3, getCapabilityInfo as getCapWllama3 } from './model-loader-wllama3.js?v=20260823q';
 import { generate as generateWllama3, createWllama3Engine } from './gpt-runner-wllama3.js?v=20260823q';
-import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20261010b';
+import { getBuiltInResponseFormat, getGrammarInstruction, buildDynamicGrammar } from './grammar.js?v=20261011a';
 
 const SUPPORTED_MODELS = {
   'minicpm5-1b': { label: 'MiniCPM5-1B (CPU)', engine: 'wllama', size: '~690 MB' },

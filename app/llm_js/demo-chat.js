@@ -24,6 +24,7 @@ function buildTools(allowed) {
     goal: { text: { type: 'string' } },
     give_quest: { text: { type: 'string' } },
     give: { item: { type: 'string' } },
+    sell: { item: { type: 'string' }, price: { type: 'integer' } },
     note: { html: { type: 'string' } },
     touch: { target: { type: 'string' } },
   };
