@@ -87,15 +87,23 @@
     }
     let i = 0;
     while (['place', 'put', 'add', 'spawn', 'set', 'there', 'is', 'are'].includes(words[i])) i++;
-    let count = 1, thing = null, isAgent = false, arrangement = null, rel = null, ref = null, area = null, edge = null;
+    let count = 1, thing = null, isAgent = false, arrangement = null, rel = null, ref = null, area = null, edge = null, unknownNoun = null;
+    const ROLE = /^(shop)?keeper$|^(shopkeeper|guard|merchant|vendor|seller|trader|npc|character|geebr|person|he|she|they|him|her|them|owner|innkeeper|wizard|guardian)$/;
     for (; i < words.length; i++) {
       const w = words[i];
+      // A relation before any known thing: the subject was a word we don't
+      // know. With one character, a role word ("shopkeeper") means them.
+      if (!thing && (RELWORDS[w] || w === 'against' || w === 'along' || w === 'at')) {
+        if (unknownNoun && agentIds.length === 1 && ROLE.test(unknownNoun)) { thing = agentIds[0]; isAgent = true; }
+        else return { kind: 'bad', raw, why: `unknown thing "${unknownNoun || '?'}"` };
+      }
       if (!thing) {
         const m = w.match(/^x?(\d+)x?$/); if (m) { count = Math.max(1, Math.min(12, +m[1])); continue; }
         if (NUMWORDS[w]) { count = NUMWORDS[w]; continue; }
         if (ARRANGE[w] && ARRANGE[w] !== 'around') { arrangement = ARRANGE[w]; continue; }
         if (ids.includes(w)) { thing = agentIds[ids.indexOf(w)]; isAgent = true; continue; }
         const t = singular(w); if (THINGS.includes(t)) { thing = t; continue; }
+        if (!['in', 'a', 'an', 'some'].includes(w)) unknownNoun = unknownNoun || w;
         continue;
       }
       const m = w.match(/^x(\d+)$/); if (m) { count = Math.max(1, Math.min(12, +m[1])); continue; }
@@ -194,6 +202,14 @@
     function evaluate(p, c, ent, level) {
       const u = unit(c);
       let score = 0;
+      // Something will stand behind this: keep the cell beyond it (away from
+      // the middle) free, e.g. a counter against the wall leaves room for its keeper.
+      if (p.keepBehindFree && level <= 1) {
+        const v = [c[0] - cx, c[1] - cz], l = Math.hypot(v[0], v[1]) || 1;
+        const step = Math.abs(v[0]) > Math.abs(v[1]) ? [Math.sign(v[0]), 0] : [0, Math.sign(v[1])];
+        const b = [c[0] + step[0], c[1] + step[1]];
+        if (!isFree(b)) return null;
+      }
       switch (p.rel) {
         case 'beside': case 'behind': case 'in_front_of': case 'near': case 'around': {
           const md = minDistTo(c, ent);
@@ -270,6 +286,8 @@
               for (let k = 0; k < n; k++) {
                 const rc = [c[0] + axis[0] * (k + off), c[1] + axis[1] * (k + off)];
                 if (!isFree(rc) || wouldTrap(rc)) { ok = false; break; }
+                // the row's cells shield each other, so only require a free side overall
+                if (k === n - 1 && run.concat([rc]).every(q => N4.every(([dx, dz]) => { const nb = [q[0] + dx, q[1] + dz]; return !isFree(nb) || run.concat([rc]).some(r => r[0] === nb[0] && r[1] === nb[1]); }))) { ok = false; break; }
                 const rs = evaluate(p, rc, ent, Math.min(3, level + 1)); if (rs === null) { ok = false; break; }
                 run.push(rc); sum += rs;
               }
@@ -290,7 +308,7 @@
           let bestS = -1e9;
           for (const pc of placed) for (const [dx, dz] of N8) {
             const c = [pc[0] + dx, pc[1] + dz];
-            if (!isFree(c) || wouldTrap(c) || placed.some(q => q[0] === c[0] && q[1] === c[1])) continue;
+            if (!isFree(c) || wouldTrap(c) || freeNeighbours(c) === 0 || placed.some(q => q[0] === c[0] && q[1] === c[1])) continue;
             const s = -dist(c, mid) + rng() * .4 + ((p.rel && ent) ? (evaluate(p, c, ent, 2) ?? -3) * .3 : 0);
             if (s > bestS) { bestS = s; next = c; }
           }
@@ -397,6 +415,7 @@
       if (p.kind === 'place' && p.isAgent && (spec.agents || []).find(a => a.id === p.thing && Array.isArray(a.at))) continue;
       parsed.push(p);
     }
+    for (const p of parsed) if (p.kind === 'place' && parsed.some(q => q.kind === 'place' && q.rel === 'behind' && q.ref === p.thing)) p.keepBehindFree = true;
     const late = parsed.filter(p => p.kind === 'place' && (p.arrangement === 'scattered' || p.area === 'random'));
     let pending = parsed.filter(p => !late.includes(p));
     const ready = p => p.kind === 'path'
@@ -433,7 +452,7 @@
   function goalContext() {
     const w = W();
     const agents = new Map(w.getAgents().map(g => [g.id.toLowerCase(), g]));
-    return { w, agents, objects: w.getObjects(), anchors: w.sceneryAnchors(), player: w.getPlayer(), speech: active?.speech || [], turns: (w.state.turn.index || 0) - (active?.startTurn || 0) };
+    return { w, agents, objects: w.getObjects(), anchors: w.sceneryAnchors(), player: w.getPlayer(), speech: active?.speech || [], turns: active?.turns || 0 };
   }
   function itemCount(items, name) { const i = W().findItem((items || []).filter(i => (i.qty ?? 1) > 0), name); return i ? (i.qty ?? 1) : 0; }
   function positionsOf(target, ctx) {
@@ -483,6 +502,8 @@
   // ---------- runtime ----------
   let active = null;   // {scn, code, startTurn, speech, ended, timer}
   window.addEventListener('geebr-say', e => { if (active && !active.ended) active.speech.push({ agentId: e.detail.agentId, text: e.detail.text }); });
+  // A turn is one character reply (one brain decision), however many commands it ran.
+  window.addEventListener('geebr-agent-turn', () => { if (active && !active.ended) active.turns++; });
 
   function normalizeScenario(s) {
     if (!s || typeof s !== 'object') throw new Error('scenario must be a JSON object');
@@ -531,7 +552,7 @@
     w.inventoryChanged();
     w.saveWorldState();
     const code = opts.code || await encodeScenario(scn);
-    active = { scn, code, startTurn: w.state.turn.index || 0, speech: [], ended: false, warnings: plan.warnings };
+    active = { scn, code, turns: 0, speech: [], ended: false, warnings: plan.warnings };
     try { history.replaceState(null, '', '#s=' + code); } catch {}
     renderBanner(); hideEnd();
     if (plan.warnings.length) console.warn('[scenario] layout notes:\n' + plan.warnings.join('\n'));

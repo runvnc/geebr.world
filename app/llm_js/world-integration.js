@@ -589,6 +589,8 @@ async function main() {
       cfg.recent = (cfg.recent || []).concat(`chose ${line || 'nothing'}`).slice(-6);
       world.setBrainConfig(g.id, cfg);
       appendLog(`${g.id} brain -> ${line || 'look()'}`);
+      // One brain decision = one scenario turn (scenario.js counts these).
+      try { window.dispatchEvent(new CustomEvent('geebr-agent-turn', { detail: { agentId: g.id, line } })); } catch {}
       for (const planCmd of planCmds) await world.stepAgentTurn(g.id, planCmd, 'llm');
       // After turn resolves, add system result as user message
       const resultDesc = world.state?.globalHistory?.slice(-1)?.[0] || 'turn resolved';

@@ -39,7 +39,7 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "goal": {
     "text": "Get the magic sword. You only have 20 gold.",
     "win":  { "player_has": "magic sword" },
-    "lose": { "turns_over": 12 },
+    "lose": { "turns_over": 12 },                       // or "maxTurns": 12
     "winText": "Mog grumbles and hands it over.",
     "loseText": "Mog closes the shop for the day.",
     "score": "player_gold"
@@ -129,7 +129,7 @@ code, so a link can't run script):
 | `object_count` | `["barrel", "<", 3]` |
 | `prop_state` | `["crate", "burned"]` (any crate) |
 | `said` | `["mog", "deal"]` (case-insensitive substring; `"any"` for anyone) |
-| `turns_over` | `12` |
+| `turns_over` | `12` (a turn is one character reply, however many commands it runs) |
 | combinators | `{"all": [...]}`, `{"any": [...]}`, `{"not": {...}}` |
 
 Item names match the same way as `sell()` (case-insensitive; "potion" matches
@@ -158,7 +158,8 @@ a new seed.
 
 ## 7. Changes to the existing system
 
-- `say()` emits a `geebr-say` event, used for `said` goals.
+- `say()` emits a `geebr-say` event, used for `said` goals; world-integration
+  emits `geebr-agent-turn` after each brain decision, which is what turns count.
 - `saveWorldState` and `loadWorldState` take their key from `state.saveKey`.
   The sandbox keeps `geebrWorldState`; scenarios use `geebrScenarioState`.
 - The world API gains `spawnAgent`, `makeObject`, `hasGroundAt`, `sceneryAt`,
