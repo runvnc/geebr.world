@@ -960,9 +960,13 @@ function wallMaterials(){
   const mk=(name,file,color,rough=.62)=>{ const m=new BABYLON.PBRMaterial(name,sc); if(file) m.albedoTexture=tex(file); m.albedoColor=color; m.metallic=0; m.roughness=rough; m.environmentIntensity=.6; m.specularIntensity=.6; m.maxSimultaneousLights=4; return m; };
   // Stones take their colour from vertex colours (white albedo) with a subtle
   // stone grain texture; the relief is real geometry now, not a normal map.
-  const stones=mk('tt_wall_stones',null,new BABYLON.Color3(1,1,1),.72);
+  // Same glossy "plastic miniature" finish as the grass tiles (roughness .24,
+  // environment .85, specular .5) plus the shared clay detail; the mortar
+  // core stays matte so the stones pop.
+  const plastic=m=>{ m.roughness=.26; m.environmentIntensity=.85; m.specularIntensity=.5; return applyClayLook(m,sc,{detail:.06,detailScale:4}); };
+  const stones=plastic(mk('tt_wall_stones',null,new BABYLON.Color3(1,1,1),.26));
   state.wallMats={ stones, core:mk('tt_wall_core',null,new BABYLON.Color3(1,1,1),.9),
-    trim:mk('tt_wall_trim',null,new BABYLON.Color3(1,1,1),.6), cap:mk('tt_wall_cap',null,new BABYLON.Color3(1,1,1),.5) };
+    trim:plastic(mk('tt_wall_trim',null,new BABYLON.Color3(1,1,1),.26)), cap:plastic(mk('tt_wall_cap',null,new BABYLON.Color3(1,1,1),.26)) };
   return state.wallMats;
 }
 // Box geometry appended straight into one vertex buffer (thousands of
@@ -1327,6 +1331,15 @@ function setBaseMap(name='island',{build=true}={}){
   sceneryCells=null;   // obstacle cells changed
   state.baseMap=name;
   if(name==='dungeon' && build) buildDungeon();
+}
+// The campfire (logs, ring stones, flame, its light) can be switched off,
+// e.g. for an indoor scene. Its cells stop blocking placement too.
+function setCampfire(on=true){
+  const sc=state.scene; if(!sc) return;
+  for(const m of sc.meshes) if(/^(fire_log|fire_ring_stone|campfire_flame)/.test(m.name)) m.setEnabled(!!on);
+  sc.getLightByName('campfire_light')?.setEnabled(!!on);
+  state.campfire=!!on; sceneryCells=null;
+  const cb=document.getElementById('campfireToggle'); if(cb) cb.checked=!!on;
 }
 // Stone floor over every solid cell and a wall on every rim cell.
 function buildDungeon(){
@@ -2611,7 +2624,7 @@ function saveWorldState() {
       brainConfigs: Array.from(state.brainConfigs.entries()),
       player: state.player,
       paint: state.paint ? [...state.paint].map(([k,v])=>[...k.split(',').map(Number),v.mat,v.tint||null]) : [],
-      baseMap: state.baseMap||'island',
+      baseMap: state.baseMap||'island', campfire: state.campfire!==false,
       wallStyle: state.wallStyle||'tabletop',
       nextSpawnId: state.nextSpawnId,
       globalHistory: state.globalHistory.slice(-50),
@@ -2636,7 +2649,7 @@ function normalizeWorldState(data){
       brainConfigs:(data.agents||[]).filter(g=>g.brainConfig).map(g=>[g.id,g.brainConfig]),
       nextSpawnId:(data.agents?.length||0)+1, globalHistory:data.globalHistory||[],
       turnIndex:data.turn?.index||0, allowed:data.allowed||[], player:data.player,
-      paint:data.paint, baseMap:data.baseMap, wallStyle:data.wallStyle
+      paint:data.paint, baseMap:data.baseMap, wallStyle:data.wallStyle, campfire:data.campfire
     };
   }
   return data;
@@ -2650,6 +2663,7 @@ async function restoreWorldState(input) {
   // dungeon's floor and rim walls come back as saved paint/walls, not rebuilt.
   state.wallStyle=data.wallStyle||'tabletop';
   setBaseMap(data.baseMap||'island',{build:false});
+  setCampfire(data.campfire!==false);
   setPaint((data.paint||[]).map(([x,z,mat,tint])=>({x,z,mat,tint})),{replace:true});
   if(data.player) state.player={gold:Number(data.player.gold)||0,items:Array.isArray(data.player.items)?data.player.items:[]};
   for(const p of (data.props||[])){
@@ -2730,7 +2744,7 @@ function installWorldAPI(){
     setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
     setPathfinding:on=>{ state.pathfinding=on!==false; }, findRoute,
-    setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
+    setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setCampfire, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
     setLighting,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
@@ -2812,6 +2826,8 @@ function setupUI(){
   if(thinkSel){ try{ const v=localStorage.getItem('geebrThinkFps'); if(v!==null) thinkSel.value=v; }catch{} thinkSel.onchange=()=>{ try{ localStorage.setItem('geebrThinkFps',thinkSel.value); }catch{} }; }
   const baseMapSel=document.getElementById('baseMapSelect');
   if(baseMapSel){ baseMapSel.value=state.baseMap||'island'; baseMapSel.onchange=()=>{ setBaseMap(baseMapSel.value); updatePerceptionUI(); saveWorldState(); log('base map: '+baseMapSel.value); }; }
+  const fireCb=document.getElementById('campfireToggle');
+  if(fireCb){ fireCb.checked=state.campfire!==false; fireCb.onchange=()=>{ setCampfire(fireCb.checked); updatePerceptionUI(); saveWorldState(); }; }
   const wallSel=document.getElementById('wallStyleSelect');
   if(wallSel){ wallSel.value=state.wallStyle||'tabletop'; wallSel.onchange=()=>{
     state.wallStyle=wallSel.value;
@@ -3409,11 +3425,11 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     log('blank demo world ready with one Geebr');
   }
   // While a character's brain is generating (GEEBR_PAUSE_RENDER), keep
-  // rendering at a reduced rate instead of freezing, so the camera can still
-  // be moved; the model keeps most of the GPU. Graphics pane setting
-  // (localStorage geebrThinkFps): 0 = pause like before, 60 = full speed.
+  // rendering (full speed by default; can be reduced to give the model more
+  // GPU). Graphics pane setting (localStorage geebrThinkFps): 0 = pause like
+  // before, 60 = full speed.
   let lastFrameAt=performance.now(), lastAnimAt=performance.now();
-  const thinkFps=()=>{ const v=Number(localStorage.getItem('geebrThinkFps')); return Number.isFinite(v)&&localStorage.getItem('geebrThinkFps')!==null ? v : 15; };
+  const thinkFps=()=>{ const v=Number(localStorage.getItem('geebrThinkFps')); return Number.isFinite(v)&&localStorage.getItem('geebrThinkFps')!==null ? v : 60; };
   scene.onBeforeRenderObservable.add(()=>{ if(GEEBR_FORCE_NO_RENDER) return; const now=performance.now(), dt=Math.min(.1,(now-lastAnimAt)/1000); lastAnimAt=now; window.GeebrPerf?.begin('animate.geebrs'); animate(dt); window.GeebrPerf?.end('animate.geebrs'); }); engine.runRenderLoop(()=>{
     if(GEEBR_FORCE_NO_RENDER) return;
     if(window.GEEBR_PAUSE_RENDER){ const fps=thinkFps(); if(fps<=0) return; if(fps<60 && performance.now()-lastFrameAt<1000/fps) return; }

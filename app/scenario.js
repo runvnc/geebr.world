@@ -584,7 +584,7 @@
       map: Array.isArray(s.map) ? s.map.map(String) : (typeof s.map === 'string' ? s.map.split('\n') : []),
       goal: s.goal && typeof s.goal === 'object' ? s.goal : null,
       base: ['island', 'clearing', 'dungeon'].includes(s.base) ? s.base : 'island', walls: s.walls === 'block' ? 'block' : 'tabletop',
-      pathfinding: s.pathfinding !== false,
+      pathfinding: s.pathfinding !== false, campfire: s.campfire !== false,
       floor: PAINT_MATS.includes(s.floor) ? s.floor : null,
       paint: Array.isArray(s.paint) ? s.paint.filter(c => c && Number.isFinite(+c.x) && Number.isFinite(+c.z) && (PAINT_MATS.includes(c.mat) || c.mat === 'none')) : [] };
     if (!out.agents.length) out.agents = [{ id: 'geebr1', personality: 'helpful and friendly' }];
@@ -618,6 +618,7 @@
     w.clearWorld();
     w.setBaseMap?.(scn.base);
     w.setPathfinding?.(scn.pathfinding);
+    w.setCampfire?.(scn.campfire);
     w.state.globalHistory = [];
     w.setAllowed(scn.allowed);
     w.setLighting?.(scn.lighting === 'night' ? 'night' : 'bright');
@@ -671,6 +672,7 @@
     w.state.saveKey = SANDBOX_KEY;
     w.setLighting?.('night');
     w.setPathfinding?.(true);
+    w.setCampfire?.(true);
     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
     const raw = localStorage.getItem(SANDBOX_KEY);
     if (raw) { try { await w.restoreWorldState(JSON.parse(raw)); return; } catch (e) { console.warn('sandbox restore failed', e); } }
@@ -766,7 +768,7 @@
           ...(c.showThoughts === false ? { showThoughts: false } : {}), ...(c.ttsVoiceId ? { ttsVoiceId: c.ttsVoiceId } : {}),
           ...(c.inventory && (c.inventory.gold || c.inventory.items?.length) ? { inventory: c.inventory } : {}) };
       }),
-      base: st.baseMap || 'island', ...(st.wallStyle === 'block' ? { walls: 'block' } : {}),
+      base: st.baseMap || 'island', ...(st.wallStyle === 'block' ? { walls: 'block' } : {}), ...(st.campfire === false ? { campfire: false } : {}),
       // The dungeon's rim walls and stone floor come back from "base", so leave them out.
       objects: w.getObjects().filter(o => !o.rim).map(o => ({ type: o.type, x: Math.round(o.x), z: Math.round(o.z), ...(o.type === 'note' && o.noteText ? { text: o.noteText } : {}) })),
       paint: [...(st.paint || [])].map(([k, v]) => ({ x: +k.split(',')[0], z: +k.split(',')[1], mat: v.mat, ...(v.tint ? { tint: v.tint } : {}) }))
@@ -886,7 +888,7 @@
     // An open scenario: no goal, it never ends. Not therapy: a supportive
     // "personal advice guide", with a safety line for crisis situations.
     advisor: {
-      v: 1, title: 'The Sounding Board', safety: true, subtitle: 'A quiet place to talk something through. Take your time.', seed: 3, base: 'dungeon', floor: 'wood',
+      v: 1, title: 'The Sounding Board', safety: true, campfire: false, subtitle: 'A quiet place to talk something through. Take your time.', seed: 3, base: 'dungeon', floor: 'wood',
       intro: 'Wren is a personal advice guide. Bring whatever is on your mind, big or small; Wren will listen and help you think it through. (Wren is a small AI running in your browser, not a doctor or therapist.)',
       player: { name: 'You', gold: 0, items: [] },
       allowed: ['say', 'emote', 'note'],

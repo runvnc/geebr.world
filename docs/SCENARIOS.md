@@ -22,6 +22,7 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "lighting": "bright",                                  // or "night" (sandbox look)
   "base": "island",                                      // island | clearing | dungeon
   "walls": "tabletop",                                   // or "block" (old short cubes)
+  "campfire": true,                                      // false hides the campfire (indoor scenes)
   "pathfinding": true,                                   // false: walks go in straight lines and stop at walls
   "floor": "stone",                                      // optional: paint the whole floor
   "paint": [{ "x": 0, "z": 0, "mat": "water" }],          // optional explicit floor tiles
