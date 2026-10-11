@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20261011c" />
+  <link rel="stylesheet" href="style.css?v=20261012a" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -251,6 +251,11 @@
     <section class="pane" id="pane-graphics">
       <h2 class="pane-title">Graphics</h2>
       <p class="pane-note">Everything below defaults to the original look. Turning things down trades a little visual fidelity for smoother frames - worth trying if the world feels heavy or you notice audio glitching while things render.</p>
+      <div class="section-subtitle">While a character is thinking</div>
+      <div class="custom-grid">
+        <label>Render <select id="gfxThinkFps"><option value="60">full speed</option><option value="15" selected>15 fps (default)</option><option value="5">5 fps</option><option value="0">paused (fastest replies)</option></select></label>
+      </div>
+      <small class="pane-note">The model shares the GPU with the 3D view. Lower = faster replies; paused freezes the view until the reply arrives.</small>
       <div class="section-subtitle">Shadows</div>
       <div class="custom-grid">
         <label class="spawn-mode-toggle"><input id="gfxKeyShadowEnabled" type="checkbox" checked /> key light shadows (island)</label>
@@ -319,6 +324,6 @@
     </div>
   </div>
   <div id="hint">Pick a character (🧝) to shape its mind, chat below, then start the local brain from the top bar.</div>
-  <script src="preflight.js?v=20261011z"></script>
+  <script src="preflight.js?v=20261012b"></script>
 </body>
 </html>

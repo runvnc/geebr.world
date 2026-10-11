@@ -953,57 +953,50 @@ function makeBlock(scene,x,z,cracked=false){
 }
 let wallRebuildQueued=false;
 function scheduleWallRebuild(){ if(wallRebuildQueued) return; wallRebuildQueued=true; queueMicrotask(()=>{ wallRebuildQueued=false; try{ rebuildWallVisuals(); }catch(e){ console.warn('wall rebuild failed',e); } }); }
-// Chunky stone-block texture for the tabletop walls, drawn once: 2 blocks
-// per row, 4 rows, staggered, varied grey, dark mortar, with a matching
-// normal map so the blocks read as raised moulded stones.
-function wallBrickTextures(sc){
-  const N=256, cv=document.createElement('canvas'); cv.width=cv.height=N;
-  const g=cv.getContext('2d'), hcv=document.createElement('canvas'); hcv.width=hcv.height=N;
-  const h=hcv.getContext('2d');
-  let seed=91; const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
-  g.fillStyle='#3d3a36'; g.fillRect(0,0,N,N); h.fillStyle='#000'; h.fillRect(0,0,N,N);
-  const rows=4, rh=N/rows, m=7;
-  for(let r=0;r<rows;r++){
-    const off=(r%2)?N/4:0;
-    for(let c=-1;c<3;c++){
-      const x0=c*N/2+off+m/2, y0=r*rh+m/2, w=N/2-m+(rnd()-.5)*10, hh=rh-m;
-      const v=150+rnd()*55|0, tint=(rnd()-.5)*12;
-      g.fillStyle=`rgb(${v+tint|0},${v|0},${v-tint-6|0})`;
-      g.beginPath(); g.roundRect(x0,y0,w,hh,7); g.fill();
-      // speckle + a chip or two
-      for(let i=0;i<40;i++){ const s=v+(rnd()-.5)*40|0; g.fillStyle=`rgba(${s},${s},${s-4},.55)`; g.fillRect(x0+rnd()*w,y0+rnd()*hh,2+rnd()*3,2+rnd()*3); }
-      h.fillStyle='#fff'; h.beginPath(); h.roundRect(x0+2,y0+2,w-4,hh-4,8); h.fill();
-      // wrap the staggered blocks across the right edge
-      if(x0+w>N){ g.beginPath(); g.roundRect(x0-N,y0,w,hh,7); g.fillStyle=`rgb(${v+tint|0},${v|0},${v-tint-6|0})`; g.fill(); h.beginPath(); h.roundRect(x0-N+2,y0+2,w-4,hh-4,8); h.fill(); }
-    }
-  }
-  // soften the height so edges bevel instead of stepping
-  const blur=document.createElement('canvas'); blur.width=blur.height=N; const b=blur.getContext('2d'); b.filter='blur(3px)'; b.drawImage(hcv,0,0);
-  const hd=b.getImageData(0,0,N,N).data, out=g.createImageData(N,N), H=(x,y)=>hd[(((y+N)%N)*N+((x+N)%N))*4]/255;
-  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
-    const dx=(H(x+1,y)-H(x-1,y))*2.2, dy=(H(x,y+1)-H(x,y-1))*2.2, l=Math.hypot(dx,dy,1), i=(y*N+x)*4;
-    out.data[i]=(-dx/l*.5+.5)*255; out.data[i+1]=(dy/l*.5+.5)*255; out.data[i+2]=(1/l*.5+.5)*255; out.data[i+3]=255;
-  }
-  const ncv=document.createElement('canvas'); ncv.width=ncv.height=N; ncv.getContext('2d').putImageData(out,0,0);
-  const mk=(c,name)=>{ const t=new BABYLON.DynamicTexture(name,c,sc,true); t.update(); t.wrapU=t.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; t.anisotropicFilteringLevel=8; return t; };
-  return { albedo:mk(cv,'tt_wall_albedo'), normal:mk(ncv,'tt_wall_normal') };
-}
 function wallMaterials(){
   if(state.wallMats) return state.wallMats;
   const sc=state.scene;
-  const bricks=wallBrickTextures(sc);
   const tex=f=>{ const t=new BABYLON.Texture(ASSET+f,sc,true,false,BABYLON.Texture.TRILINEAR_SAMPLINGMODE); t.wrapU=t.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; t.anisotropicFilteringLevel=8; return t; };
   const mk=(name,file,color,rough=.62)=>{ const m=new BABYLON.PBRMaterial(name,sc); if(file) m.albedoTexture=tex(file); m.albedoColor=color; m.metallic=0; m.roughness=rough; m.environmentIntensity=.6; m.specularIntensity=.6; m.maxSimultaneousLights=4; return m; };
-  const brick=(name,color,rough)=>{ const m=mk(name,null,color,rough); m.albedoTexture=bricks.albedo; m.bumpTexture=bricks.normal; m.bumpTexture.level=1.2; return m; };
-  state.wallMats={
-    body:brick('tt_wall_body',new BABYLON.Color3(1,.98,.95),.66),
-    cracked:mk('tt_wall_cracked','cracked_wall.png',new BABYLON.Color3(.80,.78,.74)),
-    burned:brick('tt_wall_burned',new BABYLON.Color3(.34,.29,.26),.85),
-    trim:mk('tt_wall_trim',null,new BABYLON.Color3(.42,.40,.38),.55),
-    cap:mk('tt_wall_cap',null,new BABYLON.Color3(.66,.64,.60),.5),
-  };
+  // Stones take their colour from vertex colours (white albedo) with a subtle
+  // stone grain texture; the relief is real geometry now, not a normal map.
+  const stones=mk('tt_wall_stones',null,new BABYLON.Color3(1,1,1),.72);
+  state.wallMats={ stones, core:mk('tt_wall_core',null,new BABYLON.Color3(1,1,1),.9),
+    trim:mk('tt_wall_trim',null,new BABYLON.Color3(1,1,1),.6), cap:mk('tt_wall_cap',null,new BABYLON.Color3(1,1,1),.5) };
   return state.wallMats;
 }
+// Box geometry appended straight into one vertex buffer (thousands of
+// CreateBox calls + MergeMeshes would be slow). Per-vertex colour lets every
+// stone have its own shade; UVs are scaled by size so the grain doesn't stretch.
+function boxBatch(){
+  const P=[],N=[],U=[],C=[],I=[];
+  const faces=[[[1,0,0],[0,0,-1],[0,1,0]],[[-1,0,0],[0,0,1],[0,1,0]],[[0,1,0],[1,0,0],[0,0,-1]],[[0,-1,0],[1,0,0],[0,0,1]],[[0,0,1],[1,0,0],[0,1,0]],[[0,0,-1],[-1,0,0],[0,1,0]]];
+  return {
+    add(cx,cy,cz,sx,sy,sz,col){
+      const h=[sx/2,sy/2,sz/2], size=[sx,sy,sz];
+      for(const [n,u,v] of faces){
+        const base=P.length/3;
+        const su=Math.abs(u[0])*size[0]+Math.abs(u[1])*size[1]+Math.abs(u[2])*size[2];
+        const sv=Math.abs(v[0])*size[0]+Math.abs(v[1])*size[1]+Math.abs(v[2])*size[2];
+        for(const [a,c] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
+          P.push(cx+(n[0]+u[0]*a+v[0]*c)*h[0], cy+(n[1]+u[1]*a+v[1]*c)*h[1], cz+(n[2]+u[2]*a+v[2]*c)*h[2]);
+          N.push(n[0],n[1],n[2]); U.push((a+1)/2*su*1.6,(c+1)/2*sv*1.6); C.push(col[0],col[1],col[2],1);
+        }
+        I.push(base,base+2,base+1,base,base+3,base+2);
+      }
+    },
+    mesh(name,sc){
+      if(!P.length) return null;
+      const m=new BABYLON.Mesh(name,sc), vd=new BABYLON.VertexData();
+      vd.positions=P; vd.normals=N; vd.uvs=U; vd.colors=C; vd.indices=I; vd.applyToMesh(m);
+      return m;
+    }
+  };
+}
+// Tabletop wall visuals: a dark mortar core with stone blocks that stand out
+// on both faces (real relief, visible in silhouette and shadow), staggered
+// rows aligned to world coordinates so neighbouring walls continue the
+// pattern, a block column where walls meet at an angle, and a base and cap.
 function rebuildWallVisuals(){
   const sc=state.scene; if(!sc) return;
   for(const m of state.wallVisuals||[]) try{ m.dispose(); }catch{}
@@ -1012,41 +1005,59 @@ function rebuildWallVisuals(){
   if(!walls.length) return;
   const mats=wallMaterials(), top=state.terrainTopY??0;
   const cell=new Map(walls.map(w=>[Math.round(w.position.x)+','+Math.round(w.position.z),w]));
-  const groups={body:[],cracked:[],burned:[],trim:[],cap:[]};
-  // A box spanning from the cell centre to ox,oz (an arm) or a post; faceUV
-  // tiles the stone texture by real size so it isn't stretched.
-  const piece=(name,w,h,d,x,y,z,group)=>{
-    const t=(a,b)=>new BABYLON.Vector4(0,0,a,b*.92);   // texture: 2 blocks per unit, ~4 rows per wall height
-    const m=BABYLON.MeshBuilder.CreateBox(name,{width:w,height:h,depth:d,faceUV:[t(w,h),t(w,h),t(d,h),t(d,h),t(w,d),t(w,d)],wrap:true},sc);
-    m.position.set(x,y,z); groups[group].push(m);
+  const stones=boxBatch(), core=boxBatch(), trim=boxBatch(), cap=boxBatch();
+  const hash=(a,b,c)=>{ let h=Math.imul(a*73856093^b*19349663^c*83492791,2654435761); h^=h>>>15; return ((h>>>0)%10000)/10000; };
+  const T=.18, H=WALL_H-.08, Y0=top+.07, ROWS=5, RH=H/ROWS, BL=.3, GAP=.022;
+  const shade=(st,r)=>{ // stone colour by wall state
+    if(st==='burned') { const v=.18+r*.08; return [v+.02,v,v-.01]; }
+    const v=.74+r*.18, warm=(r-.5)*.05; return st==='cracked' ? [v*.9+warm,v*.88,v*.84-warm] : [v+warm,v,v-.02-warm];
   };
-  const THICK=.2, H=WALL_H-.06;
   for(const [k,w] of cell){
-    const [x,z]=k.split(',').map(Number), mm=meta(w);
-    const body=mm.state==='burned'?'burned':(mm.state==='cracked'?'cracked':'body');
+    const [x,z]=k.split(',').map(Number), st=meta(w).state;
     const dirs=[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>cell.has((x+dx)+','+(z+dz)));
-    // Isolated wall: a straight section along x. A dead end: also extend the
-    // opposite way, so an end piece still fills its cell.
     let arms=dirs.slice();
     if(!arms.length) arms=[[1,0],[-1,0]];
     else if(arms.length===1) arms.push([-arms[0][0],-arms[0][1]]);
+    const straight=arms.length===2 && arms[0][0]===-arms[1][0] && arms[0][1]===-arms[1][1];
+    const postHalf=straight?0:(T+.05)/2;
     for(const [dx,dz] of arms){
-      const len=.5, cx=x+dx*len/2, cz=z+dz*len/2, alongX=dx!==0;
-      piece('tt_arm',alongX?len:THICK,H,alongX?THICK:len,cx,top+.06+H/2,cz,body);
-      piece('tt_base',alongX?len:THICK+.12,.07,alongX?THICK+.12:len,cx,top+.035,cz,'trim');
-      piece('tt_cap',alongX?len:THICK+.05,.05,alongX?THICK+.05:len,cx,top+.06+H+.02,cz,'cap');
+      const alongX=dx!==0, sign=dx||dz;
+      // arm spans [a0,a1] along its axis, from the post (or centre) to the cell edge
+      const c0=alongX?x:z, perp=alongX?z:x;
+      const a0=Math.min(c0+sign*postHalf,c0+sign*.5), a1=Math.max(c0+sign*postHalf,c0+sign*.5);
+      const put=(b,ac,y,len,hgt,thick,col)=>{ alongX ? b.add(ac,y,perp,len,hgt,thick,col) : b.add(perp,y,ac,thick,hgt,len,col); };
+      put(core,(a0+a1)/2,Y0+H/2,a1-a0,H,T-.04,[.16,.15,.14]);
+      for(let r=0;r<ROWS;r++){
+        const off=(r%2)*BL/2+hash(perp*7,r,3)*.06;
+        for(let kb=Math.floor((a0-off)/BL)-1; kb*BL+off<a1; kb++){
+          const b0=kb*BL+off, b1=b0+BL;
+          if(b1<=a0) continue;
+          const l=b0>=a0?b0+GAP/2:a0, rgt=b1<=a1?b1-GAP/2:a1;
+          if(rgt-l<.03) continue;
+          const rnd=hash(kb,r,perp*13+(alongX?1:2));
+          if(st==='cracked' && rnd<.18) continue;           // missing stones
+          const thick=T+.035+(hash(kb,r,perp+9)-.5)*.02;
+          const hgt=RH-GAP-(hash(kb+3,r,perp)*.012);
+          put(stones,(l+rgt)/2,Y0+r*RH+RH/2,rgt-l,hgt,thick,shade(st,rnd));
+        }
+      }
+      put(trim,(a0+a1)/2,top+.035,a1-a0,.07,T+.14,[.30,.29,.28]);
+      put(cap,(a0+a1)/2,Y0+H+.025,a1-a0,.05,T+.08,[.62,.60,.57]);
     }
-    // centre post covers the joint
-    piece('tt_post',THICK+.04,H+.02,THICK+.04,x,top+.06+H/2,z,body);
-    piece('tt_post_base',THICK+.16,.08,THICK+.16,x,top+.04,z,'trim');
-    piece('tt_post_cap',THICK+.08,.06,THICK+.08,x,top+.06+H+.03,z,'cap');
+    if(postHalf){
+      // a stacked block column where the wall turns or branches
+      core.add(x,Y0+H/2,z,T-.02,H,T-.02,[.16,.15,.14]);
+      for(let r=0;r<ROWS;r++){
+        const rnd=hash(x*5,r,z*11), s=T+.045+(rnd-.5)*.015;
+        if(!(st==='cracked' && rnd<.18)) stones.add(x,Y0+r*RH+RH/2,z,s,RH-GAP,s,shade(st,rnd));
+      }
+      trim.add(x,top+.035,z,T+.16,.07,T+.16,[.30,.29,.28]);
+      cap.add(x,Y0+H+.025,z,T+.1,.05,T+.1,[.62,.60,.57]);
+    }
   }
-  for(const [g,list] of Object.entries(groups)){
-    if(!list.length) continue;
-    const merged=list.length===1?list[0]:BABYLON.Mesh.MergeMeshes(list,true,true,undefined,false,false);
-    if(!merged) continue;
-    merged.name='tt_walls_'+g; merged.material=mats[g]; merged.isPickable=false; merged.receiveShadows=true;
-    addShadow(merged); state.wallVisuals.push(merged);
+  for(const [name,batch,mat] of [['stones',stones,mats.stones],['core',core,mats.core],['trim',trim,mats.trim],['cap',cap,mats.cap]]){
+    const m=batch.mesh('tt_walls_'+name,sc); if(!m) continue;
+    m.material=mat; m.isPickable=false; m.receiveShadows=true; addShadow(m); state.wallVisuals.push(m);
   }
 }
 function makeCrate(scene,x,z){
@@ -2797,6 +2808,8 @@ function setupUI(){
   const playerGold=document.getElementById('playerGold');
   if(playerGold){ playerGold.oninput=()=>{ const n=parseInt(playerGold.value,10); if(Number.isFinite(n)&&n>=0){ state.player.gold=n; updatePerceptionUI(); saveWorldState(); } }; }
   renderPlayerInventory();
+  const thinkSel=document.getElementById('gfxThinkFps');
+  if(thinkSel){ try{ const v=localStorage.getItem('geebrThinkFps'); if(v!==null) thinkSel.value=v; }catch{} thinkSel.onchange=()=>{ try{ localStorage.setItem('geebrThinkFps',thinkSel.value); }catch{} }; }
   const baseMapSel=document.getElementById('baseMapSelect');
   if(baseMapSel){ baseMapSel.value=state.baseMap||'island'; baseMapSel.onchange=()=>{ setBaseMap(baseMapSel.value); updatePerceptionUI(); saveWorldState(); log('base map: '+baseMapSel.value); }; }
   const wallSel=document.getElementById('wallStyleSelect');
@@ -3395,8 +3408,16 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     refreshAgentSelect(); selectGeebr(g); saveWorldState();
     log('blank demo world ready with one Geebr');
   }
-  scene.onBeforeRenderObservable.add(()=>{ if(!window.GEEBR_PAUSE_RENDER && !GEEBR_FORCE_NO_RENDER){ window.GeebrPerf?.begin('animate.geebrs'); animate(engine.getDeltaTime()/1000); window.GeebrPerf?.end('animate.geebrs'); } }); engine.runRenderLoop(()=>{
-    if(window.GEEBR_PAUSE_RENDER || GEEBR_FORCE_NO_RENDER) return;
+  // While a character's brain is generating (GEEBR_PAUSE_RENDER), keep
+  // rendering at a reduced rate instead of freezing, so the camera can still
+  // be moved; the model keeps most of the GPU. Graphics pane setting
+  // (localStorage geebrThinkFps): 0 = pause like before, 60 = full speed.
+  let lastFrameAt=performance.now(), lastAnimAt=performance.now();
+  const thinkFps=()=>{ const v=Number(localStorage.getItem('geebrThinkFps')); return Number.isFinite(v)&&localStorage.getItem('geebrThinkFps')!==null ? v : 15; };
+  scene.onBeforeRenderObservable.add(()=>{ if(GEEBR_FORCE_NO_RENDER) return; const now=performance.now(), dt=Math.min(.1,(now-lastAnimAt)/1000); lastAnimAt=now; window.GeebrPerf?.begin('animate.geebrs'); animate(dt); window.GeebrPerf?.end('animate.geebrs'); }); engine.runRenderLoop(()=>{
+    if(GEEBR_FORCE_NO_RENDER) return;
+    if(window.GEEBR_PAUSE_RENDER){ const fps=thinkFps(); if(fps<=0) return; if(fps<60 && performance.now()-lastFrameAt<1000/fps) return; }
+    lastFrameAt=performance.now();
     scene.render();
     const recorder=window.geebrFrameRecorder;
     if(recorder?.wantsFrame?.()) recorder.captureAfterRender(engine).catch(err=>recorder.fail?.(err));

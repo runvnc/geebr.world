@@ -704,7 +704,9 @@
     if (!active) { el.hidden = true; return; }
     const g = active.scn.goal, turns = ctx ? ctx.turns : 0, max = g?.maxTurns;
     el.hidden = false;
-    el.innerHTML = `<div class="scn-title">🎯 ${esc(active.scn.title)}</div>`
+    el.classList.toggle('collapsed', !!active.collapsed);
+    if (active.collapsed) { el.innerHTML = `<button type="button" class="scn-title scn-expand" data-scn="expand" title="show scenario">🎯 ${esc(active.scn.title)} ▸</button>`; return; }
+    el.innerHTML = `<button type="button" class="scn-collapse" data-scn="collapse" title="hide">–</button><div class="scn-title">🎯 ${esc(active.scn.title)}</div>`
       + (g?.text ? `<div class="scn-goal">${esc(g.text)}</div>` : (active.scn.subtitle ? `<div class="scn-goal">${esc(active.scn.subtitle)}</div>` : ''))
       + `<div class="scn-meta">turn ${turns}${max ? ' / ' + max : ''} · you have ${W().getPlayer().gold || 0} gold</div>`
       + `<div class="scn-actions"><button type="button" data-scn="restart">restart</button><button type="button" data-scn="share">share link</button><button type="button" data-scn="exit">exit</button></div>`;
@@ -741,6 +743,7 @@
     const b = e.target.closest?.('[data-scn]'); if (!b) return;
     const act = b.dataset.scn;
     if (act === 'close') hideEnd();
+    if ((act === 'collapse' || act === 'expand') && active) { active.collapsed = act === 'collapse'; renderBanner(goalContext()); }
     if (act === 'closesafety') { const s = document.getElementById('scenarioSafety'); if (s) s.hidden = true; }
     if (act === 'exit') exitScenario();
     if (act === 'restart' && active) playScenario(active.scn, { code: active.code });
