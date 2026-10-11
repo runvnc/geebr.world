@@ -1,6 +1,6 @@
-import { createAgentBrainManager } from './agent-brain.js?v=20261010b';
-import { installDevConsole } from './dev-console.js?v=20261010b';
-import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261010a';
+import { createAgentBrainManager } from './agent-brain.js?v=20261010d';
+import { installDevConsole } from './dev-console.js?v=20261010d';
+import { clearModelCache as clearLiteRTCache, hasModelCached as hasLiteRTCached } from './model-loader-litert.js?v=20261010d';
 import { clearModelCache as clearTJSCache, hasModelCached as hasTJSCached } from './model-loader-tjs-v2.js?v=20261010a';
 import { clearModelCache as clearWllamaCache, hasModelCached as hasWllamaCached } from './model-loader-wllama.js?v=20260823q';
 import { clearModelCache as clearWllama3Cache, hasModelCached as hasWllama3Cached } from './model-loader-wllama3.js?v=20260823q';
@@ -253,6 +253,8 @@ function syncSelectedBrainUI(world) {
   if (el('agentQuest')) el('agentQuest').value = cfg.quest || '';
   if (el('agentGoal')) el('agentGoal').value = cfg.goal || '';
   if (el('agentTtsEnabled')) el('agentTtsEnabled').checked = cfg.ttsEnabled !== false;
+  if (el('agentThinking')) el('agentThinking').checked = cfg.thinking === true;
+  if (el('agentShowThoughts')) el('agentShowThoughts').checked = cfg.showThoughts !== false;
   if (el('agentTtsVoice')) el('agentTtsVoice').value = cfg.ttsVoiceId || 'builtin:alba';
 }
 
@@ -267,6 +269,8 @@ function saveSelectedBrainUI(world) {
     chaos: Number(el('chaosLevel')?.value || 50),
     quest: el('agentQuest')?.value || '',
     ttsEnabled: el('agentTtsEnabled')?.checked !== false,
+    thinking: el('agentThinking')?.checked === true,
+    showThoughts: el('agentShowThoughts')?.checked !== false,
     ttsVoiceId: el('agentTtsVoice')?.value || 'builtin:alba',
   });
 }
@@ -332,6 +336,14 @@ async function main() {
   let running = false;
   let stepIndex = 0;
   window.addEventListener('geebr:clear-conversations', event => manager.clearConversations(event.detail?.agentId ?? null));
+  window.addEventListener('geebr-thinking', event => {
+    const { agentId, thinking } = event.detail || {};
+    const t = String(thinking || '').replace(/\s+/g, ' ').trim();
+    if (t) appendLog(`${agentId} thought: ${t.length > 400 ? t.slice(0, 400) + '…' : t}`);
+    // The pending "thinking…" bubble always shows; the text only if enabled
+    // (otherwise the pending bubble is cleared when the turn finishes).
+    if (t && world.getBrainConfig(agentId)?.showThoughts !== false) world.showThought?.(agentId, t);
+  });
   // Auto-load the brain on startup
   // Populate model selector
   const modelSelect = el('modelSelect');
@@ -440,7 +452,7 @@ async function main() {
   world.onAgentSelected = () => syncSelectedBrainUI(world);
   syncSelectedBrainUI(world);
 
-  for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest', 'agentTtsEnabled', 'agentTtsVoice']) {
+  for (const id of ['brainEnabled', 'brainStyle', 'agentPersonality', 'fireballTemptation', 'chaosLevel', 'agentQuest', 'agentTtsEnabled', 'agentTtsVoice', 'agentThinking', 'agentShowThoughts']) {
     const node = el(id);
     if (node) node.addEventListener('change', () => saveSelectedBrainUI(world));
     if (node && (node.type === 'range' || node.type === 'text' || node.tagName === 'TEXTAREA')) node.addEventListener('input', () => saveSelectedBrainUI(world));
@@ -528,16 +540,21 @@ async function main() {
       window.GEEBR_PAUSE_RENDER = true;
       console.log('[geebr-world] render paused at', new Date().toISOString());
       let line;
+      if (cfg.thinking === true) world.showThought?.(g.id, '', true);
       try {
         line = await manager.decide({
           agentId: g.id,
           messages,
           useGrammar: !chatTestMode,
           allowedCommands: world.getAllowedCommands(),
-          enableThinking: !!el('enableThinking')?.checked,
+          // Per-character (Character setup). Reasoning needs room before the
+          // command lines, so raise the token budget too.
+          enableThinking: cfg.thinking === true,
+          maxTokens: cfg.thinking === true ? 1024 : undefined,
           temperature: cfg.chaos > 70 ? 0.8 : (cfg.chaos > 40 ? 0.5 : 0.3),
         });
       } finally {
+        world.clearPendingThought?.(g.id);
         window.GEEBR_PAUSE_RENDER = false;
         console.log('[geebr-world] render resumed at', new Date().toISOString());
       }
@@ -548,6 +565,9 @@ async function main() {
       for (let i = 0; i < planCmds.length; i++) {
         if (planCmds[i].kind === 'unknown' && planCmds[i].raw && planCmds[i-1]?.kind === 'say') planCmds[i] = { kind: 'say', text: planCmds[i].raw };
       }
+      // With thinking on, reasoning prose that slipped past the worker's split
+      // (e.g. markers stripped by the runtime) must not become speech.
+      if (cfg.thinking === true) for (let i = planCmds.length - 1; i >= 0; i--) if (planCmds[i].kind === 'unknown') planCmds.splice(i, 1);
       if (!planCmds.length) planCmds.push({ kind: 'look' });
       // Persist chat messages to history so they're remembered in future turns
       if (chatSuffix) {

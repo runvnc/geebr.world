@@ -285,15 +285,24 @@ function beginCarry(g,h){
   h._carry={ r, halfH, centerDy:(min.y+max.y)/2-pos.y, overhead:r>CARRY_OVERHEAD_HALF_WIDTH || halfH>CARRY_OVERHEAD_HALF_HEIGHT,
     yawOffset:itemYaw-yawForDir(g.dir), from:pos.clone(), t:0 };
 }
-function endCarry(h,pos){
+function endCarry(h,pos,gentle=false){
   delete h._carry;
-  h.position.copyFrom(pos);
+  h.position.copyFrom(pos); h.computeWorldMatrix(true);
   // Held items are kinematic and steered with target transforms; teleport the
   // body to the drop point for one physics step before handing it back to the sim.
   try{ h.physicsBody?.setPrestepType?.(BABYLON.PhysicsPrestepType.TELEPORT); }catch{}
   h.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.DYNAMIC);
   try{ h.physicsBody?.setLinearVelocity(BABYLON.Vector3.Zero()); h.physicsBody?.setAngularVelocity(BABYLON.Vector3.Zero()); }catch{}
   state.scene.onAfterPhysicsObservable?.addOnce(()=>{ try{ h.physicsBody?.setPrestepType?.(BABYLON.PhysicsPrestepType.DISABLED); }catch{} });
+  // A set-down item must settle, not fly: if it still ends up overlapping
+  // something, Havok's push-apart can fling it upward. Cap the rise briefly.
+  if(gentle && h.physicsBody){
+    const body=h.physicsBody, until=performance.now()+700, v=new BABYLON.Vector3();
+    const obs=state.scene.onAfterPhysicsObservable.add(()=>{
+      if(performance.now()>until || h.isDisposed?.() || h._carry){ state.scene.onAfterPhysicsObservable.remove(obs); return; }
+      try{ body.getLinearVelocityToRef(v); if(v.y>.4 || Math.hypot(v.x,v.z)>1.2){ v.y=Math.min(v.y,.4); const k=Math.min(1,1.2/(Math.hypot(v.x,v.z)||1)); v.x*=k; v.z*=k; body.setLinearVelocity(v); } }catch{}
+    });
+  }
 }
 // Refresh world matrices from the root down to `node` (animation writes local
 // transforms; cached world matrices lag until recomputed).
@@ -837,8 +846,10 @@ function makeCrate(scene,x,z){
     if(!meshes.length) throw new Error('crate.glb contains no renderable mesh');
     let min=new BABYLON.Vector3(1e9,1e9,1e9),max=new BABYLON.Vector3(-1e9,-1e9,-1e9);
     for(const q of meshes){ q.computeWorldMatrix(true); const b=q.getBoundingInfo().boundingBox; min=BABYLON.Vector3.Minimize(min,b.minimumWorld); max=BABYLON.Vector3.Maximize(max,b.maximumWorld); }
+    // crate.glb is modelled centred on its origin: centre it on the proxy box
+    // (offsetting by half its height alone sank it halfway into the ground).
     const ext=max.subtract(min), scale=.72/Math.max(ext.x,ext.z,1e-6);
-    root.scaling.setAll(scale); root.position.y=-ext.y*scale*.5;
+    root.scaling.setAll(scale); root.position.copyFrom(min.add(max).scale(-.5*scale));
     for(const q of result.meshes){ q.parent=root; q.metadata={proxy:m}; q.isPickable=true; q.receiveShadows=true; addShadow(q); }
     applyClayLookToMeshes(result.meshes,scene,{detail:.11,detailScale:5});
     m.metadata.asset='crate.glb';
@@ -856,15 +867,16 @@ function makeBarrel(scene,x,z){
     if(!meshes.length) throw new Error('barrel.glb contains no renderable mesh');
     let min=new BABYLON.Vector3(1e9,1e9,1e9),max=new BABYLON.Vector3(-1e9,-1e9,-1e9);
     for(const q of meshes){ q.computeWorldMatrix(true); const bb=q.getBoundingInfo().boundingBox; min=BABYLON.Vector3.Minimize(min,bb.minimumWorld); max=BABYLON.Vector3.Maximize(max,bb.maximumWorld); }
+    // Centred on its origin like crate.glb: centre it on the proxy cylinder.
     const ext=max.subtract(min), scale=.78/Math.max(ext.y,1e-6);
-    root.scaling.setAll(scale); root.position.y=-ext.y*scale*.5;
+    root.scaling.setAll(scale); root.position.copyFrom(min.add(max).scale(-.5*scale));
     for(const q of result.meshes){ q.parent=root; q.metadata={proxy:b}; q.isPickable=true; q.receiveShadows=true; addShadow(q); }
     applyClayLookToMeshes(result.meshes,scene,{detail:.11,detailScale:5}); b.metadata.asset='barrel.glb';
   }).catch(err=>{ console.warn('failed to load barrel visual',err); b.isVisible=true; });
   return b;
 }
-function makeMushroom(scene,x,z,s=.7){ const root=new BABYLON.TransformNode('mushroom_root',scene); root.position.set(x,0,z); const stem=BABYLON.MeshBuilder.CreateCylinder('mushroom_stem',{height:.42*s,diameter:.18*s,tessellation:7},scene); stem.parent=root; stem.position.y=.21*s; stem.material=state.materials.canvas; const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_cap',{diameter:.52*s,segments:10},scene); cap.parent=root; cap.position.y=.46*s; cap.scaling.y=.38; cap.material=state.materials.mushroom; addShadow(stem); addShadow(cap); tag(root,'mushroom',{health:2,material:'soft',soft:true}); stem.metadata={proxy:root}; cap.metadata={proxy:root}; state.props.push(root); return root; }
-function makeLamp(scene,x,z){ const root=new BABYLON.TransformNode('lamp_root',scene); root.position.set(x,0,z); const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.parent=root; pole.position.y=.46; pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.parent=root; c.position.y=.98; c.material=state.materials.magic; addShadow(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(0,.96,0),scene); light.parent=root; light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; tag(root,'lamp',{health:1,material:'crystal'}); pole.metadata={proxy:root}; c.metadata={proxy:root}; state.props.push(root); return root; }
+function makeMushroom(scene,x,z,s=.7){ const root=new BABYLON.TransformNode('mushroom_root',scene); root.position.set(x,state.terrainTopY??0,z); const stem=BABYLON.MeshBuilder.CreateCylinder('mushroom_stem',{height:.42*s,diameter:.18*s,tessellation:7},scene); stem.parent=root; stem.position.y=.21*s; stem.material=state.materials.canvas; const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_cap',{diameter:.52*s,segments:10},scene); cap.parent=root; cap.position.y=.46*s; cap.scaling.y=.38; cap.material=state.materials.mushroom; addShadow(stem); addShadow(cap); tag(root,'mushroom',{health:2,material:'soft',soft:true}); stem.metadata={proxy:root}; cap.metadata={proxy:root}; state.props.push(root); return root; }
+function makeLamp(scene,x,z){ const root=new BABYLON.TransformNode('lamp_root',scene); root.position.set(x,state.terrainTopY??0,z); const pole=BABYLON.MeshBuilder.CreateCylinder('lamp_pole',{height:.85,diameter:.07,tessellation:6},scene); pole.parent=root; pole.position.y=.46; pole.material=state.materials.darkwood; addShadow(pole); const c=createCrystal('lamp_crystal',scene,.38,.14); c.parent=root; c.position.y=.98; c.material=state.materials.magic; addShadow(c); const light=new BABYLON.PointLight('lamp_light',new BABYLON.Vector3(0,.96,0),scene); light.parent=root; light.diffuse=new BABYLON.Color3(.37,.78,.72); light.intensity=.34; light.range=3.1; tag(root,'lamp',{health:1,material:'crystal'}); pole.metadata={proxy:root}; c.metadata={proxy:root}; state.props.push(root); return root; }
 function makeBakery(scene){ const x=-7,z=-4.5; const base=BABYLON.MeshBuilder.CreateBox('mushroom_bakery_base',{width:2.15,height:1.25,depth:1.75},scene); base.position.set(x,.62,z); addToScene(base,state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(base,'bakery',{health:6,material:'stone'}); const cap=BABYLON.MeshBuilder.CreateSphere('mushroom_bakery_cap',{diameter:2.8,segments:14},scene); cap.position.set(x,1.62,z); cap.scaling.set(1.15,.38,1); cap.material=state.materials.mushroom; addShadow(cap); const door=BABYLON.MeshBuilder.CreateBox('tiny_round_door',{width:.50,height:.72,depth:.06},scene); door.position.set(x,.42,z-.91); door.material=state.materials.wood; const chimney=BABYLON.MeshBuilder.CreateCylinder('chimney',{diameter:.28,height:.72,tessellation:6},scene); chimney.position.set(x+.82,1.95,z+.22); chimney.material=state.materials.stone; addShadow(chimney); makeLamp(scene,x-1.8,z-.2); }
 function makeFence(scene,x0,z0,count,dir='x'){ for(let i=0;i<count;i++){ const x=x0+(dir==='x'?i*.52:0),z=z0+(dir==='z'?i*.52:0); const post=BABYLON.MeshBuilder.CreateCylinder('fence_post',{height:.52,diameter:.09,tessellation:5},scene); post.position.set(x,.33,z); addToScene(post,state.materials.wood,{motion:'static',shape:'CYLINDER',mass:0}); tag(post,'fence',{health:1,material:'wood',flammable:true}); } for(const y of [.32,.53]){ const rail=BABYLON.MeshBuilder.CreateBox('fence_rail',{width:dir==='x'?count*.52:.08,height:.07,depth:dir==='x'?.08:count*.52},scene); rail.position.set(x0+(dir==='x'?(count-1)*.26:0),y,z0+(dir==='z'?(count-1)*.26:0)); rail.material=state.materials.wood; addShadow(rail); } }
 
@@ -921,7 +933,7 @@ async function inlineNoteImages(html){
 }
 function makeNote(scene,x,z,html='<p>empty note</p>'){
   const m=BABYLON.MeshBuilder.CreateBox('note',{width:.6,height:.02,depth:.82},scene);
-  m.position.set(x,.5,z);
+  m.position.set(x,(state.terrainTopY??0)+.05,z);
   const mat=new BABYLON.StandardMaterial('note_mat',scene);
   const tex=renderNoteTexture(scene,html);
   mat.diffuseTexture=tex; mat.emissiveTexture=tex; mat.specularColor=new BABYLON.Color3(.5,.5,.5);
@@ -1148,6 +1160,23 @@ function clearStreamingBubble(g) {
   if (g.anim === 'talk') { g.anim = 'idle'; playRig(g, 'idle', true); }
 }
 
+// Thinking-mode thought bubble: a separate, dashed, italic bubble that stacks
+// above the character's speech. pending=true shows a placeholder while the
+// model is still reasoning (rendering is paused then, so place it at once).
+function showThought(g,text,pending=false){
+  if(!g?.root) return;
+  let b=state.bubbles.find(x=>x.thought && x.node===g.root);
+  if(!b){ const div=document.createElement('div'); div.className='bubble thought'; document.body.appendChild(div); b={div,node:g.root,ttl:0,thought:true}; state.bubbles.push(b); }
+  const t=String(text||'').replace(/\s+/g,' ').trim();
+  b.div.textContent=pending ? 'thinking…' : (t.length>220 ? t.slice(0,220)+'…' : t);
+  b.div.classList.toggle('pending',pending);
+  b.ttl=pending ? 999 : clamp(3+t.length/45,4,10);
+  try{ updateBubbles(0); }catch{}
+}
+function clearPendingThought(g){
+  const b=state.bubbles.find(x=>x.thought && x.node===g?.root);
+  if(b && b.div.classList.contains('pending')) b.ttl=0;
+}
 function say(g,text,voiced=false){
   // Dispatch speech before logging, DOM bubbles, animation, or history work. Only explicit say commands are voiced; action confirmations stay text-only.
   if(voiced){ try{ window.geebrTTS?.speak(g,text,getBrainConfig(g.id).ttsVoiceId); }catch(e){ console.warn('Pocket-TTS say failed',e); } }
@@ -1341,7 +1370,32 @@ function touch(g,targetId=''){
 }
 function push(g,sign=1){ const t=nearestTarget(g); if(!t) return say(g,'nothing to shove'); const from=sign>0?g.root.position:t.position.add(g.root.position.subtract(t.position).scale(2)); impulse(t,from,sign>0?4.8:2.2,.18); const m=meta(t); if(m?.type==='barrel') { m.state='rolling'; emitBadge(t,'roll'); } if(m?.type==='mushroom') emitBadge(t,'boing'); damage(t,.25,'push'); g.anim='push'; playRig(g,'push',false); say(g,sign>0?'helpfully pushing the wrong thing':'pulling with moral uncertainty'); setTimeout(()=>{ g.anim='idle'; playRig(g,'idle',true); },540); }
 function carry(g){ const t=nearestTarget(g,1.8); if(!t) return say(g,'arms found no object'); const m=meta(t); if(!m || ['wall','bakery','crystal'].includes(m.type)) return say(g,'too spiritually heavy'); if(state.held.get(g.id)) drop(g,false); state.held.set(g.id,t); playRig(g,'carry',true); t.physicsBody?.setMotionType(BABYLON.PhysicsMotionType.ANIMATED); beginCarry(g,t); if(m.type==='note'){ const txt=(m.noteText||noteTextFromHtml(m.noteHtml||''))||'blank'; say(g,'the note says: '+txt); } else { say(g,'I am responsible for this now'); } }
-function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); const halfH=h._carry?.halfH ?? .3, dropAt=g.root.position.add(g.dir.scale(.95)); dropAt.y=(state.terrainTopY??0)+halfH-(h._carry?.centerDy??0)+.03; endCarry(h,thrown ? h.position.clone() : dropAt); if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
+// Where a gently dropped item should go: in front of the carrier, or beside
+// it if something is already there (characters stop right next to whatever
+// they walked to, so "in front" is often inside that object). If every spot
+// is taken, it is set down on top of the thing in front.
+function dropSpot(g,h){
+  const c=h._carry||{}, r=c.r??.3, halfH=c.halfH??.3, centerDy=c.centerDy??0, top=state.terrainTopY??0;
+  const fwd=new BABYLON.Vector3(g.dir.x,0,g.dir.z).normalize(), right=BABYLON.Vector3.Cross(BABYLON.Vector3.Up(),fwd);
+  const boxes=[];
+  for(const m of state.props.concat(state.blocks)){
+    if(!m || m===h || m.isDisposed?.() || [...state.held.values()].includes(m)) continue;
+    const mm=meta(m); if(!mm || ['tile','hole'].includes(mm.type)) continue;
+    const b=m.getHierarchyBoundingVectors(true); boxes.push(b);
+  }
+  for(const o of state.geebrs) if(o.collider && o!==g){ o.collider.computeWorldMatrix(true); const bi=o.collider.getBoundingInfo().boundingBox; boxes.push({min:bi.minimumWorld,max:bi.maximumWorld}); }
+  const hits=p=>boxes.filter(b=>p.x+r>b.min.x && p.x-r<b.max.x && p.z+r>b.min.z && p.z-r<b.max.z);
+  const base=g.root.position;
+  const offsets=[fwd.scale(.95), fwd.scale(.95).add(right.scale(.75)), fwd.scale(.95).subtract(right.scale(.75)), right.scale(.95), right.scale(-.95), fwd.scale(-.95)];
+  for(const o of offsets){
+    const p=base.add(o);
+    if(!hits(p).length) return new BABYLON.Vector3(p.x,top+halfH-centerDy+.03,p.z);
+  }
+  const p=base.add(offsets[0]);
+  const stackTop=Math.max(top,...hits(p).map(b=>b.max.y));
+  return new BABYLON.Vector3(p.x,stackTop+halfH-centerDy+.03,p.z);
+}
+function drop(g,thrown=false){ const h=state.held.get(g.id); if(!h) return say(g,'nothing in inventory except opinions'); state.held.delete(g.id); const dropAt=thrown ? null : dropSpot(g,h); endCarry(h,thrown ? h.position.clone() : dropAt, !thrown); if(thrown) h.physicsBody?.applyImpulse(g.dir.add(new BABYLON.Vector3(0,.28,0)).scale(4.4),h.position); playRig(g,thrown?'throw':'idle',false); say(g,thrown?'delivery by violence':'object released from custody'); setTimeout(()=>playRig(g,'idle',true),650); }
 function dig(g){ playRig(g,'dig',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,1.8); if(t && state.blocks.includes(t)){ damage(t,99,'dig'); say(g,'structural snack acquired'); } else { const p=g.root.position.add(g.dir.scale(1.0)); const hole=BABYLON.MeshBuilder.CreateCylinder('tiny_hole',{diameter:.55,height:.035,tessellation:12},state.scene); hole.position.set(Math.round(p.x),(state.terrainTopY??0)+.015,Math.round(p.z)); hole.material=state.materials.hole; tag(hole,'hole',{interactive:false}); state.props.push(hole); say(g,'hole installed'); } }
 function repair(g){ playRig(g,'repair',false); setTimeout(()=>playRig(g,'idle',true),900); const t=nearestTarget(g,2.5); if(!t) return say(g,'repairing vibes'); const m=meta(t); if(!m) return; m.health=Math.max(m.health,2); if(m.state==='cracked'||m.state==='burned'){ m.state='intact'; if(m.material==='wood') t.material=state.materials.wood; else if(m.material==='stone') t.material=state.materials.stone; else t.material=state.materials.canvas; emitBadge(t,'fixed'); say(g,'I reversed entropy slightly'); } else say(g,'already too beautiful'); }
 
@@ -2022,6 +2076,8 @@ function installWorldAPI(){
     getBrainConfig, setBrainConfig, refreshAgentSelect,
     getAllowedCommands:()=>Array.from(state.allowed), canRun,
     getAgentPerception:(agentId=null,radius=7)=>buildVisiblePerception(agentId,radius), buildVisiblePerception,
+    showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
+    clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
     executeAgentCommand:(agentId,cmd)=>beginTurnForAgent(agentId,cmd,'agent-object'),
     runAgentCommand:(agentId,raw)=>beginTurnForAgent(agentId,parseCommand(raw),'agent-text'),
     stepAgentTurn:beginTurnForAgent,
@@ -2118,7 +2174,15 @@ function updateBubbles(dt){
   // offset so the bubble stays a consistent visual distance from the head
   // regardless of ortho zoom level (was: fixed world-space dy=1.7 which
   // drifted far above the head when zoomed in, overlapped when zoomed out).
-  for(const b of [...state.bubbles]){ b.ttl-=dt; const p=project(b.node,1.0); b.div.style.left=p.x+'px'; b.div.style.top=(p.y-42)+'px'; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } }
+  for(const b of [...state.bubbles]){ b.ttl-=dt; if(b.ttl<=0){ b.div.remove(); state.bubbles=state.bubbles.filter(x=>x!==b); } }
+  // Stack a character's bubbles instead of drawing them on top of each other:
+  // speech nearest the head (oldest lowest), thoughts above.
+  const stack=new Map();
+  for(const b of [...state.bubbles].sort((a,c)=>(a.thought?1:0)-(c.thought?1:0))){
+    const p=project(b.node,1.0), up=stack.get(b.node)||0;
+    b.div.style.left=p.x+'px'; b.div.style.top=(p.y-42-up)+'px';
+    stack.set(b.node,up+b.div.offsetHeight+6);
+  }
   for(const b of [...state.badges]){ b.ttl-=dt; const node=b.node.root||b.node; const p=project(node,.8); b.div.style.left=p.x+'px'; b.div.style.top=(p.y+b.vy*(1-b.ttl))+'px'; b.div.style.opacity=Math.max(0,b.ttl); if(b.ttl<=0){ b.div.remove(); state.badges=state.badges.filter(x=>x!==b); } }
 }
 function updateCompassHUD(){

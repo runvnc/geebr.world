@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20261010a" />
+  <link rel="stylesheet" href="style.css?v=20261010b" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -134,6 +134,8 @@
         <label>Current goal <input id="agentGoal" type="text" placeholder="set by agent via goal()" readonly /></label>
       </div>
       <label class="personality-label">Personality / experiment note<textarea id="agentPersonality" rows="3" spellcheck="false">helpful and friendly</textarea></label>
+      <label class="spawn-mode-toggle"><input id="agentThinking" type="checkbox" /> thinking mode (reasons before acting: slower, smarter)</label>
+      <label class="spawn-mode-toggle"><input id="agentShowThoughts" type="checkbox" checked /> show thought text in a bubble (otherwise just "thinking…" while it reasons)</label>
       <div class="section-subtitle">Character voice</div>
       <div class="custom-grid">
         <label>Speak aloud <input id="agentTtsEnabled" type="checkbox" checked /></label>
@@ -207,7 +209,6 @@
       <div class="section-subtitle">Brain options</div>
       <label class="spawn-mode-toggle"><input id="chatTestMode" type="checkbox" /> chat test mode (bare conversation, no perception)</label>
       <label class="spawn-mode-toggle"><input id="antiEcho" type="checkbox" /> anti-echo instructions (off by default - small models can confuse negative prompts)</label>
-      <label class="spawn-mode-toggle"><input id="enableThinking" type="checkbox" /> thinking mode (slower, smarter)</label>
       <div class="cache-controls">
         <label class="cache-backend-label">Cache <select id="cacheBackend"><option value="opfs" selected>OPFS</option></select></label>
         <button id="clearCache" type="button" class="danger-btn">clear model cache</button>

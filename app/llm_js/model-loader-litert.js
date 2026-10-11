@@ -29,7 +29,7 @@ function getWorker() {
     // Classic (not module) worker on purpose - see the comment at the top of
     // litert-worker.js for why a module worker breaks the library's own
     // importScripts()-based WASM glue loader.
-    worker = new Worker('./llm_js/litert-worker.js?v=20261010a');
+    worker = new Worker('./llm_js/litert-worker.js?v=20261010d');
     worker.onmessage = (e) => {
       const { id, type } = e.data;
       const p = pending.get(id);
@@ -124,6 +124,12 @@ export function setCacheBackend() {
 export const litertClient = {
   async generate(messages, opts, onToken) {
     const data = await call('generate', { messages, opts, streaming: !!onToken }, { onToken });
+    // Thinking mode: the reasoning is split off the answer in the worker;
+    // surface it for the UI log without mixing it into the command text.
+    if (data.thinking) {
+      console.log('%c[geebr-litert] thinking (' + (opts?.agentId || 'default') + ')\n' + data.thinking, 'color:#888');
+      try { self.dispatchEvent(new CustomEvent('geebr-thinking', { detail: { agentId: opts?.agentId || 'default', thinking: data.thinking } })); } catch {}
+    }
     return data.text;
   },
   async clearConversations(agentId = null) {

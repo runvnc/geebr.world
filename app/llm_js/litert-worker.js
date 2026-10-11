@@ -183,14 +183,37 @@ async function getOrCreateConversation(systemContent, agentId) {
   return entry.conv;
 }
 
-function stripThinkBlocks(text) {
-  return text
-    .replace(/<\|channel\|>thought[\s\S]*?<\|channel\|>/gi, '')
-    .replace(/<\|think\|>[\s\S]*?<\/think>/gi, '')
-    .replace(/^\s*<\|think\|>[\s\S]*$/i, '')
-    .replace(/<\/?think>/gi, '')
+// Gemma 4 thinking output is "<|channel>thought\n...reasoning...<channel|>answer"
+// (note the asymmetric bars). LiteRT-LM normally parses that channel into
+// message.channels and leaves only the answer in content, but if the markers
+// reach the text (or generation stops mid-thought) split them out here.
+// Returns { text, thinking }.
+function splitThinking(text) {
+  let thinking = '';
+  const keep = (_, t) => { thinking += (thinking ? '\n' : '') + String(t || '').trim(); return ''; };
+  text = String(text || '')
+    .replace(/<\|channel\|?>\s*thought\b([\s\S]*?)<\|?channel\|>/gi, keep)
+    .replace(/<\|channel\|?>\s*thought\b([\s\S]*)$/i, keep)      // unterminated: still thinking
+    .replace(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/gi, keep)
+    .replace(/<\|think\|>([\s\S]*?)<\/think>/gi, keep)
+    .replace(/<\/?think(?:ing)?>/gi, '')
     .replace(/<\/?\|think\|>/gi, '')
+    .replace(/<\|?channel\|?>/gi, '')
     .trimStart();
+  return { text, thinking };
+}
+
+// Text of a LiteRT-LM Message: content is either a string or content parts.
+function messageText(msg) {
+  const c = msg?.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) return c.map(p => p?.text ?? p?.content ?? '').join('');
+  return '';
+}
+// Any channel text (e.g. channels.thought) carried separately from content.
+function messageChannels(msg) {
+  const ch = msg?.channels;
+  return ch && typeof ch === 'object' ? Object.values(ch).filter(Boolean).join('\n') : '';
 }
 
 async function generateText(messages, opts, onToken) {
@@ -199,25 +222,67 @@ async function generateText(messages, opts, onToken) {
   if (opts.extra_body?.enable_thinking) systemContent = '<|think|>' + (systemContent || '');
 
   const chatMessages = messages.filter(m => m.role !== 'system');
-  const conversation = await getOrCreateConversation(systemContent, opts.agentId);
   const lastMessage = chatMessages[chatMessages.length - 1];
   const promptText = lastMessage?.content || '';
+  const thinking = !!opts.extra_body?.enable_thinking;
+  try {
+    return await runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking);
+  } catch (err) {
+    if (thinking) throw err;
+    // A cached conversation that errored is unusable; retry once on a fresh one.
+    console.warn('[litert-worker] generation failed on cached conversation, retrying fresh', err);
+    clearConversations(opts.agentId || 'default');
+    return await runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking);
+  }
+}
 
-  let fullText = '';
+// Thinking turns use a throwaway conversation seeded with the game's own chat
+// history (which never contains thoughts) instead of the cached per-agent one.
+// Reusing a conversation after a thinking turn broke every later turn, and the
+// thoughts would otherwise pile up in the 8192-token KV cache.
+const THINKING_HISTORY_MESSAGES = 12;
+async function runTurn(systemContent, chatMessages, promptText, opts, onToken, thinking) {
+  let conversation, oneShot = false;
+  if (thinking) {
+    const history = chatMessages.slice(0, -1).slice(-THINKING_HISTORY_MESSAGES)
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role, content: String(m.content || '') }));
+    // Gemma expects the history to open with a user turn.
+    while (history.length && history[0].role !== 'user') history.shift();
+    const preface = { messages: [{ role: 'system', content: systemContent }, ...history] };
+    conversation = await engine.createConversation({ preface });
+    oneShot = true;
+  } else {
+    conversation = await getOrCreateConversation(systemContent, opts.agentId);
+  }
+  try {
+    return await sendTurn(conversation, promptText, opts, onToken);
+  } finally {
+    if (oneShot) disposeConversation(conversation);
+  }
+}
+
+async function sendTurn(conversation, promptText, opts, onToken) {
+  let fullText = '', channelText = '';
   console.log('[litert-worker] SENDING PROMPT TO LiteRT conversation', {
-    agentId: opts.agentId || 'default', streaming: !!onToken, promptText, systemContent,
+    agentId: opts.agentId || 'default', streaming: !!onToken, thinking: !!opts.extra_body?.enable_thinking, promptText,
   });
 
   try {
     if (onToken) {
       const stream = conversation.sendMessageStreaming(promptText);
       for await (const chunk of stream) {
-        const text = chunk?.content?.[0]?.text || chunk?.content?.[0]?.content || '';
-        if (text) { fullText += text; onToken(fullText); }
+        channelText += messageChannels(chunk);
+        const text = messageText(chunk);
+        if (text) fullText += text;
+        // Show only the answer while streaming; a placeholder while thinking.
+        const visible = splitThinking(fullText).text;
+        onToken(visible || ((channelText || /<\|channel/i.test(fullText)) ? '(thinking...)' : ''));
       }
     } else {
       const response = await conversation.sendMessage(promptText);
-      fullText = response?.content?.[0]?.text || response?.content?.[0]?.content || '';
+      fullText = messageText(response);
+      channelText = messageChannels(response);
     }
   } catch (err) {
     console.error('[litert-worker] ERROR FROM LiteRT conversation:', err);
@@ -225,7 +290,10 @@ async function generateText(messages, opts, onToken) {
   }
 
   console.log('[litert-worker] RAW LiteRT OUTPUT:', fullText);
-  return stripThinkBlocks(fullText);
+  const { text, thinking } = splitThinking(fullText);
+  const allThinking = [channelText.trim(), thinking].filter(Boolean).join('\n');
+  if (allThinking) console.log('[litert-worker] THINKING:', allThinking);
+  return { text, thinking: allThinking };
 }
 
 // ---- message protocol ----
@@ -319,8 +387,8 @@ self.onmessage = async (e) => {
       if (!engine) throw new Error('LiteRT-LM engine not loaded');
       const { messages, opts, streaming } = e.data;
       const onToken = streaming ? (fullText) => reply({ type: 'token', text: fullText }) : null;
-      const text = await generateText(messages, opts || {}, onToken);
-      reply({ type: 'result', data: { text } });
+      const { text, thinking } = await generateText(messages, opts || {}, onToken);
+      reply({ type: 'result', data: { text, thinking } });
     } else if (type === 'clearConversations') {
       clearConversations(e.data.agentId ?? null);
       reply({ type: 'result', data: {} });
