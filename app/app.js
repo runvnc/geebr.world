@@ -3252,7 +3252,7 @@ function makeMicroNoiseTexture(scene){
   return tex;
 }
 function makeVoxelIsland(scene){
-  const tiles=[];
+  const tiles=[], voxelPlateau=[];
   const uvRect={ grass:[0,.5,.5,1], dirt:[.5,.5,1,1], stone:[0,0,.5,.5], strata:[.5,0,1,.5] };
   const rect=r=>new BABYLON.Vector4(r[0],r[1],r[2],r[3]);
   for(let tx=-WORLD.halfW;tx<WORLD.halfW;tx++) for(let tz=-WORLD.halfH;tz<WORLD.halfH;tz++){
@@ -3264,6 +3264,7 @@ function makeVoxelIsland(scene){
     const strataR=uvRect.strata;
     const fu=[ rect(strataR), rect(strataR), rect(strataR), rect(strataR), rect(topR), rect(strataR) ];
     const c=voxelTileColors(matName,tx,tz);
+    if(matName!=='water' && edgeDist>0) voxelPlateau.push([cx,cz]);
     const box=BABYLON.MeshBuilder.CreateBox('voxel_tile',{width:.965,height:.62,depth:.965,faceUV:fu,faceColors:[c.side,c.side,c.side,c.side,c.top,c.bottom]},scene);
     box.position.set(cx,topY-.31,cz);
     tiles.push(box);
@@ -3282,6 +3283,7 @@ function makeVoxelIsland(scene){
       }
     }
   }
+  state.plateauTiles=voxelPlateau;
   const m=new BABYLON.StandardMaterial('voxel_mat',scene);
   const detail=makeMicroNoiseTexture(scene);
   m.diffuseTexture=detail; m.bumpTexture=detail; m.bumpTexture.level=.5;
@@ -3409,7 +3411,12 @@ function makeSelectionRing(scene){
   });
 }
 async function addTerrainPolish(scene){
-  if(window.GeebrHD?.buildIsland){
+  // Light mode: the original simple voxel island (no imported cliffs, grass
+  // GLBs, trees, house or detailed sea) to leave GPU memory for a big model.
+  if(window.GEEBR_GFX?.lite){
+    makeSkyDome(scene); makeIslandBase(scene); makeVoxelIsland(scene); makeSea(scene);
+    state.lite=true;
+  } else if(window.GeebrHD?.buildIsland){
     try{
       await window.GeebrHD.buildIsland(scene,{ WORLD, state, hashNoise, smoothNoise, proceduralTerrainAt, addShadow });
     }catch(err){
@@ -3512,7 +3519,10 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
   // olive greens relative to the concept art.
   LOOK()?.applyTonemap(scene,{exposure:1.34,contrast:1.12,tonemap:'neutral',grade:true});
   // Diorama polish: soft bloom on emissives, gentle vignette, and a subtle tilt-shift depth of field.
-  try{
+  if(window.GEEBR_GFX?.lite){
+    // Light mode: no post-process pipeline, SSAO or glow layer (each holds
+    // full-screen render targets).
+  } else try{
     const rp=new BABYLON.DefaultRenderingPipeline('drp',true,scene,[camera]);
     rp.fxaaEnabled=true;
     rp.bloomEnabled=true; rp.bloomThreshold=.82; rp.bloomWeight=.26; rp.bloomScale=.6; rp.bloomKernel=48;
@@ -3565,6 +3575,20 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
       material.specularColor=(material.name.includes('water') || material.name.includes('sea')) ? new BABYLON.Color3(1,1,1) : new BABYLON.Color3(.5,.5,.5);
       material.specularPower=128;
     }
+  }
+  // Light mode's legacy sea/tiles are StandardMaterials: the pass above gives
+  // them full-white specular, which under the strong key light turned the
+  // sea into a white sheet and left a glare patch on the tiles. They also get
+  // no environment light, so lift them with a little emissive instead.
+  // The scene's lights are calibrated for PBR (the key is a 200-intensity
+  // point light with glTF falloff), which over-exposes StandardMaterials, so
+  // give the light island PBR materials like the HD diorama's.
+  if(state.lite){
+    const pbr=(name,col,rough,alpha=1)=>{ const m=new BABYLON.PBRMaterial(name,scene); m.albedoColor=col; m.metallic=0; m.roughness=rough; m.environmentIntensity=.85; m.specularIntensity=.5; m.maxSimultaneousLights=4; if(alpha<1) m.alpha=alpha; return m; };
+    const island=scene.getMeshByName('voxel_island');
+    if(island){ island.material=applyClayLook(pbr('voxel_pbr',new BABYLON.Color3(1,1,1),.3),scene,{detail:.1}); }
+    const sea=scene.getMeshByName('sea');
+    if(sea) sea.material=pbr('sea_pbr',new BABYLON.Color3(.05,.15,.24),.16,.96);
   }
   // Imported grass slabs have their visible top around y=.30. Gameplay and
   // legacy scenery were authored for y=0, which buried characters, fences,

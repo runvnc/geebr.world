@@ -14,6 +14,10 @@
     keyShadowEnabled: true, keyShadowEvery: 1,
     campfireShadowEnabled: true, campfireShadowEvery: 1,
     seaWaveEnabled: true, seaFoamEnabled: true,
+    // Light mode (applies on reload): the simple voxel island instead of the
+    // HD diorama, and no SSAO / bloom / glow / real-time shadow maps. For when
+    // a large model (Gemma 4 E4B) and the scene don't both fit in GPU memory.
+    lite: false,
   };
 
   function load() {
@@ -40,8 +44,8 @@
   }
   function applyShadows() {
     const st = window.GEEBR_STATE;
-    applyShadow(st?.shadow, settings.keyShadowEnabled, clampEvery(settings.keyShadowEvery));
-    applyShadow((st?.extraShadows || [])[0], settings.campfireShadowEnabled, clampEvery(settings.campfireShadowEvery));
+    applyShadow(st?.shadow, settings.keyShadowEnabled && !settings.lite, clampEvery(settings.keyShadowEvery));
+    applyShadow((st?.extraShadows || [])[0], settings.campfireShadowEnabled && !settings.lite, clampEvery(settings.campfireShadowEvery));
   }
   // Both ShadowGenerators exist by the time main() dispatches this (it's the
   // very last thing main() does), so this always finds them.
@@ -55,6 +59,11 @@
     const fireEn = el('gfxCampfireShadowEnabled'), fireEv = el('gfxCampfireShadowEvery');
     const waveEn = el('gfxSeaWaveEnabled'), foamEn = el('gfxSeaFoamEnabled');
     const resetBtn = el('gfxResetDefaults');
+    const liteEn = el('gfxLite');
+    if (liteEn) {
+      liteEn.checked = !!settings.lite;
+      liteEn.addEventListener('change', () => { settings.lite = liteEn.checked; save(); location.reload(); });
+    }
     if (!keyEn) return; // markup not present in this build; skip silently
 
     const syncInputs = () => {
