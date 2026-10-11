@@ -32,9 +32,10 @@ const MODEL_CONFIG = {
   },
   'gemma4-e4b-litert': {
     label: 'Gemma 4 E4B (LiteRT-LM)',
-    // Larger sibling (~3.0 GB web build). Straight from Hugging Face for now;
-    // mirror to R2 like E2B if HF's download speed is a problem.
-    modelUrl: 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it-web.litertlm',
+    // Larger sibling (~3.0 GB web build), mirrored on R2 like E2B: same bytes
+    // as litert-community/gemma-4-E4B-it-litert-lm on Hugging Face (sha256
+    // 3904d826..., 2969059328 bytes; copied server-side, spot-checked).
+    modelUrl: 'https://geebr-models.mindroot.io/gemma-4-E4B-it-web.litertlm',
     vram: 'larger; PLE memory-mapped',
   },
 };
