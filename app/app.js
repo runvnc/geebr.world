@@ -75,6 +75,8 @@ function setupMouseWheelZoom(camera){
   camera.inputs.removeByType('ArcRotateCameraMouseWheelInput');
   canvas.addEventListener('wheel',ev=>{
     ev.preventDefault();
+    // First person: the wheel zooms by narrowing the field of view.
+    if(state.firstPerson && fpCam){ const px0=ev.deltaY*(ev.deltaMode===1?33:ev.deltaMode===2?400:1); fpCam.fov=clamp(fpCam.fov*Math.exp(clamp(px0,-150,150)*.001),.3,1.3); return; }
     // Scale by wheel distance (lines/pages normalised to pixels, one notch is
     // usually 100px) so a notch is ~10% and trackpads zoom smoothly.
     const px=ev.deltaY*(ev.deltaMode===1?33:ev.deltaMode===2?400:1);
@@ -1705,16 +1707,21 @@ function installDirectControlHandlers(){
   }, true);
 }
 
+// Solid things nobody walks through (characters and the player alike).
+// Small loose items (tools, potions, scrolls, coins, notes, bags, buckets,
+// mushrooms) can be stepped over; a carried item never blocks its carrier.
+const BLOCKING_TYPES=new Set(['wall','rock','bakery','fence','bridge','crate','barrel','chest','table','bench','stool','workbench','cauldron','anvil','weapon_stand','apple_crate','carrot_crate','lamp']);
 function isBlocked(x, z) {
   // painted water/lava can't be walked through
   const pt = paintAt(x, z); if (pt && PAINT_MATERIALS[pt.mat]?.blocks) return true;
+  const held = new Set(state.held.values());
   for (const m of state.blocks.concat(state.props)) {
-    if (!m || m.isDisposed?.()) continue;
+    if (!m || m.isDisposed?.() || held.has(m)) continue;
     const mm = meta(m);
     if (!mm) continue;
     const p = m.getAbsolutePosition?.() || m.position;
     if (Math.abs(p.x - x) < 0.7 && Math.abs(p.z - z) < 0.7) {
-      if (['wall','rock','bakery','fence','bridge'].includes(mm.type) || mm.material === 'stone') return true;
+      if (BLOCKING_TYPES.has(mm.type) || mm.material === 'stone') return true;
     }
   }
   return false;
@@ -2617,7 +2624,21 @@ function cameraCardinal(which){
   let v=new BABYLON.Vector3(f.x,0,f.z); if(which==='right') v=new BABYLON.Vector3(-f.z,0,f.x); if(which==='back') v=v.scale(-1); if(which==='left') v=new BABYLON.Vector3(f.z,0,-f.x);
   return Math.abs(v.x)>Math.abs(v.z) ? new BABYLON.Vector3(Math.sign(v.x),0,0) : new BABYLON.Vector3(0,0,Math.sign(v.z));
 }
-function turnPlayer(sign){ const g=state.playerAvatar; if(!g || g.turnMove) return; const d=g.dir; setGeebrFacing(g,new BABYLON.Vector3(-d.z*sign,0,d.x*sign)); }
+function turnPlayer(sign){ const g=state.playerAvatar; if(!g || g.turnMove) return; const d=g.dir; setGeebrFacing(g,new BABYLON.Vector3(-d.z*sign,0,d.x*sign)); if(state.firstPerson) state.fpYaw=Math.atan2(g.dir.x,g.dir.z); }
+// First-person mouse look: drag to turn/tilt the view; the avatar turns to
+// the nearest grid direction you're looking along.
+function setupFirstPersonLook(){
+  let drag=null;
+  canvas.addEventListener('pointerdown',e=>{ if(state.firstPerson) drag={x:e.clientX,y:e.clientY}; });
+  window.addEventListener('pointerup',()=>{ drag=null; });
+  canvas.addEventListener('pointermove',e=>{
+    if(!state.firstPerson || !drag || !(e.buttons&3)) return;
+    const dx=e.clientX-drag.x, dy=e.clientY-drag.y; drag={x:e.clientX,y:e.clientY};
+    const k=.0045*((fpCam?.fov||1)/1);   // slower when zoomed in
+    state.fpYaw=(state.fpYaw??0)+dx*k; state.fpPitch=clamp((state.fpPitch??0)+dy*k,-1.25,1.25);
+    const g=state.playerAvatar; if(g && !g.turnMove){ const yx=Math.sin(state.fpYaw), yz=Math.cos(state.fpYaw); setGeebrFacing(g,Math.abs(yx)>Math.abs(yz)?new BABYLON.Vector3(Math.sign(yx),0,0):new BABYLON.Vector3(0,0,Math.sign(yz))); }
+  });
+}
 function setupPlayerControls(){
   window.addEventListener('keydown',e=>{
     const g=state.playerAvatar; if(!g) return;
@@ -2649,7 +2670,9 @@ function setFirstPerson(on){
       // spatial audio and bubbles read camera.target
       Object.defineProperty(fpCam,'target',{get:()=>fpCam.getTarget(),configurable:true});
     }
-    fpCam.rotation.set(.08,Math.atan2(g.dir.x,g.dir.z),0);
+    state.fpYaw=Math.atan2(g.dir.x,g.dir.z); state.fpPitch=.08;
+    fpCam.rotation.set(state.fpPitch,state.fpYaw,0); fpCam.fov=1.0;
+    try{ state.camera.detachControl(); }catch{}
     // The post-process pipelines (bloom/grading, SSAO) are attached to the
     // overview camera and kept drawing its view; move them over.
     const mgr=sc.postProcessRenderPipelineManager;
@@ -2660,6 +2683,7 @@ function setFirstPerson(on){
     const mgr=sc.postProcessRenderPipelineManager;
     if(fpCam) for(const name of Object.keys(mgr?._renderPipelines||{})){ try{ mgr.detachCamerasFromRenderPipeline(name,fpCam); mgr.attachCamerasToRenderPipeline(name,state.camera); }catch(e){ console.warn('pipeline switch',name,e); } }
     sc.activeCamera=state.camera;
+    try{ state.camera.attachControl(canvas,true); }catch{}
     if(g){ g.rigRoot?.setEnabled(true); g.playerRing?.setEnabled(true); }
   }
   updateFirstPersonButton();
@@ -2668,8 +2692,11 @@ function updateFirstPersonView(dt){
   const g=state.playerAvatar; if(!state.firstPerson || !g || !fpCam) return;
   const s=g.root.scaling.y||.87, p=g.root.position;
   fpCam.position.set(p.x,p.y+(g.eyeHeight||.92*s/.87),p.z);
-  const want=Math.atan2(g.dir.x,g.dir.z); let d=want-fpCam.rotation.y; d=Math.atan2(Math.sin(d),Math.cos(d));
-  fpCam.rotation.y+=d*Math.min(1,dt*10);
+  // Look direction is free (mouse drag); the avatar faces its grid-snapped
+  // version, so W walks where you look.
+  let d=(state.fpYaw??0)-fpCam.rotation.y; d=Math.atan2(Math.sin(d),Math.cos(d));
+  fpCam.rotation.y+=d*Math.min(1,dt*14);
+  fpCam.rotation.x+=((state.fpPitch??.08)-fpCam.rotation.x)*Math.min(1,dt*14);
 }
 function updateFirstPersonButton(){
   const b=document.getElementById('firstPersonBtn'); if(!b) return;
@@ -2980,7 +3007,7 @@ function setupUI(){
   if(thinkSel){ try{ const v=localStorage.getItem('geebrThinkFps'); if(v!==null) thinkSel.value=v; }catch{} thinkSel.onchange=()=>{ try{ localStorage.setItem('geebrThinkFps',thinkSel.value); }catch{} }; }
   const baseMapSel=document.getElementById('baseMapSelect');
   if(baseMapSel){ baseMapSel.value=state.baseMap||'island'; baseMapSel.onchange=()=>{ setBaseMap(baseMapSel.value); updatePerceptionUI(); saveWorldState(); log('base map: '+baseMapSel.value); }; }
-  setupPlayerControls();
+  setupPlayerControls(); setupFirstPersonLook();
   const avCb=document.getElementById('avatarToggle');
   if(avCb){ avCb.checked=!!state.playerAvatar; avCb.onchange=async()=>{ if(avCb.checked){ const c=state.camera.target; await spawnPlayerAvatar(Math.round(c.x),Math.round(c.z)+1); } else removePlayerAvatar(); saveWorldState(); }; }
   const fpBtn=document.getElementById('firstPersonBtn'); if(fpBtn) fpBtn.onclick=()=>setFirstPerson(!state.firstPerson);
