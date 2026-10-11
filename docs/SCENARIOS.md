@@ -22,6 +22,7 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "lighting": "bright",                                  // or "night" (sandbox look)
   "base": "island",                                      // island | clearing | dungeon
   "walls": "tabletop",                                   // or "block" (old short cubes)
+  "pathfinding": true,                                   // false: walks go in straight lines and stop at walls
   "floor": "stone",                                      // optional: paint the whole floor
   "paint": [{ "x": 0, "z": 0, "mat": "water" }],          // optional explicit floor tiles
   "player": { "name": "Traveller", "gold": 20, "items": [] },
@@ -166,8 +167,12 @@ in the share text.
   join to neighbouring wall cells. `"walls": "block"` keeps the old cubes.
 - **Painted floors**: also a click-to-spawn brush in the World pane.
 - `give(item)` hands an item to the player when the character actually has it
-  in its inventory (otherwise it's just said). Walking stops at walls, painted
-  water and lava.
+  in its inventory (otherwise it's just said).
+- **Walking** finds a way around walls, painted water/lava and solid props
+  (A* over the grid, smoothed into straight legs). Walking to a spot off the
+  island still walks straight off the edge (and falls). `"pathfinding": false`
+  restores straight-line walking that stops at the first obstacle, which is
+  what makes a guide-them-through-the-maze puzzle.
 
 ## 5. Links
 

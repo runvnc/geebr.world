@@ -562,6 +562,7 @@
       map: Array.isArray(s.map) ? s.map.map(String) : (typeof s.map === 'string' ? s.map.split('\n') : []),
       goal: s.goal && typeof s.goal === 'object' ? s.goal : null,
       base: ['island', 'clearing', 'dungeon'].includes(s.base) ? s.base : 'island', walls: s.walls === 'block' ? 'block' : 'tabletop',
+      pathfinding: s.pathfinding !== false,
       floor: PAINT_MATS.includes(s.floor) ? s.floor : null,
       paint: Array.isArray(s.paint) ? s.paint.filter(c => c && Number.isFinite(+c.x) && Number.isFinite(+c.z) && (PAINT_MATS.includes(c.mat) || c.mat === 'none')) : [] };
     if (!out.agents.length) out.agents = [{ id: 'geebr1', personality: 'helpful and friendly' }];
@@ -594,6 +595,7 @@
     w.setWallStyle?.(scn.walls);
     w.clearWorld();
     w.setBaseMap?.(scn.base);
+    w.setPathfinding?.(scn.pathfinding);
     w.state.globalHistory = [];
     w.setAllowed(scn.allowed);
     w.setLighting?.(scn.lighting === 'night' ? 'night' : 'bright');
@@ -646,6 +648,7 @@
     stopChecker(); active = null; renderBanner(); hideEnd();
     w.state.saveKey = SANDBOX_KEY;
     w.setLighting?.('night');
+    w.setPathfinding?.(true);
     try { history.replaceState(null, '', location.pathname + location.search); } catch {}
     const raw = localStorage.getItem(SANDBOX_KEY);
     if (raw) { try { await w.restoreWorldState(JSON.parse(raw)); return; } catch (e) { console.warn('sandbox restore failed', e); } }
@@ -853,15 +856,17 @@
         winText: 'Not a single scorch mark. Zap is bored but the camp survives.', loseText: 'Something is on fire.', score: 'turns' },
     },
     maze: {
-      v: 1, title: 'Lost in the Dungeon', seed: 1, base: 'dungeon',
+      // Straight-line walking: with pathfinding, "walk to the chest" would
+      // solve the maze by itself; here your directions are the puzzle.
+      v: 1, title: 'Lost in the Dungeon', seed: 1, base: 'dungeon', pathfinding: false,
       intro: "Pip is lost in a little dungeon maze and can't see the way to the treasure chest. You can.",
       player: { name: 'Guide', gold: 0, items: [] },
       allowed: ['say', 'walk', 'face'],
       agents: [{ id: 'pip', at: [2, 2], facing: 'n', personality: 'a small, trusting geebr. You follow directions exactly. walk("x,z") goes to a spot; walls block you.' }],
       objects: [
-        ...[2, 1, 0, -1, -2, -3].map(x => ({ type: 'wall', x, z: 0 })),
-        ...[1, 0, -1, -2, -3, -4].map(x => ({ type: 'wall', x, z: -2 })),
-        { type: 'chest', x: -4, z: -3 }, { type: 'lamp', x: -1, z: 2 }, { type: 'lamp', x: 0, z: -1 },
+        ...[3, 2, 1, 0, -1, -2].map(x => ({ type: 'wall', x, z: 0 })),
+        ...[1, 0, -1, -2, -3, -4, -5].map(x => ({ type: 'wall', x, z: -2 })),
+        { type: 'chest', x: -3, z: -3 }, { type: 'lamp', x: -1, z: 2 }, { type: 'lamp', x: 0, z: -1 },
       ],
       map: [],
       goal: { text: 'Talk Pip through the maze to the treasure chest.', win: { agent_near: ['pip', 'chest', 1.5] }, maxTurns: 14,

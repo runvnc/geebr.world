@@ -1679,6 +1679,78 @@ function isBlocked(x, z) {
   }
   return false;
 }
+// ---- pathfinding ----
+// A* over integer cells (8 directions, no cutting past a blocked corner),
+// then string-pulled into as few straight legs as the obstacles allow.
+function cellPassable(x,z){ return hasGroundAt(x,z) && !isBlocked(x,z); }
+function segmentClear(a,b){
+  const len=Math.hypot(b.x-a.x,b.z-a.z), n=Math.max(1,Math.ceil(len/.2));
+  for(let i=1;i<=n;i++){ const t=i/n, x=a.x+(b.x-a.x)*t, z=a.z+(b.z-a.z)*t; if(isBlocked(x,z) || !hasGroundAt(x,z)) return false; }
+  return true;
+}
+// Returns waypoints (excluding the start), [] if already there, or null if
+// there is no way through.
+function findRoute(from,to){
+  const sx=Math.round(from.x), sz=Math.round(from.z);
+  let gx=Math.round(to.x), gz=Math.round(to.z);
+  if(segmentClear(from,to)) return Math.hypot(to.x-from.x,to.z-from.z)<.05 ? [] : [to.clone()];
+  if(!cellPassable(gx,gz)){
+    // goal cell itself is blocked: aim for the nearest passable cell to it
+    let best=null,bd=99;
+    for(let dz=-2;dz<=2;dz++) for(let dx=-2;dx<=2;dx++){ const x=gx+dx,z=gz+dz; if(!cellPassable(x,z)) continue; const d=Math.hypot(dx,dz)+Math.hypot(x-sx,z-sz)*.01; if(d<bd){ bd=d; best=[x,z]; } }
+    if(!best) return null; [gx,gz]=best; to=new BABYLON.Vector3(gx,0,gz);
+  }
+  const key=(x,z)=>x+','+z, open=[[sx,sz,0,0]], came=new Map([[key(sx,sz),null]]), cost=new Map([[key(sx,sz),0]]);
+  const N=[[1,0,1],[-1,0,1],[0,1,1],[0,-1,1],[1,1,1.414],[1,-1,1.414],[-1,1,1.414],[-1,-1,1.414]];
+  let found=false, guard=0;
+  while(open.length && guard++<4000){
+    open.sort((a,b)=>a[3]-b[3]);
+    const [x,z]=open.shift();
+    if(x===gx && z===gz){ found=true; break; }
+    for(const [dx,dz,c] of N){
+      const nx=x+dx, nz=z+dz;
+      if(Math.abs(nx)>16 || Math.abs(nz)>16 || !cellPassable(nx,nz)) continue;
+      if(dx && dz && (!cellPassable(x+dx,z) || !cellPassable(x,z+dz))) continue;
+      const nc=cost.get(key(x,z))+c, k=key(nx,nz);
+      if(nc<(cost.get(k)??1e9)){ cost.set(k,nc); came.set(k,key(x,z)); open.push([nx,nz,nc,nc+Math.hypot(gx-nx,gz-nz)]); }
+    }
+  }
+  if(!found) return null;
+  const cells=[]; for(let k=key(gx,gz); k; k=came.get(k)) cells.push(k.split(',').map(Number));
+  cells.reverse();
+  const pts=cells.slice(1).map(([x,z])=>new BABYLON.Vector3(x,0,z));
+  // finish exactly on a reachable off-grid target (e.g. "stop beside the crate")
+  const last=pts[pts.length-1]||new BABYLON.Vector3(sx,0,sz);
+  if((Math.abs(to.x-last.x)>.01 || Math.abs(to.z-last.z)>.01) && segmentClear(last,to)) pts.push(to.clone());
+  // string-pull: from each anchor jump to the farthest waypoint in clear sight
+  const out=[]; let anchor=from.clone(), i=0;
+  while(i<pts.length){
+    let j=pts.length-1; while(j>i && !segmentClear(anchor,pts[j])) j--;
+    out.push(pts[j]); anchor=pts[j]; i=j+1;
+  }
+  return out;
+}
+// Leg direction -> facing: drop a component smaller than ~22 degrees so a
+// nearly straight leg doesn't face diagonally.
+function legFacing(d){ const l=Math.hypot(d.x,d.z)||1, x=d.x/l, z=d.z/l; return new BABYLON.Vector3(Math.abs(x)>.38?Math.sign(x):0,0,Math.abs(z)>.38?Math.sign(z):0); }
+function startTurnPath(g,waypoints){
+  const lp=g.logicalPos || new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
+  const path=[new BABYLON.Vector3(lp.x,0,lp.z),...waypoints.map(p=>new BABYLON.Vector3(p.x,0,p.z))];
+  const lens=[]; let total=0; for(let i=1;i<path.length;i++){ const l=BABYLON.Vector3.Distance(path[i-1],path[i]); lens.push(l); total+=l; }
+  g.turnMove={start:path[0],end:path[path.length-1],path,lens,total,t:0,dur:Math.max(.48,total*.32)};
+  setGeebrFacing(g,legFacing(path[1].subtract(path[0])));
+  g.collider?.physicsBody?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
+  zeroMeshMotion(g.collider);
+}
+// Position (and leg direction) a fraction k of the way along a path move.
+function pathPoint(tm,k){
+  let dist=k*tm.total;
+  for(let i=0;i<tm.lens.length;i++){
+    if(dist<=tm.lens[i] || i===tm.lens.length-1){ const t=tm.lens[i]?Math.min(1,dist/tm.lens[i]):1; return {p:BABYLON.Vector3.Lerp(tm.path[i],tm.path[i+1],t),dir:tm.path[i+1].subtract(tm.path[i])}; }
+    dist-=tm.lens[i];
+  }
+  return {p:tm.end.clone(),dir:tm.end.subtract(tm.start)};
+}
 function walk(g,destination){
   const dirs={n:[0,0,-1],north:[0,0,-1],s:[0,0,1],south:[0,0,1],e:[-1,0,0],east:[-1,0,0],w:[1,0,0],west:[1,0,0]};
   const lp=g.logicalPos||new BABYLON.Vector3(g.root.position.x,0,g.root.position.z);
@@ -1709,6 +1781,23 @@ function walk(g,destination){
     description=destination.label||`(${tx},${tz})`;
   }
   if(!d) return say(g,'walk needs an absolute coordinate or visible map label');
+  // Walk around walls/water/props instead of stopping at the first one, as
+  // long as the destination is on the island (walking off it still falls).
+  // Single-step direction walks stay straight. state.pathfinding=false
+  // (scenario "pathfinding": false) keeps straight-line walking everywhere.
+  if(state.pathfinding!==false && typeof destination==='object' && travel>.05){
+    const target=new BABYLON.Vector3(lp.x+d.x*travel,0,lp.z+d.z*travel);
+    if(hasGroundAt(target.x,target.z)){
+      const route=findRoute(lp,target);
+      if(route && route.length){
+        startTurnPath(g,route); g.anim='walk'; playRig(g,'walk',true);
+        log(g.id+' walks toward '+description+' ('+route.length+' leg'+(route.length>1?'s':'')+')');
+        setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },g.turnMove.dur*1000+80);
+        return;
+      }
+      if(route===null){ say(g,`can't find a way to ${description}`); return; }
+    }
+  }
   // Sweep the straight segment in small increments. Stop before the first
   // obstacle rather than passing through it during a long interpolation.
   const requested=travel;
@@ -2595,6 +2684,7 @@ function installWorldAPI(){
     findItem:(items,name)=>findItem(items||[],name),
     setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
+    setPathfinding:on=>{ state.pathfinding=on!==false; }, findRoute,
     setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
     setLighting,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
@@ -2750,7 +2840,8 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.falling){ g.t+=dt; updateFall(g,dt); continue; } if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); const p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k);
+function animate(dt){ for(const g of state.geebrs){ if(g.falling){ g.t+=dt; updateFall(g,dt); continue; } if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); let p;
+      if(g.turnMove.path){ const pp=pathPoint(g.turnMove,k); p=pp.p; if(pp.dir.lengthSquared()>1e-6) setGeebrFacing(g,legFacing(pp.dir)); } else p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k);
       // Walked off the island: fall instead of hovering over the sea.
       if(!hasGroundAt(p.x,p.z)){ const tm=g.turnMove, len=BABYLON.Vector3.Distance(tm.start,tm.end)||1; g.lastSafePos=tm.start.clone(); startFall(g,tm.end.subtract(tm.start).scale(clamp(len/tm.dur,1.4,3.4)/len)); continue; }
       g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.mouth) updateMouth(g,dt); else if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } positionHeldItem(g,dt); continue; } positionHeldItem(g,dt);
