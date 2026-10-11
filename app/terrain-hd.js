@@ -499,7 +499,7 @@
     let grassProto=null, grassRoot=null;
     if(useGrassGLB){
       try{
-        const result=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/tiles/', 'grass_v7_orm.glb', scene);
+        const result=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/tiles/', (window.geebrAsset||(f=>f))('grass_v7_orm.glb'), scene);
         grassRoot=result.meshes.find(m=>m.getTotalVertices?.()>0) || result.meshes[0];
         if(grassRoot){
           grassProto=grassRoot;
@@ -649,7 +649,7 @@
   }
 
   async function importCliffAsset(scene,file,name,trimFraction=0,trimSide=1){
-    const r=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/tiles/', file, scene);
+    const r=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/tiles/', (window.geebrAsset||(f=>f))(file), scene);
     const mesh=r.meshes.find(m=>m.getTotalVertices?.()>0);
     if(!mesh) throw new Error('no renderable mesh in '+file);
     mesh.name=name; mesh.parent=null; mesh.setEnabled(true); mesh.isVisible=false; mesh.isPickable=false;
@@ -983,7 +983,7 @@
 
 
   async function importScatterAsset(scene,file,name){
-    const r=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', file, scene);
+    const r=await BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', (window.geebrAsset||(f=>f))(file), scene);
     const mesh=r.meshes.find(m=>m.getTotalVertices?.()>0);
     if(!mesh) throw new Error('no renderable mesh in '+file);
     mesh.name=name; mesh.parent=null; mesh.setEnabled(true); mesh.isVisible=true; mesh.isPickable=false;
@@ -1000,6 +1000,8 @@
 
   async function buildVegetation(scene){
     const { WORLD } = API;
+    // Medium quality skips the grass tufts/daisies (~360k vertices).
+    if(window.GEEBR_GFX?.quality==='medium') return;
     let tuftProto,daisyProto;
     try{
       [tuftProto,daisyProto]=await Promise.all([

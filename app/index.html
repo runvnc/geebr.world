@@ -253,9 +253,11 @@
     <section class="pane" id="pane-graphics">
       <h2 class="pane-title">Graphics</h2>
       <p class="pane-note">Everything below defaults to the original look. Turning things down trades a little visual fidelity for smoother frames - worth trying if the world feels heavy or you notice audio glitching while things render.</p>
-      <div class="section-subtitle">Light mode</div>
-      <label class="spawn-mode-toggle"><input id="gfxLite" type="checkbox" /> light mode: simple island, no shadows / ambient occlusion / bloom (reloads)</label>
-      <small class="pane-note">Use this if the screen goes black or the tab crashes with the larger model (Gemma 4 E4B): the model and the detailed island may not both fit in GPU memory.</small>
+      <div class="section-subtitle">Quality</div>
+      <div class="custom-grid">
+        <label>Scene <select id="gfxQuality"><option value="high">high (full detail)</option><option value="medium">medium (same look, lighter)</option><option value="light">light (simple island)</option></select></label>
+      </div>
+      <small class="pane-note">Medium keeps the detailed island's plastic look and normal maps with far less geometry, 1k textures and no ambient occlusion. Light is a simple voxel island with no shadows or post effects. Use medium or light if the screen goes black or the tab crashes with the larger model (Gemma 4 E4B). Changing this reloads the page.</small>
       <div class="section-subtitle">While a character is thinking</div>
       <div class="custom-grid">
         <label>Render <select id="gfxThinkFps"><option value="60" selected>full speed (default)</option><option value="15">15 fps</option><option value="5">5 fps</option><option value="0">paused (fastest replies)</option></select></label>
@@ -331,6 +333,6 @@
     </div>
   </div>
   <div id="hint">Pick a character (Character panel) to shape its mind, chat below, then start the local brain from the top bar.</div>
-  <script src="preflight.js?v=20261012m"></script>
+  <script src="preflight.js?v=20261012o"></script>
 </body>
 </html>

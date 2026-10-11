@@ -37,9 +37,9 @@
     ['tts/tts-ui.js?v=20260824a'],
     ['look.js?v=20260823t'],
     ['perf-monitor.js?v=20260823x'],
-    ['graphics-settings.js?v=20261012a'],
-    ['terrain-hd.js?v=20261011a'],
-    ['app.js?v=20261012j'],
+    ['graphics-settings.js?v=20261012c'],
+    ['terrain-hd.js?v=20261012b'],
+    ['app.js?v=20261012k'],
     ['scenario.js?v=20261012c'],
     ['llm_js/world-integration.js?v=20261012b', 'module'],
   ];

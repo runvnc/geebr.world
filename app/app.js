@@ -1076,7 +1076,7 @@ function makeCrate(scene,x,z){
   m.position.set(x,(state.terrainTopY??0)+.36,z); m.isVisible=false;
   addToScene(m,state.materials.wood,{shape:'BOX',mass:1.4,restitution:.12});
   tag(m,'crate',{health:2,material:'wood',flammable:true}); state.props.push(m);
-  BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', 'crate.glb', scene).then(result=>{
+  BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', (window.geebrAsset||(f=>f))('crate.glb'), scene).then(result=>{
     const root=new BABYLON.TransformNode('crate_visual_root',scene); root.parent=m;
     const meshes=result.meshes.filter(q=>q.getTotalVertices?.()>0);
     if(!meshes.length) throw new Error('crate.glb contains no renderable mesh');
@@ -1097,7 +1097,7 @@ function makeBarrel(scene,x,z){
   b.position.set(x,(state.terrainTopY??0)+.39,z); b.rotation.z=Math.random()*.08; b.isVisible=false;
   addToScene(b,state.materials.wood,{shape:'CYLINDER',mass:1.1,restitution:.22,friction:.55});
   tag(b,'barrel',{health:2,material:'wood',flammable:true}); state.props.push(b);
-  BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', 'barrel.glb', scene).then(result=>{
+  BABYLON.SceneLoader.ImportMeshAsync('', './assets/models/props/gen/', (window.geebrAsset||(f=>f))('barrel.glb'), scene).then(result=>{
     const root=new BABYLON.TransformNode('barrel_visual_root',scene); root.parent=b;
     const meshes=result.meshes.filter(q=>q.getTotalVertices?.()>0);
     if(!meshes.length) throw new Error('barrel.glb contains no renderable mesh');
@@ -3538,7 +3538,8 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
     // Ambient occlusion is what makes the reference read as sculpted clay
     // rather than flat colour. Neither the imported GLBs (Tripo bakes a pure
     // white AO channel) nor the procedural terrain carried any before this.
-    state.ssao=LOOK()?.setupSSAO(scene,camera,{radius:.62,strength:3.1,samples:20,maxZ:60});
+    // Medium quality: no SSAO (several full-screen render targets).
+    if(window.GEEBR_GFX?.quality!=='medium') state.ssao=LOOK()?.setupSSAO(scene,camera,{radius:.62,strength:3.1,samples:20,maxZ:60});
     const gl=new BABYLON.GlowLayer('hd_glow',scene,{ mainTextureFixedSize:512, blurKernelSize:44 });
     gl.intensity=.38;
     state.glowLayer=gl;

@@ -31,7 +31,24 @@
   // terrain-hd.js/app.js) so the very first frame already honors any
   // previously saved settings instead of flashing the defaults first.
   const settings = load();
+  // Quality: 'high' (full detail), 'medium' (HD look, far less geometry and
+  // 1k textures, no SSAO), 'light' (simple voxel island). The old lite flag
+  // maps onto it; settings.lite stays in sync for code that reads it.
+  if (!['high', 'medium', 'light'].includes(settings.quality)) settings.quality = settings.lite ? 'light' : 'high';
+  settings.lite = settings.quality === 'light';
   window.GEEBR_GFX = settings;
+  // Generated models ship with four 4096px textures each (~360 MB of GPU
+  // memory per model with mipmaps). Medium/light load the .1k.glb copies
+  // (textures 1024px; geometry and materials identical).
+  const HAS_1K = new Set(['barrel.glb', 'blade_cluster.glb', 'crate.glb', 'daisy_clump.glb', 'house.glb', 'rock_boulder3.glb', 'tree.glb',
+    'cliff_rock_a.glb', 'cliff_rock_b.glb', 'cliff_straight_a.glb', 'cliff_straight_b.glb', 'grass_v7_orm.glb']);
+  // Medium also has geometry-simplified copies (meshoptimizer) of the two
+  // models that dominate the vertex count: the grass tile (4368 -> 859 verts,
+  // x~120 tiles) and the tree.
+  const HAS_MED = new Set(['grass_v7_orm.glb', 'tree.glb']);
+  window.geebrAsset = file => settings.quality === 'high' ? file
+    : (settings.quality === 'medium' && HAS_MED.has(file)) ? file.replace(/\.glb$/, '.med.glb')
+    : HAS_1K.has(file) ? file.replace(/\.glb$/, '.1k.glb') : file;
 
   function applyShadow(gen, enabled, every) {
     if (!gen) return;
@@ -59,10 +76,10 @@
     const fireEn = el('gfxCampfireShadowEnabled'), fireEv = el('gfxCampfireShadowEvery');
     const waveEn = el('gfxSeaWaveEnabled'), foamEn = el('gfxSeaFoamEnabled');
     const resetBtn = el('gfxResetDefaults');
-    const liteEn = el('gfxLite');
-    if (liteEn) {
-      liteEn.checked = !!settings.lite;
-      liteEn.addEventListener('change', () => { settings.lite = liteEn.checked; save(); location.reload(); });
+    const qualitySel = el('gfxQuality');
+    if (qualitySel) {
+      qualitySel.value = settings.quality;
+      qualitySel.addEventListener('change', () => { settings.quality = qualitySel.value; settings.lite = settings.quality === 'light'; save(); location.reload(); });
     }
     if (!keyEn) return; // markup not present in this build; skip silently
 
