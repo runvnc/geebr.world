@@ -12,6 +12,8 @@
   Chrome profile driven over the DevTools protocol with the real WebGPU model
   (`launch-chrome.sh`, `wait-ready.sh`, `eval.mjs`, `runtests.mjs`).
   Headless/snap Chromium does not work in Claude's sandbox; Google Chrome does.
+  Use `?art=1` (no model) for visual checks, never approve model downloads in
+  tests, and run `node close.mjs` when done (the user needs the GPU memory).
 - Scenario system (format, map language, layout, goals, links, tactic tester):
   `docs/SCENARIOS.md`.
 - LiteRT-LM's web engine has a single KV cache: only one conversation may be

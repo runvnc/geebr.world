@@ -43,6 +43,9 @@ node eval.mjs "llm('Say hi', {raw:true, silent:true})"
 
 ## Notes
 
+- When done, `node close.mjs` closes the test Chrome (it holds GPU memory the
+  user's own tab needs).
+
 - `?norender=1` skips the 3D render loop so the model gets the GPU; walks snap
   to their destination at turn end, goals/inventory/sell work normally.
 - Repeat runs are near-identical at low chaos (temperature 0.3). Raise a

@@ -959,6 +959,27 @@ function makeBlock(scene,x,z,cracked=false){
 }
 let wallRebuildQueued=false;
 function scheduleWallRebuild(){ if(wallRebuildQueued) return; wallRebuildQueued=true; queueMicrotask(()=>{ wallRebuildQueued=false; try{ rebuildWallVisuals(); }catch(e){ console.warn('wall rebuild failed',e); } }); }
+// Normal map for one box face (UV2 0..1 per face): flat centre, edges
+// rounding away over the outer 16%, so each stone has the soft rounded edges
+// of a moulded plastic piece. dirSign/greenSign flip the convention if needed.
+function bevelNormalTexture(sc){
+  const N=128, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const g=cv.getContext('2d'), img=g.createImageData(N,N), B=.16;
+  const ramp=t=>{ if(t>=B) return 0; const k=1-t/B; return k*k; };   // 0 inside, ->1 at the edge
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const u=(x+.5)/N, v=(y+.5)/N;
+    // tilt toward the nearer edge: -x near u=0, +x near u=1 (convex bevel)
+    // (y sign checked against the scene: lit-from-above top edges must brighten)
+    const nx=ramp(1-u)-ramp(u), ny=ramp(1-v)-ramp(v);
+    const nz=Math.sqrt(Math.max(.05,1-nx*nx*.7-ny*ny*.7)), l=Math.hypot(nx*.85,ny*.85,nz);
+    const i=(y*N+x)*4;
+    img.data[i]=(nx*.85/l*.5+.5)*255; img.data[i+1]=(ny*.85/l*.5+.5)*255; img.data[i+2]=(nz/l*.5+.5)*255; img.data[i+3]=255;
+  }
+  g.putImageData(img,0,0);
+  const t=new BABYLON.DynamicTexture('tt_bevel_normal',cv,sc,true); t.update(); t.coordinatesIndex=1;
+  t.wrapU=t.wrapV=BABYLON.Texture.CLAMP_ADDRESSMODE;
+  return t;
+}
 function wallMaterials(){
   if(state.wallMats) return state.wallMats;
   const sc=state.scene;
@@ -969,8 +990,10 @@ function wallMaterials(){
   // Same glossy "plastic miniature" finish as the grass tiles (roughness .24,
   // environment .85, specular .5) plus the shared clay detail; the mortar
   // core stays matte so the stones pop.
-  const plastic=m=>{ m.roughness=.26; m.environmentIntensity=.85; m.specularIntensity=.5; return applyClayLook(m,sc,{detail:.06,detailScale:4}); };
+  const plastic=m=>{ m.roughness=.3; m.environmentIntensity=.85; m.specularIntensity=.5; plasticFinish(m,{coat:.7,coatRough:.08}); return applyClayLook(m,sc,{detail:.06,detailScale:4}); };
   const stones=plastic(mk('tt_wall_stones',null,new BABYLON.Color3(1,1,1),.26));
+  // rounded-edge stones: the bevel normal map on UV2 (detail map stays on UV1)
+  stones.bumpTexture=bevelNormalTexture(sc); stones.bumpTexture.level=1;
   state.wallMats={ stones, core:mk('tt_wall_core',null,new BABYLON.Color3(1,1,1),.9),
     trim:plastic(mk('tt_wall_trim',null,new BABYLON.Color3(1,1,1),.26)), cap:plastic(mk('tt_wall_cap',null,new BABYLON.Color3(1,1,1),.26)) };
   return state.wallMats;
@@ -979,7 +1002,7 @@ function wallMaterials(){
 // CreateBox calls + MergeMeshes would be slow). Per-vertex colour lets every
 // stone have its own shade; UVs are scaled by size so the grain doesn't stretch.
 function boxBatch(){
-  const P=[],N=[],U=[],C=[],I=[];
+  const P=[],N=[],U=[],U2=[],C=[],I=[];
   const faces=[[[1,0,0],[0,0,-1],[0,1,0]],[[-1,0,0],[0,0,1],[0,1,0]],[[0,1,0],[1,0,0],[0,0,-1]],[[0,-1,0],[1,0,0],[0,0,1]],[[0,0,1],[1,0,0],[0,1,0]],[[0,0,-1],[-1,0,0],[0,1,0]]];
   return {
     add(cx,cy,cz,sx,sy,sz,col){
@@ -990,7 +1013,7 @@ function boxBatch(){
         const sv=Math.abs(v[0])*size[0]+Math.abs(v[1])*size[1]+Math.abs(v[2])*size[2];
         for(const [a,c] of [[-1,-1],[1,-1],[1,1],[-1,1]]){
           P.push(cx+(n[0]+u[0]*a+v[0]*c)*h[0], cy+(n[1]+u[1]*a+v[1]*c)*h[1], cz+(n[2]+u[2]*a+v[2]*c)*h[2]);
-          N.push(n[0],n[1],n[2]); U.push((a+1)/2*su*1.6,(c+1)/2*sv*1.6); C.push(col[0],col[1],col[2],1);
+          N.push(n[0],n[1],n[2]); U.push((a+1)/2*su*1.6,(c+1)/2*sv*1.6); U2.push((a+1)/2,(c+1)/2); C.push(col[0],col[1],col[2],1);
         }
         I.push(base,base+2,base+1,base,base+3,base+2);
       }
@@ -998,7 +1021,7 @@ function boxBatch(){
     mesh(name,sc){
       if(!P.length) return null;
       const m=new BABYLON.Mesh(name,sc), vd=new BABYLON.VertexData();
-      vd.positions=P; vd.normals=N; vd.uvs=U; vd.colors=C; vd.indices=I; vd.applyToMesh(m);
+      vd.positions=P; vd.normals=N; vd.uvs=U; vd.uvs2=U2; vd.colors=C; vd.indices=I; vd.applyToMesh(m);
       return m;
     }
   };
@@ -1020,7 +1043,9 @@ function rebuildWallVisuals(){
   const T=.18, H=WALL_H-.08, Y0=top+.07, ROWS=5, RH=H/ROWS, BL=.3, GAP=.022;
   const shade=(st,r)=>{ // stone colour by wall state
     if(st==='burned') { const v=.18+r*.08; return [v+.02,v,v-.01]; }
-    const v=.74+r*.18, warm=(r-.5)*.05; return st==='cracked' ? [v*.9+warm,v*.88,v*.84-warm] : [v+warm,v,v-.02-warm];
+    // Mid grey, not near-white: a glossy highlight needs a darker base to read
+    // as plastic (near-white stones just looked chalky).
+    const v=.32+r*.13, warm=(r-.5)*.04; return st==='cracked' ? [v*.9+warm,v*.88,v*.84-warm] : [v+warm,v,v-.02-warm];
   };
   for(const [k,w] of cell){
     const [x,z]=k.split(',').map(Number), st=meta(w).state;
@@ -1052,7 +1077,7 @@ function rebuildWallVisuals(){
         }
       }
       put(trim,(a0+a1)/2,top+.035,a1-a0,.07,T+.14,[.30,.29,.28]);
-      put(cap,(a0+a1)/2,Y0+H+.025,a1-a0,.05,T+.08,[.62,.60,.57]);
+      put(cap,(a0+a1)/2,Y0+H+.025,a1-a0,.05,T+.08,[.40,.38,.36]);
     }
     if(postHalf){
       // a stacked block column where the wall turns or branches
@@ -1062,7 +1087,7 @@ function rebuildWallVisuals(){
         if(!(st==='cracked' && rnd<.18)) stones.add(x,Y0+r*RH+RH/2,z,s,RH-GAP,s,shade(st,rnd));
       }
       trim.add(x,top+.035,z,T+.16,.07,T+.16,[.30,.29,.28]);
-      cap.add(x,Y0+H+.025,z,T+.1,.05,T+.1,[.62,.60,.57]);
+      cap.add(x,Y0+H+.025,z,T+.1,.05,T+.1,[.40,.38,.36]);
     }
   }
   for(const [name,batch,mat] of [['stones',stones,mats.stones],['core',core,mats.core],['trim',trim,mats.trim],['cap',cap,mats.cap]]){
@@ -1090,6 +1115,7 @@ function makeCrate(scene,x,z){
     root.scaling.setAll(scale); root.position.copyFrom(min.add(max).scale(-.5*scale));
     for(const q of result.meshes){ q.parent=root; q.metadata={proxy:m}; q.isPickable=true; q.receiveShadows=true; addShadow(q); }
     applyClayLookToMeshes(result.meshes,scene,{detail:.11,detailScale:5});
+    for(const q of result.meshes) if(q.material) plasticFinish(q.material,{coat:.5,coatRough:.14});
     m.metadata.asset='crate.glb';
   }).catch(err=>{ console.warn('failed to load crate visual',err); m.isVisible=true; });
   return m;
@@ -1110,6 +1136,7 @@ function makeBarrel(scene,x,z){
     root.scaling.setAll(scale); root.position.copyFrom(min.add(max).scale(-.5*scale));
     for(const q of result.meshes){ q.parent=root; q.metadata={proxy:b}; q.isPickable=true; q.receiveShadows=true; addShadow(q); }
     applyClayLookToMeshes(result.meshes,scene,{detail:.11,detailScale:5}); b.metadata.asset='barrel.glb';
+    for(const q of result.meshes) if(q.material) plasticFinish(q.material,{coat:.5,coatRough:.14});
   }).catch(err=>{ console.warn('failed to load barrel visual',err); b.isVisible=true; });
   return b;
 }
@@ -1437,7 +1464,9 @@ async function importPropAsset(scene,file,opts={}){
       addShadow(mesh);
       if(mesh.material){
         mesh.material.backFaceCulling=false;
-        if('roughness' in mesh.material) mesh.material.roughness=Math.max(mesh.material.roughness||0,.74);
+        // Glossy plastic like the rest of the diorama (was forced matte, >= .74).
+        if('roughness' in mesh.material) mesh.material.roughness=.42;
+        plasticFinish(mesh.material,{coat:.55,coatRough:.12});
       }
     }
     proxy.metadata.asset=file;
@@ -2555,6 +2584,16 @@ async function spawnAt(type, x, z) {
   saveWorldState();
   return obj;
 }
+// Toy-plastic finish: a glossy clear coat over the base material. This is
+// what reads as "plastic miniature" on flat surfaces (the grass gets its
+// sheen from its normal map; blocks and props have none).
+function plasticFinish(m,{coat=.6,coatRough=.1,rough=null}={}){
+  if(!(m instanceof BABYLON.PBRMaterial)) return m;
+  if(rough!==null) m.roughness=rough;
+  m.clearCoat.isEnabled=true; m.clearCoat.intensity=coat; m.clearCoat.roughness=coatRough;
+  m.environmentIntensity=Math.max(m.environmentIntensity||0,.85);
+  return m;
+}
 // Dispose a material and its own textures, but not textures shared across
 // materials: look.js gives every clay material the same detail-normal
 // texture, and disposing it with one object stripped it from all the others.
@@ -2581,6 +2620,9 @@ async function spawnPlayerAvatar(x=0,z=3,facing='n',model){
     catch(e){ console.warn('KayKit avatar failed, using a geebr body',e); }
   }
   if(!g){ g=await createGeneratedGeebr(state.scene,'player',pos); model='geebr'; }
+  // createKayKitGeebr turns the model half a turn (for an older convention),
+  // which made the avatar walk backwards: face it the way it moves.
+  else if(g.rigRoot) g.rigRoot.rotation.y=0;
   state.geebrs=state.geebrs.filter(o=>o!==g);
   g.isPlayer=true; g.avatarModel=model; state.playerAvatar=g; state.avatarModel=model;
   setGeebrLogicalPosition(g,new BABYLON.Vector3(x,0,z));
