@@ -228,7 +228,9 @@ function cloneAnimGroupsForRig(root,id){
   const targetMap=descendantsByName(root);
   const out={};
   for(const g of src){
-    try{ const cloned=g.clone(id+'_'+g.name, oldTarget => targetMap.get(oldTarget.name) || null); if(cloned){ cloned.stop(); out[g.name]=cloned; } }
+    // Some source clips share a name; the later one wins, so free the one it
+    // replaces (it used to leak 7 animation groups per character spawn).
+    try{ const cloned=g.clone(id+'_'+g.name, oldTarget => targetMap.get(oldTarget.name) || null); if(cloned){ cloned.stop(); if(out[g.name]) out[g.name].dispose(); out[g.name]=cloned; } }
     catch(e){ /* some target types may not map cleanly; skip */ }
   }
   return out;
@@ -534,7 +536,9 @@ async function createKayKitGeebr(scene,id,pos,file,label){
   collider.position.copyFrom(root.position); collider.position.y+=.68; collider.isVisible=false; collider.metadata={ownerId:id};
   const agg=addBody(collider,'dynamic','BOX',1.25,{friction:.92,restitution:.02});
   agg?.body?.setMotionType?.(BABYLON.PhysicsMotionType.ANIMATED);
-  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:label,traits:{fireball:78,obedience:48},rigged:true,rigRoot:importedRoot,rigAnims:cloneAnimGroupsForRig(root,id),rigMode:null,activeRigAnim:null,cosmetic:{},logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
+  const rigAnimsK=cloneAnimGroupsForRig(root,id);
+  const geebr={id,root,collider,agg,selected:false,anim:'idle',t:Math.random()*10,dir:new BABYLON.Vector3(0,0,-1),style:label,traits:{fireball:78,obedience:48},rigged:true,rigRoot:importedRoot,rigAnims:rigAnimsK,
+    owned:{meshes:[...res.meshes],skeletons:[...(res.skeletons||[])],groups:[...(res.animationGroups||[]),...Object.values(rigAnimsK)]},rigMode:null,activeRigAnim:null,cosmetic:{},logicalPos:new BABYLON.Vector3(pos.x,0,pos.z)};
   playRig(geebr,'idle',true);
   state.geebrs.push(geebr);
   const animCount=Object.keys(geebr.rigAnims||{}).length;
@@ -2242,6 +2246,14 @@ function buildVisiblePerception(agentId=null,radius=7){
     const isSelf=other===g; put(x,z,isSelf?'@':'g', other.anim==='panic'?'?':'', 90);
     if(!isSelf) details.push({d:Math.hypot(x-cx,z-cz), text:`${other.id} other_geebr at (${x},${z}), anim=${other.anim||'idle'}`});
   }
+  if(state.playerAvatar){
+    const p=state.playerAvatar.root.position, x=Math.round(p.x), z=Math.round(p.z);
+    if(cells.has(gridKey(x,z)) && sees(x,z)){
+      put(x,z,'Y','',85);
+      details.push({d:Math.hypot(x-cx,z-cz), text:`${playerName()} (the player, the person talking to you) at (${x},${z})`});
+      state.perceptionLabels.set('player',state.playerAvatar.root); state.perceptionLabels.set(playerName().toLowerCase(),state.playerAvatar.root);
+    }
+  }
   const rows=[];
   const mapCols=B.x1-B.x0+1, mapRows=B.z1-B.z0+1, mapWidth=mapCols*2;
   for(let z=B.z0; z<=B.z1; z++){
@@ -2270,7 +2282,7 @@ function buildVisiblePerception(agentId=null,radius=7){
   const visibleGlyphs = new Set();
   for (const [key, c] of cells) { if (c.visible && c.base && c.base !== ' ') visibleGlyphs.add(c.base); }
   const glyphNames = {
-    '@':'self', 'g':'other geebr', ',':'grass', ':':'dirt/path', '~':'water',
+    '@':'self', 'g':'other geebr', 'Y':'the player', ',':'grass', ':':'dirt/path', '~':'water',
     '^':'stone', '#':'wall', '_':'wooden floor', '.':'sand', '&':'lava', '=':'bridge', 'C':'crate', 'B':'barrel', 'M':'mushroom',
     'L':'lamp', '*':'crystal/magic', 'H':'house', 'r':'rock', 'x':'rubble',
     'f':'fence', 'h':'chest', 'w':'workbench', 't':'table', 'n':'bench',
@@ -2541,6 +2553,143 @@ function disposeOwnMaterial(m){
   try{ if(m.detailMap) m.detailMap.texture=null; }catch{}
   try{ m.dispose(false,true); }catch{}
 }
+// ---- the player's avatar ----
+// A geebr-shaped body for the person at the keyboard: gold tint and a gold
+// ring, no brain. It is kept out of state.geebrs (so it never takes LLM
+// turns) but other characters see it in their perception as the player.
+// Moves with WASD/arrows (screen-relative; in first person W/S walk, A/D
+// turn) or by clicking the ground (pathfinding). V toggles first person.
+// Player body: a KayKit adventurer by default, so it's clearly not a geebr.
+const AVATAR_MODELS={rogue:'Rogue_Hooded.glb',knight:'Knight.glb',mage:'Mage.glb',ranger:'Ranger.glb',barbarian:'Barbarian.glb'};
+async function spawnPlayerAvatar(x=0,z=3,facing='n',model){
+  removePlayerAvatar();
+  model=model||state.avatarModel||'rogue';
+  const pos=new BABYLON.Vector3(x,(state.terrainTopY??0),z);
+  let g=null;
+  if(AVATAR_MODELS[model]){
+    try{ await initKayKitAnimationSources(state.scene); g=await createKayKitGeebr(state.scene,'player',pos,AVATAR_MODELS[model],'player'); }
+    catch(e){ console.warn('KayKit avatar failed, using a geebr body',e); }
+  }
+  if(!g){ g=await createGeneratedGeebr(state.scene,'player',pos); model='geebr'; }
+  state.geebrs=state.geebrs.filter(o=>o!==g);
+  g.isPlayer=true; g.avatarModel=model; state.playerAvatar=g; state.avatarModel=model;
+  setGeebrLogicalPosition(g,new BABYLON.Vector3(x,0,z));
+  const d=FACING_DIRS[String(facing||'n')[0]]||FACING_DIRS.n; setGeebrFacing(g,new BABYLON.Vector3(...d));
+  for(const m of g.rigRoot?.getChildMeshes?.(false)||[]){
+    m.metadata={...(m.metadata||{}),ownerId:'player'};
+    if(model==='geebr' && m.material?.albedoColor) m.material.albedoColor=new BABYLON.Color3(.98,.74,.40);
+  }
+  // eye height for first person, from the model's real size
+  g.root.computeWorldMatrix(true);
+  const bb=g.root.getHierarchyBoundingVectors(true,m=>m.isEnabled() && (m.getTotalVertices?.()||0)>0 && !/collider/.test(m.name));
+  // Normalise height: KayKit's scale suits an older, bigger world (the rogue
+  // came out ~2.8 tall next to ~1.0 geebrs). Player: 1.3, a head taller.
+  const PLAYER_H=1.3, h0=Math.max(.2,bb.max.y-g.root.position.y);
+  if(model!=='geebr') g.root.scaling.scaleInPlace(PLAYER_H/h0);
+  g.eyeHeight=(model!=='geebr'?PLAYER_H:h0)*.88;
+  const ring=BABYLON.MeshBuilder.CreateTorus('player_ring',{diameter:.95,thickness:.045,tessellation:40},state.scene);
+  const rm=new BABYLON.StandardMaterial('player_ring_mat',state.scene); rm.emissiveColor=new BABYLON.Color3(1,.75,.25); rm.disableLighting=true; rm.alpha=.85;
+  ring.material=rm; ring.isPickable=false; ring.parent=g.root; ring.position.y=.04/(g.root.scaling.y||1);
+  g.playerRing=ring;
+  updateFirstPersonButton(); updatePerceptionUI();
+  return g;
+}
+function removePlayerAvatar(){
+  const g=state.playerAvatar; if(!g) return;
+  if(state.firstPerson) setFirstPerson(false);
+  try{ g.playerRing?.material?.dispose(); g.playerRing?.dispose(); }catch{}
+  disposeGeebr(g); state.playerAvatar=null; updateFirstPersonButton();
+}
+// One cell in a direction, unless blocked or off the edge (no accidental falls).
+function playerStep(dir){
+  const g=state.playerAvatar; if(!g || g.turnMove || g.falling) return false;
+  setGeebrFacing(g,dir);
+  const lp=g.logicalPos||g.root.position, nx=Math.round(lp.x+dir.x), nz=Math.round(lp.z+dir.z);
+  if(isBlocked(nx,nz) || !hasGroundAt(nx,nz)) { emitBadge(g,'bonk'); return false; }
+  startTurnMove(g,dir,Math.hypot(nx-lp.x,nz-lp.z)); g.anim='walk'; playRig(g,'walk',true);
+  setTimeout(()=>{ if(g.anim==='walk'){ g.anim='idle'; playRig(g,'idle',true); } },g.turnMove.dur*1000+60);
+  state.followAvatar=true;
+  return true;
+}
+// Screen-relative cardinal direction: the camera's forward/right snapped to the grid.
+function cameraCardinal(which){
+  const cam=state.scene.activeCamera, f=cam.getForwardRay?cam.getForwardRay().direction:cam.getDirection(BABYLON.Axis.Z);
+  let v=new BABYLON.Vector3(f.x,0,f.z); if(which==='right') v=new BABYLON.Vector3(-f.z,0,f.x); if(which==='back') v=v.scale(-1); if(which==='left') v=new BABYLON.Vector3(f.z,0,-f.x);
+  return Math.abs(v.x)>Math.abs(v.z) ? new BABYLON.Vector3(Math.sign(v.x),0,0) : new BABYLON.Vector3(0,0,Math.sign(v.z));
+}
+function turnPlayer(sign){ const g=state.playerAvatar; if(!g || g.turnMove) return; const d=g.dir; setGeebrFacing(g,new BABYLON.Vector3(-d.z*sign,0,d.x*sign)); }
+function setupPlayerControls(){
+  window.addEventListener('keydown',e=>{
+    const g=state.playerAvatar; if(!g) return;
+    const tag=(e.target?.tagName||'').toLowerCase();
+    if(tag==='input'||tag==='textarea'||tag==='select'||e.target?.isContentEditable||e.ctrlKey||e.metaKey||e.altKey) return;
+    const k=e.key.toLowerCase();
+    if(k==='v'){ setFirstPerson(!state.firstPerson); e.preventDefault(); return; }
+    const map={w:'fwd',arrowup:'fwd',s:'back',arrowdown:'back',a:'left',arrowleft:'left',d:'right',arrowright:'right'};
+    const act=map[k]; if(!act) return;
+    e.preventDefault();
+    if(state.firstPerson){
+      if(act==='left') return turnPlayer(1);
+      if(act==='right') return turnPlayer(-1);
+      return playerStep(act==='fwd'?g.dir.clone():g.dir.scale(-1));
+    }
+    playerStep(cameraCardinal(act==='fwd'?'fwd':act));
+  });
+}
+// ---- first-person view ----
+let fpCam=null;
+function setFirstPerson(on){
+  const sc=state.scene, g=state.playerAvatar; if(!sc) return;
+  if(on && !g) return;
+  state.firstPerson=!!on;
+  if(on){
+    if(!fpCam){
+      fpCam=new BABYLON.UniversalCamera('fp_cam',new BABYLON.Vector3(0,1,0),sc);
+      fpCam.minZ=.05; fpCam.maxZ=600; fpCam.fov=1.0; fpCam.inputs.clear();
+      // spatial audio and bubbles read camera.target
+      Object.defineProperty(fpCam,'target',{get:()=>fpCam.getTarget(),configurable:true});
+    }
+    fpCam.rotation.set(.08,Math.atan2(g.dir.x,g.dir.z),0);
+    // The post-process pipelines (bloom/grading, SSAO) are attached to the
+    // overview camera and kept drawing its view; move them over.
+    const mgr=sc.postProcessRenderPipelineManager;
+    for(const name of Object.keys(mgr?._renderPipelines||{})){ try{ mgr.detachCamerasFromRenderPipeline(name,state.camera); mgr.attachCamerasToRenderPipeline(name,fpCam); }catch(e){ console.warn('pipeline switch',name,e); } }
+    sc.activeCamera=fpCam;
+    g.rigRoot?.setEnabled(false); if(g.playerRing) g.playerRing.setEnabled(false);
+  } else {
+    const mgr=sc.postProcessRenderPipelineManager;
+    if(fpCam) for(const name of Object.keys(mgr?._renderPipelines||{})){ try{ mgr.detachCamerasFromRenderPipeline(name,fpCam); mgr.attachCamerasToRenderPipeline(name,state.camera); }catch(e){ console.warn('pipeline switch',name,e); } }
+    sc.activeCamera=state.camera;
+    if(g){ g.rigRoot?.setEnabled(true); g.playerRing?.setEnabled(true); }
+  }
+  updateFirstPersonButton();
+}
+function updateFirstPersonView(dt){
+  const g=state.playerAvatar; if(!state.firstPerson || !g || !fpCam) return;
+  const s=g.root.scaling.y||.87, p=g.root.position;
+  fpCam.position.set(p.x,p.y+(g.eyeHeight||.92*s/.87),p.z);
+  const want=Math.atan2(g.dir.x,g.dir.z); let d=want-fpCam.rotation.y; d=Math.atan2(Math.sin(d),Math.cos(d));
+  fpCam.rotation.y+=d*Math.min(1,dt*10);
+}
+function updateFirstPersonButton(){
+  const b=document.getElementById('firstPersonBtn'); if(!b) return;
+  b.hidden=!state.playerAvatar; b.classList.toggle('active',!!state.firstPerson);
+  b.title=state.firstPerson?'back to the overview (V)':'see through your avatar\'s eyes (V)';
+  b.querySelector('span')&&(b.querySelector('span').textContent=state.firstPerson?'overview':'first person');
+}
+// Player chat appears as a bubble over the avatar (no voice, no history).
+window.addEventListener('geebr-player-chat',e=>{
+  const g=state.playerAvatar; if(!g) return;
+  const div=document.createElement('div'); div.className='bubble player-bubble'; div.textContent=String(e.detail?.text||'').slice(0,86);
+  document.body.appendChild(div); state.bubbles.push({div,node:g.root,ttl:3.2});
+});
+// After the player moves with the keys, ease the overview camera after the avatar.
+function followAvatarCamera(dt){
+  const g=state.playerAvatar, cam=state.camera; if(!g || !cam || state.firstPerson || !state.followAvatar) return;
+  const want=new BABYLON.Vector3(g.root.position.x,.6,g.root.position.z);
+  cam.target=BABYLON.Vector3.Lerp(cam.target,want,Math.min(1,dt*3));
+  if(BABYLON.Vector3.Distance(cam.target,want)<.02 && !g.turnMove) state.followAvatar=false;
+}
 // Free a character and everything it imported (meshes, their own materials
 // and textures, skeletons, animation groups, the kept walk-clip source).
 function disposeGeebr(g){
@@ -2559,6 +2708,7 @@ function disposeGeebr(g){
 function clearWorld() {
   window.dispatchEvent(new CustomEvent('geebr:clear-conversations'));
   for (const g of state.geebrs) disposeGeebr(g);
+  removePlayerAvatar();
   // Clean up character-local lights left by saves/scenes created by versions
   // before v14.6. TransformNode.dispose() does not dispose light children.
   for(const light of state.scene?.lights?.slice?.()||[]){
@@ -2623,6 +2773,7 @@ function saveWorldState() {
       }),
       brainConfigs: Array.from(state.brainConfigs.entries()),
       player: state.player,
+      playerAvatar: state.playerAvatar ? { model: state.playerAvatar.avatarModel, x: state.playerAvatar.logicalPos?.x ?? state.playerAvatar.root.position.x, z: state.playerAvatar.logicalPos?.z ?? state.playerAvatar.root.position.z, dx: state.playerAvatar.dir.x, dz: state.playerAvatar.dir.z } : null,
       paint: state.paint ? [...state.paint].map(([k,v])=>[...k.split(',').map(Number),v.mat,v.tint||null]) : [],
       baseMap: state.baseMap||'island', campfire: state.campfire!==false,
       wallStyle: state.wallStyle||'tabletop',
@@ -2710,6 +2861,8 @@ async function restoreWorldState(input) {
   state.nextSpawnId=data.nextSpawnId||(state.geebrs.length+1);
   state.globalHistory=data.globalHistory||[];
   state.turn.index=data.turnIndex||0;
+  if(data.playerAvatar){ const a=data.playerAvatar; await spawnPlayerAvatar(a.x,a.z, Math.abs(a.dz||0)>=Math.abs(a.dx||0) ? ((a.dz||-1)<0?'n':'s') : ((a.dx||0)<0?'e':'w'), a.model); }
+  const avCb=document.getElementById('avatarToggle'); if(avCb) avCb.checked=!!state.playerAvatar;
   renderPlayerInventory();
   const bms=document.getElementById('baseMapSelect'); if(bms) bms.value=state.baseMap||'island';
   const wss=document.getElementById('wallStyleSelect'); if(wss) wss.value=state.wallStyle||'tabletop';
@@ -2744,7 +2897,8 @@ function installWorldAPI(){
     setPlayer:p=>{ state.player={gold:Number(p?.gold)||0,items:Array.isArray(p?.items)?p.items.map(i=>({name:String(i.name),qty:i.qty??1})):[]}; const n=document.getElementById('chatName'); if(n && p?.name) n.value=p.name; renderPlayerInventory(); },
     setAllowed:list=>{ state.allowed=new Set(list||[]); updatePerceptionUI(); },
     setPathfinding:on=>{ state.pathfinding=on!==false; }, findRoute,
-    setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setCampfire, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
+    setPaint, paintAt, PAINT_MATERIALS, setBaseMap, setCampfire,
+    spawnPlayerAvatar, removePlayerAvatar, getPlayerAvatar:()=>state.playerAvatar, setFirstPerson, setWallStyle:st=>{ state.wallStyle=st==='block'?'block':'tabletop'; },
     setLighting,
     showThought:(agentId,text,pending=false)=>showThought(state.geebrs.find(x=>x.id===agentId),text,pending),
     clearPendingThought:agentId=>clearPendingThought(state.geebrs.find(x=>x.id===agentId)),
@@ -2826,6 +2980,11 @@ function setupUI(){
   if(thinkSel){ try{ const v=localStorage.getItem('geebrThinkFps'); if(v!==null) thinkSel.value=v; }catch{} thinkSel.onchange=()=>{ try{ localStorage.setItem('geebrThinkFps',thinkSel.value); }catch{} }; }
   const baseMapSel=document.getElementById('baseMapSelect');
   if(baseMapSel){ baseMapSel.value=state.baseMap||'island'; baseMapSel.onchange=()=>{ setBaseMap(baseMapSel.value); updatePerceptionUI(); saveWorldState(); log('base map: '+baseMapSel.value); }; }
+  setupPlayerControls();
+  const avCb=document.getElementById('avatarToggle');
+  if(avCb){ avCb.checked=!!state.playerAvatar; avCb.onchange=async()=>{ if(avCb.checked){ const c=state.camera.target; await spawnPlayerAvatar(Math.round(c.x),Math.round(c.z)+1); } else removePlayerAvatar(); saveWorldState(); }; }
+  const fpBtn=document.getElementById('firstPersonBtn'); if(fpBtn) fpBtn.onclick=()=>setFirstPerson(!state.firstPerson);
+  updateFirstPersonButton();
   const fireCb=document.getElementById('campfireToggle');
   if(fireCb){ fireCb.checked=state.campfire!==false; fireCb.onchange=()=>{ setCampfire(fireCb.checked); updatePerceptionUI(); saveWorldState(); }; }
   const wallSel=document.getElementById('wallStyleSelect');
@@ -2903,7 +3062,7 @@ function updateCompassHUD(){
   const geebrFacing=geebr ? facingNameFromDir(geebr.dir)[0].toUpperCase() : '—';
   compassHud.querySelector('small').textContent='camera '+name+' · geebr '+geebrFacing+' · N=-Z E=-X';
 }
-function animate(dt){ for(const g of state.geebrs){ if(g.falling){ g.t+=dt; updateFall(g,dt); continue; } if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); let p;
+function animate(dt){ updateFirstPersonView(dt); followAvatarCamera(dt); for(const g of (state.playerAvatar?state.geebrs.concat(state.playerAvatar):state.geebrs)){ if(g.falling){ g.t+=dt; updateFall(g,dt); continue; } if(g.turnMove){ g.turnMove.t+=dt/g.turnMove.dur; const u=clamp(g.turnMove.t,0,1); const k=u*u*(3-2*u); let p;
       if(g.turnMove.path){ const pp=pathPoint(g.turnMove,k); p=pp.p; if(pp.dir.lengthSquared()>1e-6) setGeebrFacing(g,legFacing(pp.dir)); } else p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k);
       // Walked off the island: fall instead of hovering over the sea.
       if(!hasGroundAt(p.x,p.z)){ const tm=g.turnMove, len=BABYLON.Vector3.Distance(tm.start,tm.end)||1; g.lastSafePos=tm.start.clone(); startFall(g,tm.end.subtract(tm.start).scale(clamp(len/tm.dur,1.4,3.4)/len)); continue; }
@@ -3289,6 +3448,12 @@ async function main(){ window.GEEBR_STATE=state; const engine=await createEngine
           if(state.spawnMode.enabled){
             Promise.resolve(spawnAt(state.spawnMode.type,tx,tz)).catch(err=>console.error('spawn failed',err));
             return;
+          }
+          // With an avatar, clicking the ground walks it there (clicks on
+          // characters still select them; Alt-click recentres the camera).
+          const av=state.playerAvatar, owner=pick.pickedMesh?.metadata?.ownerId;
+          if(av && !e.altKey && !owner && !av.turnMove && !av.falling){
+            walk(av,{type:'coord',x:tx,z:tz}); state.followAvatar=true; return;
           }
           camera.target=new BABYLON.Vector3(tx,0.6,tz); state.zoomFocus=camera.target.clone();
         }

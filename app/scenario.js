@@ -504,6 +504,7 @@
   function positionsOf(target, ctx) {
     if (Array.isArray(target)) return [[+target[0], +target[1]]];
     const t = String(target).toLowerCase();
+    if (t === 'player') { const av = W().getPlayerAvatar?.(); return av ? [[av.root.position.x, av.root.position.z]] : []; }
     const g = ctx.agents.get(t); if (g) return [[g.root.position.x, g.root.position.z]];
     const a = ctx.anchors[singular(t)]; if (a) return [[a.x, a.z]];
     return ctx.objects.filter(o => o.type === singular(t)).map(o => [o.x, o.z]);
@@ -627,7 +628,13 @@
     // turn 0 (e.g. "get Pip to the campfire" with Pip placed by the fire),
     // re-roll with the next seeds.
     const existing = w.getObjects().map(o => ({ type: o.type, x: o.x, z: o.z }));
-    const spec = { ...scn, existing, map: [...(scn.floor ? ['floor ' + scn.floor] : []), ...scn.map] };
+    // The player's avatar (unless "player": {"avatar": false}) is laid out like
+    // a character called "player"; by default it stands at the south side.
+    const withAvatar = scn.player?.avatar !== false;
+    const playerAgent = withAvatar ? [{ id: 'player', at: Array.isArray(scn.player?.at) ? scn.player.at : undefined }] : [];
+    const placesPlayer = scn.map.some(l => /\bplayer\b/i.test(l));
+    const spec = { ...scn, agents: [...scn.agents, ...playerAgent], existing,
+      map: [...(scn.floor ? ['floor ' + scn.floor] : []), ...scn.map, ...(withAvatar && !placesPlayer && !Array.isArray(scn.player?.at) ? ['place player at south'] : [])] };
     let plan = layout(spec);
     if (scn.goal?.win && !opts.keepSeed) {
       for (let k = 1; k <= 8 && evalCond(scn.goal.win, planContext(scn, plan)); k++) {
@@ -651,6 +658,10 @@
         fireballTemptation: a.fireballTemptation ?? 10, chaos: a.chaos ?? 1,
         inventory: { gold: Math.max(0, +(a.inventory?.gold) || 0), items: (a.inventory?.items || []).map(i => typeof i === 'string' ? { name: i, qty: 1 } : { name: String(i.name), qty: i.qty ?? 1 }) },
       });
+    }
+    if (withAvatar && w.spawnPlayerAvatar) {
+      const pa = Array.isArray(scn.player?.at) ? { x: +scn.player.at[0], z: +scn.player.at[1], facing: scn.player.facing || 'n' } : (plan.agents.player || { x: 0, z: 3, facing: 'n' });
+      await w.spawnPlayerAvatar(pa.x, pa.z, scn.player?.facing || pa.facing, scn.player?.model);
     }
     if (first) w.selectGeebr(first);
     w.inventoryChanged();

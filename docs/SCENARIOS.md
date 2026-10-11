@@ -26,7 +26,7 @@ localStorage key, so playing a scenario never overwrites your sandbox world.
   "pathfinding": true,                                   // false: walks go in straight lines and stop at walls
   "floor": "stone",                                      // optional: paint the whole floor
   "paint": [{ "x": 0, "z": 0, "mat": "water" }],          // optional explicit floor tiles
-  "player": { "name": "Traveller", "gold": 20, "items": [] },
+  "player": { "name": "Traveller", "gold": 20, "items": [] }, // + "avatar": false, "at": [x, z], "model": rogue|knight|mage|ranger|barbarian|geebr
   "allowed": ["say", "sell", "inventory", "emote"],      // command checkboxes
   "agents": [{
     "id": "mog",
@@ -87,8 +87,9 @@ floor <material>
   - `beside X`, `near X`, `behind X`, `in_front_of X`, `around X`
   - arrangements, which can be combined with the above: `row`, `cluster`,
     `scattered`, e.g. `place barrel x4 row against west_wall`
-- **refs** (X): any thing placed earlier, an agent id, or fixed scenery:
-  `house`, `campfire`.
+- **refs** (X): any thing placed earlier, an agent id, `player` (your avatar),
+  or fixed scenery: `house`, `campfire`. `place player ...` positions your
+  avatar (default: at south).
 - Directions follow the game's convention: north = −Z, south = +Z,
   east = −X, west = +X. "Front" of a thing is the side facing the middle of the
   island; "behind" is the side away from it.
