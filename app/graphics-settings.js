@@ -43,11 +43,12 @@
   const HAS_1K = new Set(['barrel.glb', 'blade_cluster.glb', 'crate.glb', 'daisy_clump.glb', 'house.glb', 'rock_boulder3.glb', 'tree.glb',
     'cliff_rock_a.glb', 'cliff_rock_b.glb', 'cliff_straight_a.glb', 'cliff_straight_b.glb', 'grass_v7_orm.glb']);
   // Medium also has geometry-simplified copies (meshoptimizer) of the two
-  // models that dominate the vertex count: the grass tile (4368 -> 859 verts,
-  // x~120 tiles) and the tree.
-  const HAS_MED = new Set(['grass_v7_orm.glb', 'tree.glb']);
+  // models that dominate the vertex count: the grass tile (4368 -> 1946
+  // verts, x~120 tiles; .med2 because the first, too aggressive .med made
+  // the tiles look puffy and browsers cache model files) and the tree.
+  const MED = { 'grass_v7_orm.glb': 'grass_v7_orm.med2.glb', 'tree.glb': 'tree.med.glb' };
   window.geebrAsset = file => settings.quality === 'high' ? file
-    : (settings.quality === 'medium' && HAS_MED.has(file)) ? file.replace(/\.glb$/, '.med.glb')
+    : (settings.quality === 'medium' && MED[file]) ? MED[file]
     : HAS_1K.has(file) ? file.replace(/\.glb$/, '.1k.glb') : file;
 
   function applyShadow(gen, enabled, every) {

@@ -37,7 +37,7 @@
     ['tts/tts-ui.js?v=20260824a'],
     ['look.js?v=20260823t'],
     ['perf-monitor.js?v=20260823x'],
-    ['graphics-settings.js?v=20261012c'],
+    ['graphics-settings.js?v=20261012d'],
     ['terrain-hd.js?v=20261012b'],
     ['app.js?v=20261012l'],
     ['scenario.js?v=20261012d'],
