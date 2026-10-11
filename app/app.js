@@ -261,7 +261,7 @@ function playRig(g,mode,loop=true){
     cheer:['Cheering'],
     sleep:['Lie_Idle','Lie_Down'],
     bow:['Interact','Use_Item']
-  }[mode] || ['Idle_A'];
+  }[g.charModel && mode==='talk' ? 'idle' : mode] || ['Idle_A'];   // people talk without waving
   const ag=pickAnim(g,choices) || pickAnim(g,['Idle_A']);
   if(ag){ ag.start(loop,1.0,ag.from,ag.to,false); g.activeRigAnim=ag; g.rigMode=mode; }
   g._lastRigAnimName = ag ? ag.name : null;
@@ -418,6 +418,47 @@ function updateMouth(g,dt){
   const m=g.mouth, rate=want>m.influence?28:14;   // open fast, close a bit slower
   m.influence+=(want-m.influence)*Math.min(1,rate*dt);
   if(m.influence<.002) m.influence=0;
+  m.apply?.();
+}
+// People (KayKit) have no mouth: add a small dark one on the face, parented
+// to the head bone so it follows every animation. Placed from the face
+// itself, after the first frame (skinned positions need a posed skeleton):
+// the eyes are the vertices on the black palette swatch, the mouth sits
+// below them on the front of the skin.
+function addPersonMouth(g){
+  const sc=state.scene;
+  const head=g.rigRoot?.getChildMeshes(false).find(m=>/_Head$/.test(m.name) && m.skeleton);
+  const bone=head?.skeleton.bones.find(b=>/^head$/i.test(b.name)), node=bone?.getTransformNode();
+  if(!head || !node) return;
+  const P=head.getPositionData(true,true), UV=head.getVerticesData(BABYLON.VertexBuffer.UVKind); if(!P || !UV) return;
+  const wm=head.getWorldMatrix(), pts=[], eyes=[], skin=[];
+  for(let i=0;i<P.length/3;i++){
+    const w=BABYLON.Vector3.TransformCoordinates(new BABYLON.Vector3(P[i*3],P[i*3+1],P[i*3+2]),wm), u=UV[i*2], v=UV[i*2+1];
+    pts.push(w);
+    if(v<.25 && u>=.25 && u<.375) eyes.push(w); else if(v<.25 && u<.125) skin.push(w);
+  }
+  if(eyes.length<4 || skin.length<10) return;
+  const mean=a=>a.reduce((s,p)=>s.addInPlace(p),new BABYLON.Vector3()).scaleInPlace(1/a.length);
+  const hc=mean(pts), ec=mean(eyes);
+  const fwd=new BABYLON.Vector3(ec.x-hc.x,0,ec.z-hc.z).normalize(), side=BABYLON.Vector3.Cross(BABYLON.Axis.Y,fwd).normalize();
+  const lat=p=>BABYLON.Vector3.Dot(p.subtract(ec),side);
+  const sep=Math.max(.01,Math.abs(mean(eyes.filter(p=>lat(p)>0)).subtract(mean(eyes.filter(p=>lat(p)<=0))).length()||.05));
+  const y=ec.y-.52*sep, near=skin.filter(p=>Math.abs(lat(p))<.3*sep && Math.abs(p.y-y)<.2*sep);
+  if(!near.length) return;
+  const front=near.reduce((a,p)=>BABYLON.Vector3.Dot(p,fwd)>BABYLON.Vector3.Dot(a,fwd)?p:a);
+  const pos=new BABYLON.Vector3(ec.x,y,ec.z).addInPlace(fwd.scale(BABYLON.Vector3.Dot(front.subtract(ec),fwd)+.03*sep));
+  if(!state.mouthMat){ const m=new BABYLON.PBRMaterial('person_mouth',sc); m.albedoColor=new BABYLON.Color3(.12,.03,.03); m.roughness=.6; m.metallic=0; m.maxSimultaneousLights=4; state.mouthMat=m; }
+  const mouth=BABYLON.MeshBuilder.CreateSphere(g.id+'_mouth',{diameter:1,segments:10},sc);
+  mouth.material=state.mouthMat; mouth.isPickable=false; mouth.metadata={ownerId:g.id};
+  // orientation and size in world terms, converted into the head bone's space
+  const inv=node.getWorldMatrix().clone().invert(), sc3=new BABYLON.Vector3(); node.getWorldMatrix().decompose(sc3);
+  const toLocalDir=d=>BABYLON.Vector3.TransformNormal(d,inv).normalize();
+  mouth.parent=node; mouth.position=BABYLON.Vector3.TransformCoordinates(pos,inv);
+  mouth.rotationQuaternion=BABYLON.Quaternion.FromLookDirectionLH(toLocalDir(fwd),toLocalDir(BABYLON.Axis.Y));
+  const k=1/(sc3.x||1), W=.42*sep*k, D=.12*sep*k, H0=.05*sep*k, H1=.42*sep*k;
+  mouth.scaling.set(W,H0,D);
+  g.owned?.meshes.push(mouth);
+  g.mouth={influence:0,apply(){ mouth.scaling.y=H0+(H1-H0)*this.influence; }};
 }
 function findHeadNodes(g){
   if(g._headNodes) return g._headNodes;
@@ -2885,6 +2926,7 @@ async function createPerson(id,pos,model,label){
   const bb=g.root.getHierarchyBoundingVectors(true,m=>m.isEnabled() && (m.getTotalVertices?.()||0)>0 && !/collider/.test(m.name));
   g.root.scaling.scaleInPlace(PERSON_H/Math.max(.2,bb.max.y-g.root.position.y));
   g.charModel=model;
+  state.scene.onAfterRenderObservable.addOnce(()=>{ try{ if(!g.root.isDisposed()) addPersonMouth(g); }catch(e){ console.warn('mouth failed',e); } });
   return g;
 }
 async function spawnPlayerAvatar(x=0,z=3,facing='n',model){
@@ -3410,7 +3452,7 @@ function animate(dt){ updateFirstPersonView(dt); followAvatarCamera(dt); for(con
       if(g.turnMove.path){ const pp=pathPoint(g.turnMove,k); p=pp.p; if(pp.dir.lengthSquared()>1e-6) setGeebrFacing(g,legFacing(pp.dir)); } else p=BABYLON.Vector3.Lerp(g.turnMove.start,g.turnMove.end,k);
       // Walked off the island: fall instead of hovering over the sea.
       if(!hasGroundAt(p.x,p.z)){ const tm=g.turnMove, len=BABYLON.Vector3.Distance(tm.start,tm.end)||1; g.lastSafePos=tm.start.clone(); startFall(g,tm.end.subtract(tm.start).scale(clamp(len/tm.dur,1.4,3.4)/len)); continue; }
-      g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.mouth) updateMouth(g,dt); else if(g.speaking){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } positionHeldItem(g,dt); continue; } positionHeldItem(g,dt);
+      g.root.position.x=p.x; g.root.position.z=p.z; g.root.position.y=state.terrainTopY??0; if(g.collider) forceBodyTransform(g.collider,new BABYLON.Vector3(p.x,(state.terrainTopY??0)+.74,p.z)); if(u>=1){ const end=g.turnMove.end.clone(); delete g.turnMove; setGeebrLogicalPosition(g,end); } } g.t+=dt; if(g.rigged){ g.root.rotation.y=yawForDir(g.dir); updateProceduralEmote(g,dt); if(g.mouth) updateMouth(g,dt); else if(g.speaking && !g.charModel){ const heads=findHeadNodes(g); if(heads.length){ const mouth=Math.abs(Math.sin(g.t*14))*.18+.82; for(const h of heads) h.scaling.y=mouth; } } positionHeldItem(g,dt); continue; } positionHeldItem(g,dt);
     const breathe=1+Math.sin(g.t*3.1)*.026; g.body.scaling.y=breathe; g.head.position.y=1.08+Math.sin(g.t*2.2)*.025; g.root.rotation.y=yawForDir(g.dir); if(g.anim==='walk'){ g.feet[0].rotation.x=Math.sin(g.t*17)*.75; g.feet[1].rotation.x=-Math.sin(g.t*17)*.75; }
     else if(g.anim==='panic'){ g.root.rotation.y+=Math.sin(g.t*28)*.055; g.arms[0].rotation.z=.92+Math.sin(g.t*21)*.5; g.arms[1].rotation.z=-.92-Math.sin(g.t*19)*.5; g.head.scaling.x=1.06; }
     else if(g.anim==='talk'){ g.head.scaling.y=1+Math.sin(g.t*24)*.065; g.arms[0].rotation.z=.44; g.arms[1].rotation.z=-.44; }
