@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Geebr World — Local Agent Toybox</title>
-  <link rel="stylesheet" href="style.css?v=20261011a" />
+  <link rel="stylesheet" href="style.css?v=20261011b" />
 </head>
 <body class="geebr-preflight-pending">
   <main id="compatibilityScreen" class="compatibility-screen" hidden role="alert" aria-live="assertive">
@@ -171,6 +171,17 @@
         <button id="scnReroll" type="button">re-roll layout</button>
       </div>
       <pre id="scnWarnings" class="scn-warnings"></pre>
+      <div class="section-subtitle">Test tactics</div>
+      <small class="pane-note">Plays the scenario above automatically, several times per tactic, and counts wins. Each "## name" block is one tactic; its lines are your messages, one per turn. "## llm: strategy" lets the model play you instead (add "turns: N"). Stop the running brains first. Tip: open the page with <code>?norender=1</code> so the model gets the GPU to itself.</small>
+      <label class="personality-label">Tactics<textarea id="scnTactics" rows="10" spellcheck="false"></textarea></label>
+      <div class="row">
+        <label>runs each <input id="scnTestRuns" type="number" min="1" max="50" value="3" style="width:4em" /></label>
+        <button id="scnTestRun" type="button">▶ run tests</button>
+        <button id="scnTestStop" type="button" disabled>stop</button>
+        <button id="scnTestDownload" type="button" disabled>download JSON</button>
+      </div>
+      <div id="scnTestStatus" class="pane-note"></div>
+      <div id="scnTestResults"></div>
       <small class="pane-note">Things: crate, barrel, mushroom, lamp, wall, counter, note "text", or a character id. Placements: at center/north/…/random, against north_wall, beside / near / behind / in_front_of / around X (X: anything placed earlier, a character, house, campfire), plus row / cluster / scattered. Also: path from X to Y. Goals and the full format: docs/SCENARIOS.md.</small>
     </section>
     <section class="pane" id="pane-library">

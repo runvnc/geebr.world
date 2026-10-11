@@ -159,12 +159,39 @@ The reply is parsed leniently (bullets, numbering and stray prose are dropped)
 into the map box, where it can be edited and laid out again, or re-rolled with
 a new seed.
 
-## 7. Changes to the existing system
+## 7. Testing tactics automatically
+
+The Scenario pane's **Test tactics** box replays a scenario several times per
+tactic and counts wins, through the real chat path, model and checks.
+
+```
+## flattery, then a deal
+Your sword is the finest craftsmanship I have ever seen.
+Deal: the magic sword for 20 gold. Please complete the sale.
+
+## llm: haggle politely; you have exactly 20 gold
+turns: 6
+```
+
+- A `## name` block is a tactic, and each of its lines is one player message
+  (one turn).
+- `## llm: <strategy>` lets the loaded model play the player, adapting to the
+  replies.
+- `to: <id>` picks the character to talk to (default: the first).
+- Each run restarts the scenario quietly: no intro or end card, and voices off.
+  The results table shows wins per tactic, average turns on a win, and a sample
+  transcript, and can be downloaded as JSON.
+- Open the page with `?norender=1` while testing so the model doesn't share the
+  GPU with rendering. Stop the running brains first.
+
+## 8. Changes to the existing system
 
 - `say()` emits a `geebr-say` event, used for `said` goals; world-integration
   emits `geebr-agent-turn` after each brain decision, which is what turns count.
 - `saveWorldState` and `loadWorldState` take their key from `state.saveKey`.
   The sandbox keeps `geebrWorldState`; scenarios use `geebrScenarioState`.
+- world-integration adds `world.chatAndStep(agentId, text)`, `isBrainLoopRunning`
+  and `ensureBrainLoaded` for the tester.
 - The world API gains `spawnAgent`, `makeObject`, `hasGroundAt`, `sceneryAt`,
   `sceneryAnchors`, `setPlayer`, `setAllowed`, `getObjects` and
   `inventoryChanged`.

@@ -308,3 +308,6 @@ code { color:#ffe0a0; }
 .scn-overlay.lost .scn-card { border:3px solid #e8a07a; }
 .scn-warnings { white-space:pre-wrap; font-size:.75em; opacity:.8; margin:4px 0; }
 .scn-warnings:empty { display:none; }
+.scn-results { width:100%; border-collapse:collapse; font-size:.8em; margin-top:4px; }
+.scn-results th, .scn-results td { text-align:left; padding:3px 4px; border-bottom:1px solid rgba(159,232,200,.15); vertical-align:top; }
+.scn-results pre { white-space:pre-wrap; font-size:.95em; margin:4px 0; max-height:260px; overflow:auto; }

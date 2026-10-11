@@ -693,6 +693,29 @@ async function main() {
     const stepBtn = el('stepBrains');
     if (stepBtn && !stepBtn.disabled) stepBtn.click();
   }
+  // Programmatic chat for the scenario tactic tester (scenario.js): queue a
+  // message exactly like the chat box does, run that character's turn, and
+  // resolve once the turn (and any walking) has settled.
+  world.chatAndStep = async (agentId, text, name) => {
+    if (running) throw new Error('stop the running brains first');
+    if (!manager.isLoaded()) await manager.load();
+    const g = world.getAgents().find(a => a.id === agentId) || world.getSelectedAgent?.();
+    if (!g) throw new Error('no character to talk to');
+    if (text) {
+      const who = name || el('chatName')?.value || 'God';
+      const cfg = world.getBrainConfig(g.id);
+      cfg.pendingChat = (cfg.pendingChat || []).concat([`${who} says: ${text}`]).slice(-5);
+      world.setBrainConfig(g.id, cfg);
+      appendLog(who + ' -> ' + g.id + ': ' + text);
+    }
+    while (!world.isTurnReady()) await sleep(100);
+    world.state.nextAgentId = g.id;
+    const ok = await runOneAgentTurn(g);
+    while (!world.isTurnReady()) await sleep(100);
+    return ok;
+  };
+  world.isBrainLoopRunning = () => running;
+  world.ensureBrainLoaded = async () => { if (!manager.isLoaded()) await manager.load(); };
   el('chatSend')?.addEventListener('click', sendChatToAgent);
   el('chatInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatToAgent(); });
 }
