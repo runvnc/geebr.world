@@ -660,8 +660,17 @@ function disposeWorldObject(mesh){
   if(mm?.ownsMaterial){
     try{ mesh.material?.dispose?.(false,true); }catch{}
   }
+  const wasTabletopWall=mm?.type==='wall' && mm?.tabletop;
   state.meta.delete(mesh);
-  try{ mesh.dispose?.(false,true); }catch{}
+  // Dispose the object's own materials (e.g. per-import GLB ones) but never a
+  // shared world material: disposing state.materials.stone with one broken
+  // wall used to break every other wall's material.
+  const shared=new Set([...Object.values(state.materials||{}),state.lampPoolMat,...Object.values(state.wallMats||{})].filter(Boolean));
+  const own=new Set();
+  for(const m of [mesh,...(mesh.getChildMeshes?.(false)||[])]) if(m.material && !shared.has(m.material)) own.add(m.material);
+  try{ mesh.dispose?.(false,false); }catch{}
+  for(const m of own) try{ m.dispose(false,true); }catch{}
+  if(wasTabletopWall) scheduleWallRebuild();
 }
 
 function damage(mesh,amount=1,kind='hit'){
@@ -669,6 +678,7 @@ function damage(mesh,amount=1,kind='hit'){
   m.health-=amount;
   if(kind==='fire') { m.state='burned'; if(mesh.material!==state.materials.burned) mesh.material=state.materials.burned; emitBadge(mesh,'scorch'); }
   else if(m.health<=1 && m.state==='intact') { m.state='cracked'; if(state.materials.cracked) mesh.material=state.materials.cracked; emitBadge(mesh,'crack'); }
+  if(m.type==='wall' && m.tabletop) scheduleWallRebuild();
   if(m.health<=0) breakObject(mesh,kind);
 }
 function breakObject(mesh,kind='hit'){
@@ -918,7 +928,120 @@ function syncGeebr(g){
   setGeebrLogicalPosition(g,g.logicalPos);
 }
 function makeTile(scene,x,z,material='grass'){ const t=BABYLON.MeshBuilder.CreateBox('tile_'+material,{width:1,height:.06,depth:1},scene); t.position.set(x,-.065,z); t.material=state.materials[material+'Base']||state.materials[material]; t.receiveShadows=true; t.isPickable=true; tag(t,'tile',{interactive:false,tileMaterial:material}); state.tiles.push(t); return t; }
-function makeBlock(scene,x,z,cracked=false){ const b=BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:.62,depth:.96},scene); b.position.set(x,.31,z); addToScene(b,cracked?state.materials.cracked:state.materials.stone,{motion:'static',shape:'BOX',mass:0}); tag(b,'wall',{health:cracked?1:3,material:'stone',state:cracked?'cracked':'intact'}); state.blocks.push(b); return b; }
+// Walls. 'tabletop' (default): tall thin stone sections like plastic D&D
+// scenery, joined to neighbouring wall cells (straight runs, corners, T and
+// cross junctions), rebuilt as a few merged meshes whenever walls change.
+// 'block': the original short cube per cell. The game logic is the same for
+// both: one static wall object per grid cell.
+const WALL_H=1.1;
+function makeBlock(scene,x,z,cracked=false){
+  const top=state.terrainTopY??0, tabletop=(state.wallStyle||'tabletop')==='tabletop';
+  const b=tabletop ? BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:WALL_H,depth:.96},scene)
+                   : BABYLON.MeshBuilder.CreateBox('wall',{width:.96,height:.62,depth:.96},scene);
+  b.position.set(x,top+(tabletop?WALL_H/2:.31),z);
+  addToScene(b,cracked?state.materials.cracked:state.materials.stone,{motion:'static',shape:'BOX',mass:0});
+  tag(b,'wall',{health:cracked?1:3,material:'stone',state:cracked?'cracked':'intact'});
+  if(tabletop){ b.isVisible=false; meta(b).tabletop=true; scheduleWallRebuild(); }
+  state.blocks.push(b); return b;
+}
+let wallRebuildQueued=false;
+function scheduleWallRebuild(){ if(wallRebuildQueued) return; wallRebuildQueued=true; queueMicrotask(()=>{ wallRebuildQueued=false; try{ rebuildWallVisuals(); }catch(e){ console.warn('wall rebuild failed',e); } }); }
+// Chunky stone-block texture for the tabletop walls, drawn once: 2 blocks
+// per row, 4 rows, staggered, varied grey, dark mortar, with a matching
+// normal map so the blocks read as raised moulded stones.
+function wallBrickTextures(sc){
+  const N=256, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const g=cv.getContext('2d'), hcv=document.createElement('canvas'); hcv.width=hcv.height=N;
+  const h=hcv.getContext('2d');
+  let seed=91; const rnd=()=>{ seed=(seed*1664525+1013904223)>>>0; return seed/4294967296; };
+  g.fillStyle='#3d3a36'; g.fillRect(0,0,N,N); h.fillStyle='#000'; h.fillRect(0,0,N,N);
+  const rows=4, rh=N/rows, m=7;
+  for(let r=0;r<rows;r++){
+    const off=(r%2)?N/4:0;
+    for(let c=-1;c<3;c++){
+      const x0=c*N/2+off+m/2, y0=r*rh+m/2, w=N/2-m+(rnd()-.5)*10, hh=rh-m;
+      const v=150+rnd()*55|0, tint=(rnd()-.5)*12;
+      g.fillStyle=`rgb(${v+tint|0},${v|0},${v-tint-6|0})`;
+      g.beginPath(); g.roundRect(x0,y0,w,hh,7); g.fill();
+      // speckle + a chip or two
+      for(let i=0;i<40;i++){ const s=v+(rnd()-.5)*40|0; g.fillStyle=`rgba(${s},${s},${s-4},.55)`; g.fillRect(x0+rnd()*w,y0+rnd()*hh,2+rnd()*3,2+rnd()*3); }
+      h.fillStyle='#fff'; h.beginPath(); h.roundRect(x0+2,y0+2,w-4,hh-4,8); h.fill();
+      // wrap the staggered blocks across the right edge
+      if(x0+w>N){ g.beginPath(); g.roundRect(x0-N,y0,w,hh,7); g.fillStyle=`rgb(${v+tint|0},${v|0},${v-tint-6|0})`; g.fill(); h.beginPath(); h.roundRect(x0-N+2,y0+2,w-4,hh-4,8); h.fill(); }
+    }
+  }
+  // soften the height so edges bevel instead of stepping
+  const blur=document.createElement('canvas'); blur.width=blur.height=N; const b=blur.getContext('2d'); b.filter='blur(3px)'; b.drawImage(hcv,0,0);
+  const hd=b.getImageData(0,0,N,N).data, out=g.createImageData(N,N), H=(x,y)=>hd[(((y+N)%N)*N+((x+N)%N))*4]/255;
+  for(let y=0;y<N;y++) for(let x=0;x<N;x++){
+    const dx=(H(x+1,y)-H(x-1,y))*2.2, dy=(H(x,y+1)-H(x,y-1))*2.2, l=Math.hypot(dx,dy,1), i=(y*N+x)*4;
+    out.data[i]=(-dx/l*.5+.5)*255; out.data[i+1]=(dy/l*.5+.5)*255; out.data[i+2]=(1/l*.5+.5)*255; out.data[i+3]=255;
+  }
+  const ncv=document.createElement('canvas'); ncv.width=ncv.height=N; ncv.getContext('2d').putImageData(out,0,0);
+  const mk=(c,name)=>{ const t=new BABYLON.DynamicTexture(name,c,sc,true); t.update(); t.wrapU=t.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; t.anisotropicFilteringLevel=8; return t; };
+  return { albedo:mk(cv,'tt_wall_albedo'), normal:mk(ncv,'tt_wall_normal') };
+}
+function wallMaterials(){
+  if(state.wallMats) return state.wallMats;
+  const sc=state.scene;
+  const bricks=wallBrickTextures(sc);
+  const tex=f=>{ const t=new BABYLON.Texture(ASSET+f,sc,true,false,BABYLON.Texture.TRILINEAR_SAMPLINGMODE); t.wrapU=t.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE; t.anisotropicFilteringLevel=8; return t; };
+  const mk=(name,file,color,rough=.62)=>{ const m=new BABYLON.PBRMaterial(name,sc); if(file) m.albedoTexture=tex(file); m.albedoColor=color; m.metallic=0; m.roughness=rough; m.environmentIntensity=.6; m.specularIntensity=.6; m.maxSimultaneousLights=4; return m; };
+  const brick=(name,color,rough)=>{ const m=mk(name,null,color,rough); m.albedoTexture=bricks.albedo; m.bumpTexture=bricks.normal; m.bumpTexture.level=1.2; return m; };
+  state.wallMats={
+    body:brick('tt_wall_body',new BABYLON.Color3(1,.98,.95),.66),
+    cracked:mk('tt_wall_cracked','cracked_wall.png',new BABYLON.Color3(.80,.78,.74)),
+    burned:brick('tt_wall_burned',new BABYLON.Color3(.34,.29,.26),.85),
+    trim:mk('tt_wall_trim',null,new BABYLON.Color3(.42,.40,.38),.55),
+    cap:mk('tt_wall_cap',null,new BABYLON.Color3(.66,.64,.60),.5),
+  };
+  return state.wallMats;
+}
+function rebuildWallVisuals(){
+  const sc=state.scene; if(!sc) return;
+  for(const m of state.wallVisuals||[]) try{ m.dispose(); }catch{}
+  state.wallVisuals=[];
+  const walls=state.blocks.filter(b=>b && !b.isDisposed?.() && meta(b)?.type==='wall' && meta(b)?.tabletop);
+  if(!walls.length) return;
+  const mats=wallMaterials(), top=state.terrainTopY??0;
+  const cell=new Map(walls.map(w=>[Math.round(w.position.x)+','+Math.round(w.position.z),w]));
+  const groups={body:[],cracked:[],burned:[],trim:[],cap:[]};
+  // A box spanning from the cell centre to ox,oz (an arm) or a post; faceUV
+  // tiles the stone texture by real size so it isn't stretched.
+  const piece=(name,w,h,d,x,y,z,group)=>{
+    const t=(a,b)=>new BABYLON.Vector4(0,0,a,b*.92);   // texture: 2 blocks per unit, ~4 rows per wall height
+    const m=BABYLON.MeshBuilder.CreateBox(name,{width:w,height:h,depth:d,faceUV:[t(w,h),t(w,h),t(d,h),t(d,h),t(w,d),t(w,d)],wrap:true},sc);
+    m.position.set(x,y,z); groups[group].push(m);
+  };
+  const THICK=.2, H=WALL_H-.06;
+  for(const [k,w] of cell){
+    const [x,z]=k.split(',').map(Number), mm=meta(w);
+    const body=mm.state==='burned'?'burned':(mm.state==='cracked'?'cracked':'body');
+    const dirs=[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>cell.has((x+dx)+','+(z+dz)));
+    // Isolated wall: a straight section along x. A dead end: also extend the
+    // opposite way, so an end piece still fills its cell.
+    let arms=dirs.slice();
+    if(!arms.length) arms=[[1,0],[-1,0]];
+    else if(arms.length===1) arms.push([-arms[0][0],-arms[0][1]]);
+    for(const [dx,dz] of arms){
+      const len=.5, cx=x+dx*len/2, cz=z+dz*len/2, alongX=dx!==0;
+      piece('tt_arm',alongX?len:THICK,H,alongX?THICK:len,cx,top+.06+H/2,cz,body);
+      piece('tt_base',alongX?len:THICK+.12,.07,alongX?THICK+.12:len,cx,top+.035,cz,'trim');
+      piece('tt_cap',alongX?len:THICK+.05,.05,alongX?THICK+.05:len,cx,top+.06+H+.02,cz,'cap');
+    }
+    // centre post covers the joint
+    piece('tt_post',THICK+.04,H+.02,THICK+.04,x,top+.06+H/2,z,body);
+    piece('tt_post_base',THICK+.16,.08,THICK+.16,x,top+.04,z,'trim');
+    piece('tt_post_cap',THICK+.08,.06,THICK+.08,x,top+.06+H+.03,z,'cap');
+  }
+  for(const [g,list] of Object.entries(groups)){
+    if(!list.length) continue;
+    const merged=list.length===1?list[0]:BABYLON.Mesh.MergeMeshes(list,true,true,undefined,false,false);
+    if(!merged) continue;
+    merged.name='tt_walls_'+g; merged.material=mats[g]; merged.isPickable=false; merged.receiveShadows=true;
+    addShadow(merged); state.wallVisuals.push(merged);
+  }
+}
 function makeCrate(scene,x,z){
   // Keep the simple box as the physics/picking proxy, but make it invisible and
   // attach the same authored GLB used by decorative scenery. This preserves the
@@ -2164,7 +2287,7 @@ function clearWorld() {
     disposeWorldObject(m);
   }
   for(const item of state.bubbles.concat(state.badges)) item.div?.remove?.();
-  state.geebrs = []; state.props = []; state.blocks = []; state.bubbles=[]; state.badges=[]; state.held = new Map(); state.meta=new WeakMap();
+  state.geebrs = []; state.props = []; state.blocks = []; scheduleWallRebuild(); state.bubbles=[]; state.badges=[]; state.held = new Map(); state.meta=new WeakMap();
   state.selected = null; state.target = null; /* brainConfigs intentionally preserved: agent customizations survive map clears and resets */
   state.globalHistory = [];
   state.turn = {index:0, phase:'ready', command:null, resolveMs:200, lastEndedAt:0, mode:true};
